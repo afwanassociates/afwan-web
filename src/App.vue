@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { RouterView } from 'vue-router'
+import { RouterView, useRoute } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import AppFooter from '@/components/AppFooter.vue'
+import StaffLayout from '@/layouts/StaffLayout.vue'
 import { scrollToSection } from '@/lib/scroll'
+
+const route = useRoute()
 </script>
 
 <template>
@@ -14,7 +17,11 @@ import { scrollToSection } from '@/lib/scroll'
     Skip to content
   </a>
 
-  <div class="flex min-h-screen flex-col">
+  <StaffLayout v-if="route.meta.layout === 'staff'">
+    <RouterView />
+  </StaffLayout>
+
+  <div v-else class="flex min-h-screen flex-col">
     <AppHeader />
     <main id="main-content" tabindex="-1" class="flex-1 scroll-mt-20 focus:outline-none">
       <RouterView />

@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
+import { useAuthStore } from '@/stores/auth'
+import { homeRouteFor } from '@/lib/roles'
+
+const auth = useAuthStore()
 </script>
 
 <template>
@@ -18,7 +22,14 @@ import AppLogo from '@/components/AppLogo.vue'
         <AppLogo />
       </RouterLink>
 
-      <RouterLink to="/login" class="btn btn-accent text-sm">Login</RouterLink>
+      <RouterLink
+        v-if="auth.user"
+        :to="homeRouteFor(auth.user.role)"
+        class="btn btn-accent text-sm"
+      >
+        Dashboard
+      </RouterLink>
+      <RouterLink v-else to="/login" class="btn btn-accent text-sm">Login</RouterLink>
     </div>
     <!-- Glossy brand line: logo gold → orange → deep blue -->
     <div
