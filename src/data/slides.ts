@@ -11,7 +11,7 @@ export interface Slide {
   background: string
   /**
    * Optional photo. To use one, put the file in /public (e.g. /public/slides/slide-1.jpg)
-   * and set image: '/slides/slide-1.jpg'. A dark overlay is added so the text stays readable.
+   * and set image: '/slides/slide-1.jpg'. A deep-red overlay is added so the white text stays readable.
    */
   image?: string
 }
@@ -21,24 +21,27 @@ export const slides: Slide[] = [
     id: 'trusted',
     heading: 'Trusted manpower solutions',
     text: 'We connect employers with reliable, carefully screened workers — handled with transparency from first enquiry to final placement.',
-    cta: { label: 'About us', target: 'about' },
+    cta: { label: 'About Us', target: 'about' },
+    // Logo colours: orange-red into deep red, with gold and orange glows in the corners
     background:
-      'radial-gradient(circle at 85% 20%, rgb(240 124 61 / 0.45), transparent 45%), linear-gradient(135deg, #0c1a35 0%, #1f3a68 55%, #345d9b 100%)',
+      'radial-gradient(circle at 6% 6%, rgb(232 161 58 / 0.55), transparent 30%), radial-gradient(circle at 94% 94%, rgb(220 100 48 / 0.5), transparent 35%), linear-gradient(135deg, #c2491f 0%, #a1371b 55%, #9b1c14 100%)',
   },
   {
     id: 'skilled',
     heading: 'Skilled workers for every industry',
     text: 'From construction and manufacturing to hospitality and services, we supply skilled and unskilled workforce to match your requirements.',
-    cta: { label: 'Our services', target: 'services' },
+    cta: { label: 'Our Services', target: 'services' },
+    // Logo colours: orange-red into deep red, with gold and orange glows in the corners
     background:
-      'radial-gradient(circle at 90% 85%, rgb(232 161 58 / 0.4), transparent 45%), radial-gradient(circle at 10% 10%, rgb(155 28 20 / 0.35), transparent 40%), linear-gradient(135deg, #152a50 0%, #2b4b7e 60%, #1f3a68 100%)',
+      'radial-gradient(circle at 94% 6%, rgb(232 161 58 / 0.5), transparent 30%), radial-gradient(circle at 6% 94%, rgb(220 100 48 / 0.5), transparent 35%), linear-gradient(160deg, #a1371b 0%, #9b1c14 100%)',
   },
   {
     id: 'overseas',
     heading: 'Overseas placement made simple',
     text: 'Visa processing, documentation and pre-departure training — we guide candidates and employers through every step of the journey.',
-    cta: { label: 'How it works', target: 'how-it-works' },
+    cta: { label: 'How It Works', target: 'how-it-works' },
+    // Logo colours: orange-red into deep red, with gold and orange glows in the corners
     background:
-      'radial-gradient(circle at 75% 40%, rgb(194 73 31 / 0.45), transparent 50%), linear-gradient(160deg, #1f3a68 0%, #0c1a35 60%, #152a50 100%)',
+      'radial-gradient(circle at 94% 94%, rgb(232 161 58 / 0.45), transparent 30%), radial-gradient(circle at 6% 6%, rgb(220 100 48 / 0.5), transparent 35%), linear-gradient(135deg, #b8431c 0%, #a1371b 50%, #9b1c14 100%)',
   },
 ]

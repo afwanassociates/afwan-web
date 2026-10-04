@@ -67,10 +67,7 @@ async function logout() {
           <AppLogo />
         </RouterLink>
       </div>
-      <div
-        class="h-0.5 bg-linear-to-r from-gold-400 via-accent-600 to-ember-700"
-        aria-hidden="true"
-      />
+      <div class="h-0.5 bg-accent-400" aria-hidden="true" />
 
       <nav aria-label="Staff portal" class="flex-1 overflow-y-auto p-3">
         <ul class="space-y-1">

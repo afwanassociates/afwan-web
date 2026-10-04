@@ -1,80 +1,119 @@
 <script setup lang="ts">
+import { RouterLink } from 'vue-router'
 import { company } from '@/data/company'
+import { services } from '@/data/services'
+import { sectionLinks } from '@/data/navigation'
 import { useSectionNav } from '@/composables/useSectionNav'
 
 const goToSection = useSectionNav()
 const year = new Date().getFullYear()
 
-const quickLinks = [
-  { id: 'about', label: 'About Us' },
-  { id: 'services', label: 'Our Services' },
-  { id: 'how-it-works', label: 'How It Works' },
-]
+const quickLinks = sectionLinks.filter((link) => link.id !== 'contact')
 
 const phoneHref = `tel:${company.phone.replace(/[^+\d]/g, '')}`
 const emailHref = `mailto:${company.email.replace(/[[\]]/g, '')}`
+
+const headingClass = 'text-lg font-semibold text-white'
+const linkClass = 'rounded-sm transition-colors hover:text-accent-400'
 </script>
 
 <template>
-  <footer class="relative bg-primary-950 text-primary-100" data-surface="dark">
-    <div class="h-1 bg-linear-to-r from-gold-400 via-accent-600 to-ember-700" aria-hidden="true" />
-    <div class="mx-auto grid max-w-7xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-3 lg:px-8">
-      <div>
-        <!-- Logo on a glossy white chip so its dark-red tones stay visible on the dark footer -->
-        <span
-          class="inline-block rounded-xl bg-linear-to-b from-white to-primary-50 px-4 py-3 shadow-[inset_0_1px_0_rgb(255_255_255),0_10px_24px_-12px_rgb(0_0_0/0.6)]"
-        >
+  <footer class="bg-primary-900 text-primary-200" data-surface="dark">
+    <div
+      class="mx-auto grid max-w-7xl gap-10 px-4 pt-16 pb-12 sm:grid-cols-2 sm:px-6 lg:grid-cols-12 lg:gap-8 lg:px-8 lg:pt-20"
+    >
+      <div class="lg:col-span-4">
+        <!-- Logo on a white chip so its dark-red tones stay visible on navy -->
+        <span class="inline-block rounded-xl bg-white px-4 py-2.5">
           <img src="/images/logo.png" alt="" width="960" height="202" class="h-9 w-auto" />
         </span>
-        <p class="mt-4 text-lg font-bold text-white">{{ company.name }}</p>
-        <p class="mt-3 max-w-xs text-sm leading-relaxed">{{ company.tagline }}</p>
+        <p class="mt-5 text-lg font-semibold text-white">{{ company.name }}</p>
+        <p class="mt-3 max-w-sm text-sm leading-relaxed">{{ company.tagline }}</p>
       </div>
 
-      <nav aria-labelledby="footer-quick-links">
-        <h2
-          id="footer-quick-links"
-          class="text-sm font-semibold tracking-wider text-accent-300 uppercase"
-        >
-          Quick links
-        </h2>
-        <ul class="mt-4 space-y-2 text-sm">
+      <nav aria-labelledby="footer-quick-links" class="lg:col-span-2">
+        <h2 id="footer-quick-links" :class="headingClass">Quick Links</h2>
+        <ul class="mt-5 space-y-3 text-sm">
           <li v-for="link in quickLinks" :key="link.id">
-            <a
-              :href="`/#${link.id}`"
-              class="rounded-sm underline-offset-4 hover:text-white hover:underline"
-              @click.prevent="goToSection(link.id)"
-            >
+            <a :href="`/#${link.id}`" :class="linkClass" @click.prevent="goToSection(link.id)">
               {{ link.label }}
+            </a>
+          </li>
+          <li>
+            <RouterLink to="/login" :class="linkClass">Staff Login</RouterLink>
+          </li>
+        </ul>
+      </nav>
+
+      <nav aria-labelledby="footer-services" class="lg:col-span-3">
+        <h2 id="footer-services" :class="headingClass">Our Services</h2>
+        <ul class="mt-5 space-y-3 text-sm">
+          <li v-for="service in services" :key="service.id">
+            <a href="/#services" :class="linkClass" @click.prevent="goToSection('services')">
+              {{ service.title }}
             </a>
           </li>
         </ul>
       </nav>
 
-      <div id="contact" class="scroll-mt-20 focus:outline-none">
-        <h2 class="text-sm font-semibold tracking-wider text-accent-300 uppercase">Contact</h2>
-        <address class="mt-4 space-y-2 text-sm not-italic">
-          <p>
-            <span class="text-primary-300">Phone:</span>
-            <a :href="phoneHref" class="rounded-sm hover:text-white hover:underline">{{
-              company.phone
-            }}</a>
+      <div id="contact" class="scroll-mt-24 focus:outline-none lg:col-span-3">
+        <h2 :class="headingClass">Contact Us</h2>
+        <address class="mt-5 space-y-4 text-sm not-italic">
+          <p class="flex gap-3">
+            <svg
+              class="mt-0.5 h-5 w-5 shrink-0 text-accent-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              aria-hidden="true"
+            >
+              <path
+                d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2"
+              />
+            </svg>
+            <span>
+              <span class="sr-only">Phone: </span>
+              <a :href="phoneHref" :class="linkClass">{{ company.phone }}</a>
+            </span>
           </p>
-          <p>
-            <span class="text-primary-300">Email:</span>
-            <a :href="emailHref" class="rounded-sm hover:text-white hover:underline">{{
-              company.email
-            }}</a>
+          <p class="flex gap-3">
+            <svg
+              class="mt-0.5 h-5 w-5 shrink-0 text-accent-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              aria-hidden="true"
+            >
+              <path d="M3 6h18v12H3z" />
+              <path d="M3 7l9 6 9-6" />
+            </svg>
+            <span>
+              <span class="sr-only">Email: </span>
+              <a :href="emailHref" :class="linkClass">{{ company.email }}</a>
+            </span>
           </p>
-          <p>
-            <span class="text-primary-300">Address:</span>
-            {{ company.address }}
+          <p class="flex gap-3">
+            <svg
+              class="mt-0.5 h-5 w-5 shrink-0 text-accent-400"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              aria-hidden="true"
+            >
+              <path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" />
+              <path d="M9.5 10a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0" />
+            </svg>
+            <span><span class="sr-only">Address: </span>{{ company.address }}</span>
           </p>
         </address>
       </div>
     </div>
 
     <div class="border-t border-white/10">
-      <p class="mx-auto max-w-7xl px-4 py-5 text-center text-xs text-primary-300 sm:px-6 lg:px-8">
+      <p class="mx-auto max-w-7xl px-4 py-6 text-center text-sm text-primary-300 sm:px-6 lg:px-8">
         &copy; {{ year }} {{ company.name }}. All rights reserved.
       </p>
     </div>

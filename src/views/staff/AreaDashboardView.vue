@@ -60,7 +60,7 @@ watch(area, load, { immediate: true })
       </div>
 
       <div v-else-if="result">
-        <p class="text-xs font-semibold tracking-wider text-accent-600 uppercase">
+        <p class="text-xs font-semibold tracking-wider text-accent-700 uppercase">
           {{ result.area }}
         </p>
         <p class="mt-2 text-lg text-slate-800">{{ result.message }}</p>

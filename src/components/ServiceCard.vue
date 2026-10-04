@@ -29,16 +29,11 @@ const paths = computed(() => iconPaths[props.service.icon])
 </script>
 
 <template>
-  <article class="glass-card hover-lift group relative flex h-full flex-col overflow-hidden p-6">
-    <!-- Glossy top edge in brand colours -->
-    <span
-      class="absolute inset-x-0 top-0 h-1 bg-linear-to-r from-gold-400 via-accent-600 to-ember-700 opacity-80"
-      aria-hidden="true"
-    />
-    <span class="gloss-badge h-12 w-12 rounded-xl" aria-hidden="true">
+  <article class="glass-card hover-lift flex h-full flex-col p-6 sm:p-7">
+    <span class="gloss-badge h-14 w-14 rounded-full" aria-hidden="true">
       <svg
         viewBox="0 0 24 24"
-        class="h-6 w-6"
+        class="h-7 w-7"
         fill="none"
         stroke="currentColor"
         stroke-width="1.75"
@@ -48,7 +43,7 @@ const paths = computed(() => iconPaths[props.service.icon])
         <path v-for="d in paths" :key="d" :d="d" />
       </svg>
     </span>
-    <h3 class="mt-5 text-lg font-semibold text-primary-900">{{ service.title }}</h3>
-    <p class="mt-2 text-sm leading-relaxed text-slate-600">{{ service.description }}</p>
+    <h3 class="mt-6 text-xl font-semibold text-ink">{{ service.title }}</h3>
+    <p class="mt-3 leading-relaxed text-muted">{{ service.description }}</p>
   </article>
 </template>
