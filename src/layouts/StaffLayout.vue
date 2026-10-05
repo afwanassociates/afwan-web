@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
+import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
 import { ROLES, ROLE_LIST, canAccessArea } from '@/lib/roles'
 
@@ -12,7 +13,10 @@ const router = useRouter()
 const menuOpen = ref(false)
 const isLoggingOut = ref(false)
 
-/** Only the areas the user can open, plus "Users" for anyone who can open the admin area. */
+/**
+ * Only the areas the user can open, plus the passport screens for anyone who can open the
+ * data-entry area and "Users" for anyone who can open the admin area.
+ */
 const navItems = computed(() => {
   const role = auth.user?.role
   if (!role) return []
@@ -20,6 +24,10 @@ const navItems = computed(() => {
     name: ROLES[area].routeName,
     label: `${ROLES[area].label} area`,
   }))
+  if (canAccessArea(role, 'data_entry')) {
+    items.push({ name: 'passport-new', label: 'Add Passport' })
+    items.push({ name: 'passports', label: 'Passport List' })
+  }
   if (canAccessArea(role, 'admin')) items.push({ name: 'staff-users', label: 'Users' })
   return items
 })
@@ -124,6 +132,7 @@ async function logout() {
       <main id="main-content" tabindex="-1" class="flex-1 p-4 focus:outline-none sm:p-6 lg:p-8">
         <slot />
       </main>
+      <AppToast />
     </div>
   </div>
 </template>

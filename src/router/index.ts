@@ -81,6 +81,32 @@ const router = createRouter({
       ],
     },
     {
+      // Passport data entry: data_entry, admin and super_admin (see canAccessArea).
+      path: '/data-entry',
+      meta: { requiresAuth: true, layout: 'staff', area: 'data_entry' },
+      children: [
+        { path: '', redirect: { name: 'passports' } },
+        {
+          path: 'passports',
+          name: 'passports',
+          component: () => import('@/views/PassportListView.vue'),
+          meta: { title: staffTitle('Passport list') },
+        },
+        {
+          path: 'passports/new',
+          name: 'passport-new',
+          component: () => import('@/views/PassportFormView.vue'),
+          meta: { title: staffTitle('Add passport') },
+        },
+        {
+          path: 'passports/:id(\\d+)/edit',
+          name: 'passport-edit',
+          component: () => import('@/views/PassportFormView.vue'),
+          meta: { title: staffTitle('Edit passport') },
+        },
+      ],
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
       component: () => import('@/views/NotFoundView.vue'),
