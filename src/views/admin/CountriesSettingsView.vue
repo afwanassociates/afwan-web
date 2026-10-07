@@ -181,12 +181,8 @@ const inputClass =
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl space-y-6">
-    <div>
-      <p class="text-sm font-semibold text-muted">Settings</p>
-      <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Countries and defaults</h1>
-    </div>
-
+  <!-- Shown inside SettingsLayout, which provides the page heading and tabs. -->
+  <div class="space-y-6">
     <!-- Defaults -->
     <section class="glass-card p-5 sm:p-6" aria-labelledby="defaults-heading">
       <h2 id="defaults-heading" class="text-lg font-semibold text-ink">Defaults</h2>

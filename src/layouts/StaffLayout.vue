@@ -4,7 +4,8 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
-import { ROLES, ROLE_LIST, SETTINGS_ROLES, canAccessArea } from '@/lib/roles'
+import { canAccessArea, homeRouteFor } from '@/lib/roles'
+import { settingsPagesFor } from '@/lib/settingsPages'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -14,25 +15,36 @@ const menuOpen = ref(false)
 const isLoggingOut = ref(false)
 
 /**
- * Only the areas the user can open, plus the passport screens for anyone who can open the
- * data-entry area, "Users" for anyone who can open the admin area and "Settings" for
- * SETTINGS_ROLES.
+ * "Dashboard" (the user's own role dashboard only), plus the passport screens for anyone who
+ * can open the data-entry area, "Users" for anyone who can open the admin area and "Settings"
+ * for anyone who may open at least one settings page.
  */
+interface NavItem {
+  name: string
+  label: string
+  /** Also highlighted on any page under this path (e.g. every settings page). */
+  section?: string
+}
+
 const navItems = computed(() => {
   const role = auth.user?.role
   if (!role) return []
-  const items = ROLE_LIST.filter((area) => canAccessArea(role, area)).map((area) => ({
-    name: ROLES[area].routeName,
-    label: `${ROLES[area].label} area`,
-  }))
+  const items: NavItem[] = [{ name: homeRouteFor(role).name, label: 'Dashboard' }]
   if (canAccessArea(role, 'data_entry')) {
     items.push({ name: 'passport-new', label: 'Add Passport' })
     items.push({ name: 'passports', label: 'Passport List' })
   }
   if (canAccessArea(role, 'admin')) items.push({ name: 'staff-users', label: 'Users' })
-  if (SETTINGS_ROLES.includes(role)) items.push({ name: 'settings-countries', label: 'Settings' })
+  if (settingsPagesFor(role).length > 0) {
+    items.push({ name: 'settings', label: 'Settings', section: '/admin/settings' })
+  }
   return items
 })
+
+function isActive(item: NavItem) {
+  if (item.section) return route.path === item.section || route.path.startsWith(`${item.section}/`)
+  return route.name === item.name
+}
 
 watch(
   () => route.fullPath,
@@ -85,7 +97,11 @@ async function logout() {
             <RouterLink
               :to="{ name: item.name }"
               class="block rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-white/10 hover:text-white"
-              exact-active-class="bg-white/15 text-white shadow-[inset_3px_0_0_var(--color-accent-400)]"
+              :class="{
+                'bg-white/15 text-white shadow-[inset_3px_0_0_var(--color-accent-400)]':
+                  isActive(item),
+              }"
+              :aria-current="isActive(item) ? 'page' : undefined"
             >
               {{ item.label }}
             </RouterLink>

@@ -11,6 +11,7 @@ let wrapper: VueWrapper
 
 const Empty = { template: '<div />' }
 const ROUTE_NAMES = [
+  'settings-countries',
   'home',
   'login',
   'staff-super-admin',
@@ -20,10 +21,9 @@ const ROUTE_NAMES = [
   'staff-users',
   'passports',
   'passport-new',
-  'settings-countries',
 ]
 
-async function mountAs(role: Role) {
+async function mountAs(role: Role, path = '/home') {
   const pinia = createPinia()
   setActivePinia(pinia)
   const auth = useAuthStore()
@@ -31,9 +31,13 @@ async function mountAs(role: Role) {
   auth.isReady = true
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: ROUTE_NAMES.map((name) => ({ path: `/${name}`, name, component: Empty })),
+    routes: [
+      ...ROUTE_NAMES.map((name) => ({ path: `/${name}`, name, component: Empty })),
+      { path: '/admin/settings', name: 'settings', component: Empty },
+      { path: '/admin/settings/countries', name: 'settings-page', component: Empty },
+    ],
   })
-  await router.push('/home')
+  await router.push(path)
   wrapper = mount(StaffLayout, { global: { plugins: [pinia, router] } })
 }
 
@@ -54,9 +58,37 @@ describe('StaffLayout menu', () => {
     expect(navLabels()).toContain('Settings')
   })
 
-  it('shows the passport screens to data_entry', async () => {
-    await mountAs('data_entry')
+  it('links "Settings" to the settings overview and highlights it on every settings page', async () => {
+    await mountAs('admin', '/admin/settings/countries')
 
-    expect(navLabels()).toEqual(['Data Entry Team area', 'Add Passport', 'Passport List'])
+    const settings = wrapper
+      .findAll('nav[aria-label="Staff portal"] a')
+      .find((a) => a.text() === 'Settings')!
+    expect(settings.attributes('href')).toBe('/admin/settings')
+    expect(settings.attributes('aria-current')).toBe('page')
+    expect(settings.classes()).toContain('bg-white/15')
+  })
+
+  it.each([
+    ['super_admin', ['Dashboard', 'Add Passport', 'Passport List', 'Users', 'Settings']],
+    ['admin', ['Dashboard', 'Add Passport', 'Passport List', 'Users', 'Settings']],
+    ['data_entry', ['Dashboard', 'Add Passport', 'Passport List']],
+    ['accounts', ['Dashboard']],
+  ] as const)('shows %s one "Dashboard" and its own screens', async (role, labels) => {
+    await mountAs(role)
+
+    expect(navLabels()).toEqual(labels)
+  })
+
+  it.each([
+    ['super_admin', '/staff-super-admin'],
+    ['admin', '/staff-admin'],
+    ['data_entry', '/staff-data-entry'],
+    ['accounts', '/staff-accounts'],
+  ] as const)('links "Dashboard" to the %s dashboard only', async (role, href) => {
+    await mountAs(role)
+
+    const dashboard = wrapper.findAll('nav[aria-label="Staff portal"] a')[0]!
+    expect(dashboard.attributes('href')).toBe(href)
   })
 })

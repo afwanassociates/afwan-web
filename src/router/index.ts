@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { prefersReducedMotion } from '@/lib/scroll'
-import { ROLES, SETTINGS_ROLES, homeRouteFor } from '@/lib/roles'
+import { ROLES, homeRouteFor } from '@/lib/roles'
+import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
 import { useAuthStore } from '@/stores/auth'
 import { authGuard } from '@/router/guard'
 import type { Role } from '@/types/auth'
@@ -26,14 +27,14 @@ const staffTitle = (page: string) => `${page} | Staff portal | ${siteName}`
 
 const AreaDashboardView = () => import('@/views/staff/AreaDashboardView.vue')
 
-/** One dashboard route per role: /staff/<slug>. */
+/** One dashboard per role at /staff/<slug>; only that role may open it. */
 function areaRoute(role: Role) {
   const { slug, routeName, label } = ROLES[role]
   return {
     path: slug,
     name: routeName,
     component: AreaDashboardView,
-    meta: { area: role, title: staffTitle(label) },
+    meta: { area: role, roles: [role], title: staffTitle(`${label} dashboard`) },
   }
 }
 
@@ -109,17 +110,23 @@ const router = createRouter({
       ],
     },
     {
-      // Admin settings: admin and super_admin only.
+      // Settings section. Its pages come from SETTINGS_PAGES (src/lib/settingsPages.ts).
       path: '/admin/settings',
-      meta: { requiresAuth: true, layout: 'staff', roles: SETTINGS_ROLES },
+      component: () => import('@/views/admin/SettingsLayout.vue'),
+      meta: { requiresAuth: true, layout: 'staff', roles: SETTINGS_SECTION_ROLES },
       children: [
-        { path: '', redirect: { name: 'settings-countries' } },
         {
-          path: 'countries',
-          name: 'settings-countries',
-          component: () => import('@/views/admin/CountriesSettingsView.vue'),
-          meta: { title: staffTitle('Countries and defaults') },
+          path: '',
+          name: 'settings',
+          component: () => import('@/views/admin/SettingsIndexView.vue'),
+          meta: { title: staffTitle('Settings') },
         },
+        ...SETTINGS_PAGES.map((page) => ({
+          path: page.path,
+          name: page.name,
+          component: page.component,
+          meta: { roles: page.roles, title: staffTitle(`${page.label} | Settings`) },
+        })),
       ],
     },
     {

@@ -79,6 +79,12 @@ describe('router guard (real routes)', () => {
   describe('wrong role', () => {
     it.each([
       ['admin', '/staff/super-admin'],
+      // Each role opens only its own dashboard, even higher ones.
+      ['super_admin', '/staff/admin'],
+      ['super_admin', '/staff/data-entry'],
+      ['super_admin', '/staff/accounts'],
+      ['admin', '/staff/data-entry'],
+      ['admin', '/staff/accounts'],
       ['data_entry', '/staff/admin'],
       ['data_entry', '/staff/accounts'],
       ['accounts', '/staff/data-entry'],
@@ -96,10 +102,10 @@ describe('router guard (real routes)', () => {
   describe('right role', () => {
     it.each([
       ['super_admin', '/staff/super-admin'],
-      ['super_admin', '/staff/data-entry'],
+      ['super_admin', '/data-entry/passports'],
       ['super_admin', '/staff/admin/users'],
       ['admin', '/staff/admin'],
-      ['admin', '/staff/accounts'],
+      ['admin', '/data-entry/passports'],
       ['admin', '/staff/admin/users'],
       ['data_entry', '/staff/data-entry'],
       ['accounts', '/staff/accounts'],
@@ -132,6 +138,23 @@ describe('router guard (real routes)', () => {
 })
 
 describe('admin settings route', () => {
+  it.each([
+    ['data_entry', '/admin/settings'],
+    ['accounts', '/admin/settings'],
+  ] as const)('the overview is blocked for %s (403 page)', async (role, path) => {
+    setSession(role)
+    await router.push(path)
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each(['admin', 'super_admin'] as const)('the overview opens for %s', async (role) => {
+    setSession(role)
+    await router.push('/admin/settings')
+
+    expect(router.currentRoute.value.name).toBe('settings')
+  })
+
   it.each(['data_entry', 'accounts'] as const)('is blocked for %s (403 page)', async (role) => {
     setSession(role)
     await router.push('/admin/settings/countries')

@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import api from '@/lib/api'
-import { ROLES, dashboardEndpointFor } from '@/lib/roles'
+import { dashboardEndpointFor } from '@/lib/roles'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { useAuthStore } from '@/stores/auth'
 
@@ -15,7 +15,6 @@ const route = useRoute()
 const auth = useAuthStore()
 
 const area = computed(() => route.meta.area)
-const heading = computed(() => (area.value ? `${ROLES[area.value].label} area` : 'Dashboard'))
 
 const result = ref<AreaResponse | null>(null)
 const error = ref<string | null>(null)
@@ -49,7 +48,7 @@ watch(area, load, { immediate: true })
 <template>
   <div class="mx-auto max-w-4xl">
     <p v-if="auth.user" class="text-sm text-slate-600">Welcome back, {{ auth.user.name }}</p>
-    <h1 class="mt-1 text-2xl font-bold text-primary-900 sm:text-3xl">{{ heading }}</h1>
+    <h1 class="mt-1 text-2xl font-bold text-primary-900 sm:text-3xl">Dashboard</h1>
 
     <section class="glass-card mt-6 p-6" aria-live="polite" :aria-busy="isLoading">
       <p v-if="isLoading" class="text-slate-600">Loading…</p>
