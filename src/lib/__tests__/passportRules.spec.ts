@@ -12,9 +12,12 @@ const TODAY = '2026-10-05'
 const valid: PassportFormValues = {
   passport_name: 'MD RAHIM',
   passport_number: 'AB1234567',
+  country_code: null,
+  date_of_birth: '1990-05-17',
   reference_id: 1,
   company_id: 2,
   passport_received_date: TODAY,
+  passport_expiry_date: '2031-10-04',
 }
 
 const validate = (changes: Partial<PassportFormValues>) =>
@@ -53,18 +56,46 @@ describe('validatePassportForm', () => {
         {
           passport_name: '  ',
           passport_number: '',
+          country_code: null,
+          date_of_birth: '',
           reference_id: null,
           company_id: null,
           passport_received_date: '',
+          passport_expiry_date: '',
         },
         TODAY,
       ),
     ).toEqual({
       passport_name: 'Enter the passport name.',
       passport_number: 'Enter the passport number.',
+      date_of_birth: 'Enter the date of birth.',
       reference_id: 'Select a reference.',
       company_id: 'Select a company.',
       passport_received_date: 'Enter the received date.',
+      passport_expiry_date: 'Enter the passport expiry date.',
+    })
+  })
+
+  it('treats the passport country as optional', () => {
+    expect(validate({ country_code: null })).toEqual({})
+    expect(validate({ country_code: 'BD' })).toEqual({})
+  })
+
+  describe('date of birth', () => {
+    it('must be in the past', () => {
+      expect(validate({ date_of_birth: '2026-10-04' }).date_of_birth).toBeUndefined()
+      expect(validate({ date_of_birth: TODAY }).date_of_birth).toBe(
+        'The date of birth must be in the past.',
+      )
+    })
+  })
+
+  describe('expiry date', () => {
+    it('must be after the received date', () => {
+      expect(validate({ passport_expiry_date: '2026-10-06' }).passport_expiry_date).toBeUndefined()
+      expect(validate({ passport_expiry_date: TODAY }).passport_expiry_date).toBe(
+        'The passport expiry date must be after the passport received date.',
+      )
     })
   })
 

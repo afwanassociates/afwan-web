@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
-import { ROLES, ROLE_LIST, canAccessArea } from '@/lib/roles'
+import { ROLES, ROLE_LIST, SETTINGS_ROLES, canAccessArea } from '@/lib/roles'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -15,7 +15,8 @@ const isLoggingOut = ref(false)
 
 /**
  * Only the areas the user can open, plus the passport screens for anyone who can open the
- * data-entry area and "Users" for anyone who can open the admin area.
+ * data-entry area, "Users" for anyone who can open the admin area and "Settings" for
+ * SETTINGS_ROLES.
  */
 const navItems = computed(() => {
   const role = auth.user?.role
@@ -29,6 +30,7 @@ const navItems = computed(() => {
     items.push({ name: 'passports', label: 'Passport List' })
   }
   if (canAccessArea(role, 'admin')) items.push({ name: 'staff-users', label: 'Users' })
+  if (SETTINGS_ROLES.includes(role)) items.push({ name: 'settings-countries', label: 'Settings' })
   return items
 })
 

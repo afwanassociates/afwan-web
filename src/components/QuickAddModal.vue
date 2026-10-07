@@ -1,23 +1,44 @@
 <script setup lang="ts" generic="T">
 import { ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
+import CountrySelect from '@/components/CountrySelect.vue'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
+import { useCountriesStore } from '@/stores/countries'
+import type { CountrySummary } from '@/types/country'
+
+export interface QuickAddValues {
+  name: string
+  phone: string | null
+  /** Only with `withCountry`. */
+  country_code: string | null
+}
 
 /**
- * Small "add new" dialog used from a SearchSelect: a required name and an optional phone.
+ * Small "add new" dialog used from a SearchSelect: a required name, an optional phone and
+ * an optional (then required) country preselected with `defaultCountryCode`.
  * `save` calls the API; a 422 (e.g. the name already exists) keeps the dialog open.
  */
 const open = defineModel<boolean>('open', { required: true })
 const props = withDefaults(
   defineProps<{
     title: string
-    save: (values: { name: string; phone: string | null }) => Promise<T>
+    save: (values: QuickAddValues) => Promise<T>
     nameLabel?: string
     withPhone?: boolean
+    /** Show a required Country field. */
+    withCountry?: boolean
+    /** Country preselected when the dialog opens (can be changed). */
+    defaultCountryCode?: string | null
     /** Prefills the name, e.g. with the text typed in the combobox. */
     initialName?: string
   }>(),
-  { nameLabel: 'Name', withPhone: false, initialName: '' },
+  {
+    nameLabel: 'Name',
+    withPhone: false,
+    withCountry: false,
+    defaultCountryCode: null,
+    initialName: '',
+  },
 )
 const emit = defineEmits<{ saved: [item: T] }>()
 
@@ -27,18 +48,26 @@ const PHONE_MAX = 30
 const nameId = useId()
 const phoneId = useId()
 
+const countries = useCountriesStore()
+
 const name = ref('')
 const phone = ref('')
+const country = ref<CountrySummary | null>(null)
 const errors = ref<Record<string, string>>({})
 const formError = ref<string | null>(null)
 const isSaving = ref(false)
 
-watch(open, (isOpen) => {
+watch(open, async (isOpen) => {
   if (!isOpen) return
   name.value = props.initialName
   phone.value = ''
   errors.value = {}
   formError.value = null
+  country.value = null
+  if (props.withCountry) {
+    await countries.load()
+    country.value = countries.byCode(props.defaultCountryCode) ?? null
+  }
 })
 
 async function onSubmit() {
@@ -51,11 +80,16 @@ async function onSubmit() {
     errors.value.name = `The ${props.nameLabel.toLowerCase()} must be at most ${NAME_MAX} characters.`
   if (trimmedPhone.length > PHONE_MAX)
     errors.value.phone = `The phone must be at most ${PHONE_MAX} characters.`
+  if (props.withCountry && !country.value) errors.value.country_code = 'Select a country.'
   if (Object.keys(errors.value).length > 0) return
 
   isSaving.value = true
   try {
-    const item = await props.save({ name: trimmedName, phone: trimmedPhone || null })
+    const item = await props.save({
+      name: trimmedName,
+      phone: trimmedPhone || null,
+      country_code: props.withCountry ? (country.value?.code ?? null) : null,
+    })
     emit('saved', item)
     open.value = false
   } catch (error) {
@@ -124,6 +158,14 @@ const inputClass =
           {{ errors.phone }}
         </p>
       </div>
+
+      <CountrySelect
+        v-if="withCountry"
+        v-model="country"
+        label="Country"
+        :error="errors.country_code"
+        required
+      />
 
       <div class="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
         <button

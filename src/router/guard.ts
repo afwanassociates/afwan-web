@@ -3,9 +3,14 @@ import { useAuthStore } from '@/stores/auth'
 import { canAccessArea, homeRouteFor } from '@/lib/roles'
 import type { Role } from '@/types/auth'
 
-/** True if the user can open the route (ignores routes without an area). */
+/**
+ * True if the user can open the route: its `area` (if any) is one the role can open and
+ * its `roles` list (if any) includes the role.
+ */
 export function canOpenRoute(role: Role, route: Pick<RouteLocationNormalized, 'meta'>): boolean {
-  return !route.meta.area || canAccessArea(role, route.meta.area)
+  if (route.meta.area && !canAccessArea(role, route.meta.area)) return false
+  if (route.meta.roles && !route.meta.roles.includes(role)) return false
+  return true
 }
 
 /**

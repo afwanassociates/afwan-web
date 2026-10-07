@@ -51,6 +51,9 @@ export function canAccessArea(userRole: Role, areaRole: Role): boolean {
   return user.rank > area.rank
 }
 
+/** Roles that may open the admin settings (countries and defaults). */
+export const SETTINGS_ROLES: readonly Role[] = ['admin', 'super_admin']
+
 /** Route name of the role's home area. */
 export function homeRouteFor(role: Role): { name: string } {
   return { name: ROLES[role]?.routeName ?? 'home' }

@@ -47,3 +47,11 @@ export function toApiDate(value: Date | string | null | undefined): string {
 export function todayApiDate(): string {
   return toApiDate(new Date())
 }
+
+/** 'YYYY-MM-DD' plus `days` (may be negative) as 'YYYY-MM-DD'. Returns '' for invalid input. */
+export function addDays(value: string, days: number): string {
+  const ymd = toApiDate(value)
+  if (!ymd) return ''
+  const [year, month, day] = ymd.split('-').map(Number) as [number, number, number]
+  return toApiDate(new Date(year, month - 1, day + days))
+}

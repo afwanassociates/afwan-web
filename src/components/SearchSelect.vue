@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="T extends { id: number; name: string }">
+<script setup lang="ts" generic="T extends { name: string }">
 import {
   computed,
   nextTick,
@@ -15,7 +15,7 @@ import { useDebounce } from '@/composables/useDebounce'
 /**
  * Searchable single-select combobox (WAI-ARIA combobox + listbox pattern).
  * Typing searches through `fetch` (debounced); an optional "add new" option emits `add`
- * with the text typed so far.
+ * with the text typed so far. Items are identified by `id` unless `keyOf` says otherwise.
  */
 const model = defineModel<T | null>({ required: true })
 const props = withDefaults(
@@ -33,6 +33,12 @@ const props = withDefaults(
     debounce?: number
     /** Show a button that clears the selection (useful for filters). */
     clearable?: boolean
+    /** Unique key of an item. Defaults to its `id`. */
+    keyOf?: (item: T) => string | number
+    /** Optional second line under an item's name (e.g. a company's country). */
+    subtitleOf?: (item: T) => string | null | undefined
+    /** Text of an option at the top that clears the value, e.g. "None". Omit to hide it. */
+    noneLabel?: string
   }>(),
   {
     placeholder: undefined,
@@ -43,6 +49,9 @@ const props = withDefaults(
     disabled: false,
     debounce: 300,
     clearable: false,
+    keyOf: (item: T) => (item as unknown as { id: string | number }).id,
+    subtitleOf: undefined,
+    noneLabel: undefined,
   },
 )
 const emit = defineEmits<{ add: [query: string] }>()
@@ -63,9 +72,16 @@ const isLoading = ref(false)
 const loadFailed = ref(false)
 const activeIndex = ref(-1)
 
-/** Index of the "add new" option (after the results), or -1 when there is none. */
-const addIndex = computed(() => (props.addLabel ? items.value.length : -1))
-const optionCount = computed(() => items.value.length + (props.addLabel ? 1 : 0))
+/*
+ * Options in order: [the "none" option] + results + [the "add new" option].
+ * `noneOffset` is the index of the first result.
+ */
+const noneOffset = computed(() => (props.noneLabel ? 1 : 0))
+const addIndex = computed(() => (props.addLabel ? noneOffset.value + items.value.length : -1))
+const optionCount = computed(() => noneOffset.value + items.value.length + (props.addLabel ? 1 : 0))
+
+const isSelected = (item: T) =>
+  model.value !== null && props.keyOf(model.value) === props.keyOf(item)
 
 const optionId = (index: number) => `${listboxId}-option-${index}`
 
@@ -99,11 +115,14 @@ async function load(text: string) {
     const result = await props.fetch(text.trim())
     if (id !== requestId) return
     items.value = result
-    activeIndex.value = result.length > 0 ? 0 : -1
+    // Highlight the current value if it is listed, else the first result.
+    const selected = result.findIndex(isSelected)
+    activeIndex.value =
+      result.length > 0 ? noneOffset.value + Math.max(selected, 0) : noneOffset.value ? 0 : -1
   } catch {
     if (id !== requestId) return
     items.value = []
-    activeIndex.value = -1
+    activeIndex.value = noneOffset.value ? 0 : -1
     loadFailed.value = true
   } finally {
     if (id === requestId) isLoading.value = false
@@ -135,6 +154,12 @@ function select(item: T) {
   close()
 }
 
+function selectNone() {
+  model.value = null
+  query.value = ''
+  close()
+}
+
 function chooseAdd() {
   const text = query.value.trim()
   close()
@@ -142,9 +167,10 @@ function chooseAdd() {
 }
 
 function choose(index: number) {
-  if (index === addIndex.value) chooseAdd()
+  if (props.noneLabel && index === 0) selectNone()
+  else if (index === addIndex.value) chooseAdd()
   else {
-    const item = items.value[index]
+    const item = items.value[index - noneOffset.value]
     if (item) select(item)
   }
 }
@@ -312,26 +338,45 @@ defineExpose({ focus: () => input.value?.focus() })
       class="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-xl border border-stroke bg-white py-1 text-sm shadow-[0_18px_40px_-18px_rgb(0_0_100/0.4)]"
     >
       <li
-        v-for="(item, i) in items"
-        :id="optionId(i)"
-        :key="item.id"
+        v-if="noneLabel"
+        :id="optionId(0)"
         role="option"
-        :aria-selected="model?.id === item.id"
+        :aria-selected="model === null"
+        class="flex cursor-pointer items-center justify-between gap-2 border-b border-stroke px-3 py-2.5 text-muted italic"
+        :class="{ 'bg-primary-50': activeIndex === 0 }"
+        @mousedown.prevent="selectNone"
+        @mousemove="activeIndex = 0"
+      >
+        {{ noneLabel }}
+      </li>
+      <li
+        v-for="(item, i) in items"
+        :id="optionId(i + noneOffset)"
+        :key="keyOf(item)"
+        role="option"
+        :aria-selected="isSelected(item)"
         class="flex cursor-pointer items-center justify-between gap-2 px-3 py-2.5"
-        :class="i === activeIndex ? 'bg-primary-50 text-primary-900' : 'text-slate-800'"
+        :class="
+          i + noneOffset === activeIndex ? 'bg-primary-50 text-primary-900' : 'text-slate-800'
+        "
         @mousedown.prevent="select(item)"
-        @mousemove="activeIndex = i"
+        @mousemove="activeIndex = i + noneOffset"
       >
         <slot
           name="option"
           :item="item"
-          :active="i === activeIndex"
-          :selected="model?.id === item.id"
+          :active="i + noneOffset === activeIndex"
+          :selected="isSelected(item)"
         >
-          <span class="truncate">{{ item.name }}</span>
+          <span class="min-w-0">
+            <span class="block truncate">{{ item.name }}</span>
+            <span v-if="subtitleOf?.(item)" class="block truncate text-xs text-muted">
+              {{ subtitleOf(item) }}
+            </span>
+          </span>
         </slot>
         <svg
-          v-if="model?.id === item.id"
+          v-if="isSelected(item)"
           class="h-4 w-4 shrink-0 text-primary-700"
           viewBox="0 0 24 24"
           fill="none"

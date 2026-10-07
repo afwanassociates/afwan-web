@@ -26,7 +26,7 @@ function mountSelect(props: Record<string, unknown> = {}) {
       fetch,
       label: 'Company name',
       addLabel: 'Add new company',
-      'onUpdate:modelValue': (value: Item | null) => wrapper.setProps({ modelValue: value }),
+      'onUpdate:modelValue': (value: unknown) => wrapper.setProps({ modelValue: value }),
       ...props,
     },
     attachTo: document.body,
@@ -215,5 +215,76 @@ describe('SearchSelect', () => {
     await flushPromises()
 
     expect(isOpen()).toBe(false)
+  })
+})
+
+describe('SearchSelect subtitles, keys and "none"', () => {
+  interface Company {
+    id: number
+    name: string
+    country: string
+  }
+  const COMPANIES: Company[] = [
+    { id: 1, name: 'ABC Sdn Bhd', country: 'Malaysia' },
+    { id: 2, name: 'Dhaka Works', country: 'Bangladesh' },
+  ]
+
+  it('shows a second line when subtitleOf is given', async () => {
+    mountSelect({
+      fetch: async () => COMPANIES,
+      subtitleOf: (item: Company) => item.country,
+    })
+    await press('ArrowDown')
+    await flushPromises()
+
+    const first = options()[0]!
+    expect(first.text()).toContain('ABC Sdn Bhd')
+    expect(first.text()).toContain('Malaysia')
+    expect(first.findAll('span.block')).toHaveLength(2)
+
+    await first.trigger('mousedown')
+    expect(last(wrapper.emitted('update:modelValue') ?? [])).toEqual([COMPANIES[0]])
+    // The input shows only the name.
+    expect((input().element as HTMLInputElement).value).toBe('ABC Sdn Bhd')
+  })
+
+  it('shows no second line without subtitleOf', async () => {
+    mountSelect()
+    await press('ArrowDown')
+    await flushPromises()
+
+    expect(options()[0]!.findAll('span.block')).toHaveLength(1)
+  })
+
+  it('identifies items by keyOf (e.g. a country code)', async () => {
+    const countries = [
+      { code: 'BD', name: 'Bangladesh' },
+      { code: 'MY', name: 'Malaysia' },
+    ]
+    mountSelect({
+      modelValue: { code: 'MY', name: 'Malaysia' },
+      fetch: async () => countries,
+      keyOf: (item: { code: string }) => item.code,
+      addLabel: undefined,
+    })
+    await press('ArrowDown')
+    await flushPromises()
+
+    expect(options().map((o) => o.attributes('aria-selected'))).toEqual(['false', 'true'])
+    // The current value is highlighted when the list opens.
+    expect(input().attributes('aria-activedescendant')).toBe(options()[1]!.attributes('id'))
+  })
+
+  it('offers a "none" option that clears the value', async () => {
+    mountSelect({ modelValue: ITEMS[0], noneLabel: 'None', addLabel: undefined })
+    await press('ArrowDown')
+    await flushPromises()
+
+    expect(options()[0]!.text()).toBe('None')
+    await press('ArrowUp') // from the selected item up to "None"
+    await press('Enter')
+
+    expect(last(wrapper.emitted('update:modelValue') ?? [])).toEqual([null])
+    expect((input().element as HTMLInputElement).value).toBe('')
   })
 })

@@ -5,6 +5,7 @@ import ArrowIcon from '@/components/ArrowIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PassportTable from '@/components/PassportTable.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
+import CountrySelect from '@/components/CountrySelect.vue'
 import { deletePassport, listPassports } from '@/api/passports'
 import { searchReferences } from '@/api/references'
 import { searchCompanies } from '@/api/companies'
@@ -13,8 +14,10 @@ import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { toApiDate, todayApiDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth'
+import { useCountriesStore } from '@/stores/countries'
 import type { Paginated } from '@/types/auth'
 import type { PassportEntry, ReferenceType } from '@/types/passport'
+import type { CountrySummary } from '@/types/country'
 
 const PER_PAGE = 15
 
@@ -38,6 +41,8 @@ interface Filters {
   reference_name: string
   company_id: number | null
   company_name: string
+  /** 2-letter code of the company's country */
+  company_country_code: string
   /** YYYY-MM-DD */
   received_from: string
   received_to: string
@@ -60,6 +65,9 @@ const filters = computed<Filters>(() => {
     reference_name: text(query.reference_name),
     company_id: positiveInt(query.company_id),
     company_name: text(query.company_name),
+    company_country_code: /^[A-Z]{2}$/.test(text(query.company_country_code))
+      ? text(query.company_country_code)
+      : '',
     received_from: toApiDate(text(query.received_from)),
     received_to: toApiDate(text(query.received_to)),
     page: positiveInt(query.page) ?? 1,
@@ -69,7 +77,13 @@ const filters = computed<Filters>(() => {
 const hasFilters = computed(() => {
   const f = filters.value
   return Boolean(
-    f.q || f.reference_type || f.reference_id || f.company_id || f.received_from || f.received_to,
+    f.q ||
+    f.reference_type ||
+    f.reference_id ||
+    f.company_id ||
+    f.company_country_code ||
+    f.received_from ||
+    f.received_to,
   )
 })
 
@@ -87,6 +101,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
     query.company_id = String(next.company_id)
     if (next.company_name) query.company_name = next.company_name
   }
+  if (next.company_country_code) query.company_country_code = next.company_country_code
   if (next.received_from) query.received_from = next.received_from
   if (next.received_to) query.received_to = next.received_to
   if (next.page > 1) query.page = String(next.page)
@@ -124,13 +139,35 @@ const referenceFilter = computed({
     applyFilters({ reference_id: item?.id ?? null, reference_name: item?.name ?? '' }),
 })
 
+interface CompanyFilterItem {
+  id: number
+  name: string
+  country?: CountrySummary
+}
+
+const companySubtitle = (item: CompanyFilterItem) => item.country?.name
+
 const companyFilter = computed({
   get: () =>
     filters.value.company_id
       ? { id: filters.value.company_id, name: filters.value.company_name || 'Selected' }
       : null,
-  set: (item: { id: number; name: string } | null) =>
+  set: (item: CompanyFilterItem | null) =>
     applyFilters({ company_id: item?.id ?? null, company_name: item?.name ?? '' }),
+})
+
+const countries = useCountriesStore()
+countries.load()
+
+/** "All countries" when empty. Falls back to the code until the country list has loaded. */
+const companyCountryFilter = computed({
+  get: (): CountrySummary | null => {
+    const code = filters.value.company_country_code
+    if (!code) return null
+    return countries.byCode(code) ?? { code, name: code }
+  },
+  set: (country: CountrySummary | null) =>
+    applyFilters({ company_country_code: country?.code ?? '' }),
 })
 
 const fetchReferences = (q: string) =>
@@ -185,6 +222,7 @@ async function load() {
       reference_type: f.reference_type || undefined,
       reference_id: f.reference_id ?? undefined,
       company_id: f.company_id ?? undefined,
+      company_country_code: f.company_country_code || undefined,
       received_from: f.received_from || undefined,
       received_to: f.received_to || undefined,
       page: f.page,
@@ -291,9 +329,7 @@ const inputClass =
           />
         </div>
 
-        <div
-          class="grid gap-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.8fr)]"
-        >
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <label :for="typeId" class="block text-sm font-medium text-slate-700">
               Reference type
@@ -315,8 +351,15 @@ const inputClass =
           <SearchSelect
             v-model="companyFilter"
             :fetch="fetchCompanies"
+            :subtitle-of="companySubtitle"
             label="Company"
             placeholder="Any company"
+            clearable
+          />
+          <CountrySelect
+            v-model="companyCountryFilter"
+            label="Company country"
+            placeholder="All countries"
             clearable
           />
           <fieldset class="min-w-0">

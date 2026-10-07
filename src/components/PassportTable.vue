@@ -49,7 +49,10 @@ const actionClass =
           </span>
         </dd>
         <dt class="text-muted">Company</dt>
-        <dd class="text-slate-800">{{ entry.company.name }}</dd>
+        <dd class="text-slate-800">
+          {{ entry.company.name }}
+          <span class="text-xs text-muted">· {{ entry.company.country.name }}</span>
+        </dd>
         <dt class="text-muted">Entered by</dt>
         <dd class="text-slate-800">{{ enteredBy(entry) }}</dd>
       </dl>
@@ -104,7 +107,10 @@ const actionClass =
               </span>
             </span>
           </td>
-          <td class="py-3 pr-4 text-slate-800">{{ entry.company.name }}</td>
+          <td class="py-3 pr-4 text-slate-800">
+            {{ entry.company.name }}
+            <span class="block text-xs text-muted">{{ entry.company.country.name }}</span>
+          </td>
           <td class="py-3 pr-4 whitespace-nowrap text-slate-800">
             {{ toDisplayDate(entry.passport_received_date) }}
           </td>

@@ -131,6 +131,36 @@ describe('router guard (real routes)', () => {
   })
 })
 
+describe('admin settings route', () => {
+  it.each(['data_entry', 'accounts'] as const)('is blocked for %s (403 page)', async (role) => {
+    setSession(role)
+    await router.push('/admin/settings/countries')
+
+    expect(router.currentRoute.value.name).toBe('forbidden')
+  })
+
+  it.each(['admin', 'super_admin'] as const)('opens for %s', async (role) => {
+    setSession(role)
+    await router.push('/admin/settings/countries')
+
+    expect(router.currentRoute.value.name).toBe('settings-countries')
+    expect(router.currentRoute.value.meta.layout).toBe('staff')
+  })
+
+  it('sends guests to login', async () => {
+    setSession(null)
+    await router.push('/admin/settings/countries')
+
+    expect(router.currentRoute.value.name).toBe('login')
+  })
+
+  it('is not a valid post-login target for data_entry', () => {
+    expect(postLoginTarget(router, 'data_entry', '/admin/settings/countries')).toEqual({
+      name: 'staff-data-entry',
+    })
+  })
+})
+
 describe('postLoginTarget', () => {
   it('uses ?redirect when the role may open it', () => {
     expect(postLoginTarget(router, 'admin', '/staff/admin/users?page=2')).toBe(

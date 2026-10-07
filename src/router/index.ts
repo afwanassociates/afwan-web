@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { prefersReducedMotion } from '@/lib/scroll'
-import { ROLES, homeRouteFor } from '@/lib/roles'
+import { ROLES, SETTINGS_ROLES, homeRouteFor } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import { authGuard } from '@/router/guard'
 import type { Role } from '@/types/auth'
@@ -16,6 +16,8 @@ declare module 'vue-router' {
     guestOnly?: boolean
     /** Work area the page belongs to; see canAccessArea() in src/lib/roles.ts. */
     area?: Role
+    /** Exact roles allowed (checked in addition to `area`). */
+    roles?: readonly Role[]
   }
 }
 
@@ -103,6 +105,20 @@ const router = createRouter({
           name: 'passport-edit',
           component: () => import('@/views/PassportFormView.vue'),
           meta: { title: staffTitle('Edit passport') },
+        },
+      ],
+    },
+    {
+      // Admin settings: admin and super_admin only.
+      path: '/admin/settings',
+      meta: { requiresAuth: true, layout: 'staff', roles: SETTINGS_ROLES },
+      children: [
+        { path: '', redirect: { name: 'settings-countries' } },
+        {
+          path: 'countries',
+          name: 'settings-countries',
+          component: () => import('@/views/admin/CountriesSettingsView.vue'),
+          meta: { title: staffTitle('Countries and defaults') },
         },
       ],
     },

@@ -2,14 +2,16 @@
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import SearchSelect from '@/components/SearchSelect.vue'
-import QuickAddModal from '@/components/QuickAddModal.vue'
+import QuickAddModal, { type QuickAddValues } from '@/components/QuickAddModal.vue'
+import CountrySelect from '@/components/CountrySelect.vue'
 import ReferenceTypeToggle from '@/components/ReferenceTypeToggle.vue'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
 import { createReference, searchReferences } from '@/api/references'
 import { createCompany, searchCompanies } from '@/api/companies'
 import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
-import { toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
+import { addDays, toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
+import { useCountriesStore } from '@/stores/countries'
 import {
   PASSPORT_NAME_MAX,
   normalizePassportName,
@@ -28,14 +30,18 @@ import type {
   ReferenceSummary,
   ReferenceType,
 } from '@/types/passport'
+import type { CountrySummary } from '@/types/country'
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
+const countries = useCountriesStore()
 
 const nameId = useId()
 const numberId = useId()
 const dateId = useId()
+const birthId = useId()
+const expiryId = useId()
 
 const entryId = computed(() => (route.name === 'passport-edit' ? Number(route.params.id) : null))
 const isEdit = computed(() => entryId.value !== null)
@@ -43,13 +49,21 @@ const isEdit = computed(() => entryId.value !== null)
 /* ---------- Form state ---------- */
 
 const today = todayApiDate()
+const yesterday = addDays(today, -1)
 
 const passportName = ref('')
 const passportNumber = ref('')
+const country = ref<CountrySummary | null>(null)
+/** Edit mode: the saved country, kept selectable even if it was deactivated since. */
+const savedCountry = ref<CountrySummary | null>(null)
+const dateOfBirth = ref('')
 const referenceType = ref<ReferenceType>('person')
 const reference = ref<ReferenceSummary | null>(null)
 const company = ref<CompanySummary | null>(null)
 const receivedDate = ref(today)
+const expiryDate = ref('')
+/** The expiry date must be after the received date. */
+const minExpiryDate = computed(() => addDays(receivedDate.value, 1) || undefined)
 
 const errors = ref<PassportFormErrors>({})
 /** Form-level error: network, server, permission. */
@@ -65,6 +79,9 @@ const canSave = computed(() => !isEdit.value || (entry.value?.can.update ?? fals
 const nameInput = useTemplateRef<HTMLInputElement>('nameInput')
 const numberInput = useTemplateRef<HTMLInputElement>('numberInput')
 const dateInput = useTemplateRef<HTMLInputElement>('dateInput')
+const birthInput = useTemplateRef<HTMLInputElement>('birthInput')
+const expiryInput = useTemplateRef<HTMLInputElement>('expiryInput')
+const countrySelect = useTemplateRef<{ focus: () => void }>('countrySelect')
 const referenceSelect = useTemplateRef<{ focus: () => void }>('referenceSelect')
 const companySelect = useTemplateRef<{ focus: () => void }>('companySelect')
 
@@ -73,10 +90,21 @@ const companySelect = useTemplateRef<{ focus: () => void }>('companySelect')
 function clearForm() {
   passportName.value = ''
   passportNumber.value = ''
+  country.value = null
+  dateOfBirth.value = ''
+  expiryDate.value = ''
   reference.value = null
   company.value = null
   errors.value = {}
   banner.value = null
+}
+
+/** New entries only: preselect the default passport country, when the admin has set one. */
+async function applyPassportCountryDefault() {
+  await countries.load()
+  if (isEdit.value) return
+  const code = countries.defaults?.default_passport_country_code
+  country.value = code ? (countries.byCode(code) ?? null) : null
 }
 
 async function focusName() {
@@ -87,6 +115,7 @@ async function focusName() {
 async function init() {
   clearForm()
   entry.value = null
+  savedCountry.value = null
   loadError.value = null
   referenceType.value = 'person'
   receivedDate.value = today
@@ -94,8 +123,11 @@ async function init() {
   const id = entryId.value
   if (id === null) {
     focusName()
+    await applyPassportCountryDefault()
     return
   }
+  // The country list is also needed in edit mode (for the dropdowns).
+  countries.load()
 
   isLoading.value = true
   try {
@@ -104,6 +136,10 @@ async function init() {
     entry.value = loaded
     passportName.value = loaded.passport_name
     passportNumber.value = loaded.passport_number
+    country.value = loaded.country
+    savedCountry.value = loaded.country
+    dateOfBirth.value = loaded.date_of_birth ?? ''
+    expiryDate.value = loaded.passport_expiry_date ?? ''
     referenceType.value = loaded.reference.type
     reference.value = loaded.reference
     company.value = loaded.company
@@ -161,11 +197,15 @@ function onReferenceTypeChange(type: ReferenceType) {
 watch(reference, () => clearError('reference_id'))
 watch(company, () => clearError('company_id'))
 watch(receivedDate, () => clearError('passport_received_date'))
+watch(country, () => clearError('country_code'))
+watch(dateOfBirth, () => clearError('date_of_birth'))
+watch(expiryDate, () => clearError('passport_expiry_date'))
 
 /* ---------- Comboboxes and quick add ---------- */
 
 const fetchReferences = (q: string) => searchReferences({ type: referenceType.value, q })
 const fetchCompanies = (q: string) => searchCompanies(q)
+const companySubtitle = (item: CompanySummary) => item.country?.name
 
 const referenceTypeLabel = computed(() => (referenceType.value === 'person' ? 'person' : 'agency'))
 
@@ -183,10 +223,15 @@ function openCompanyModal(query: string) {
   companyModalOpen.value = true
 }
 
-const saveReference = (values: { name: string; phone: string | null }) =>
+const saveReference = (values: QuickAddValues) =>
   createReference({ type: referenceType.value, name: values.name, phone: values.phone })
 
-const saveCompany = (values: { name: string }) => createCompany({ name: values.name })
+const saveCompany = (values: QuickAddValues) =>
+  createCompany({ name: values.name, country_code: values.country_code ?? '' })
+
+const defaultCompanyCountryCode = computed(
+  () => countries.defaults?.default_company_country_code ?? null,
+)
 
 function onReferenceAdded(item: Reference) {
   reference.value = item
@@ -195,7 +240,7 @@ function onReferenceAdded(item: Reference) {
 
 function onCompanyAdded(item: Company) {
   company.value = item
-  toast.success(`Company “${item.name}” added.`)
+  toast.success(`Company “${item.name}” (${item.country.name}) added.`)
 }
 
 /* ---------- Saving ---------- */
@@ -204,17 +249,23 @@ function formValues(): PassportFormValues {
   return {
     passport_name: passportName.value,
     passport_number: passportNumber.value,
+    country_code: country.value?.code ?? null,
+    date_of_birth: dateOfBirth.value,
     reference_id: reference.value?.id ?? null,
     company_id: company.value?.id ?? null,
     passport_received_date: receivedDate.value,
+    passport_expiry_date: expiryDate.value,
   }
 }
 
 const FIELD_ORDER: (keyof PassportFormErrors)[] = [
   'passport_name',
   'passport_number',
+  'country_code',
+  'date_of_birth',
   'reference_id',
   'passport_received_date',
+  'passport_expiry_date',
   'company_id',
 ]
 
@@ -224,6 +275,9 @@ async function focusFirstError() {
   const targets: Record<keyof PassportFormErrors, (() => void) | undefined> = {
     passport_name: () => nameInput.value?.focus(),
     passport_number: () => numberInput.value?.focus(),
+    country_code: () => countrySelect.value?.focus(),
+    date_of_birth: () => birthInput.value?.focus(),
+    passport_expiry_date: () => expiryInput.value?.focus(),
     reference_id: () => referenceSelect.value?.focus(),
     company_id: () => companySelect.value?.focus(),
     passport_received_date: () => dateInput.value?.focus(),
@@ -268,9 +322,12 @@ async function save(action: SaveAction) {
   const payload: PassportPayload = {
     passport_name: normalizePassportName(values.passport_name),
     passport_number: normalizePassportNumber(values.passport_number),
+    country_code: values.country_code,
+    date_of_birth: toApiDate(values.date_of_birth),
     reference_id: values.reference_id as number,
     company_id: values.company_id as number,
     passport_received_date: toApiDate(values.passport_received_date),
+    passport_expiry_date: toApiDate(values.passport_expiry_date),
   }
 
   isSaving.value = true
@@ -288,6 +345,7 @@ async function save(action: SaveAction) {
         // Keep the received date and reference type for the next passport of the batch.
         clearForm()
         focusName()
+        applyPassportCountryDefault()
       }
     }
   } catch (error) {
@@ -432,6 +490,47 @@ const inputClass =
             </div>
           </div>
 
+          <div class="grid gap-6 sm:grid-cols-2">
+            <!-- Passport country (optional) -->
+            <CountrySelect
+              ref="countrySelect"
+              v-model="country"
+              label="Passport country"
+              hint="Optional."
+              :keep="savedCountry"
+              :error="errors.country_code"
+              clearable
+            />
+
+            <!-- Date of birth -->
+            <div>
+              <label :for="birthId" class="block text-sm font-medium text-slate-700">
+                Date of birth<span class="text-red-700" aria-hidden="true"> *</span>
+              </label>
+              <input
+                :id="birthId"
+                ref="birthInput"
+                v-model="dateOfBirth"
+                type="date"
+                required
+                :max="yesterday"
+                :class="[inputClass, errors.date_of_birth ? 'border-red-500' : 'border-slate-300']"
+                :aria-invalid="errors.date_of_birth ? 'true' : undefined"
+                :aria-describedby="`${birthId}-hint${errors.date_of_birth ? ` ${birthId}-error` : ''}`"
+              />
+              <p :id="`${birthId}-hint`" class="mt-1 text-xs text-muted">
+                {{ toDisplayDate(dateOfBirth) || 'DD-MM-YYYY' }}
+              </p>
+              <p
+                v-if="errors.date_of_birth"
+                :id="`${birthId}-error`"
+                class="mt-1 text-sm text-red-700"
+              >
+                {{ errors.date_of_birth }}
+              </p>
+            </div>
+          </div>
+
           <!-- 3. Reference: type toggle + search -->
           <fieldset class="space-y-3 rounded-xl border border-stroke p-4">
             <legend class="px-1 text-sm font-semibold text-ink">Reference</legend>
@@ -485,19 +584,51 @@ const inputClass =
               </p>
             </div>
 
-            <!-- 5. Company -->
-            <SearchSelect
-              ref="companySelect"
-              v-model="company"
-              :fetch="fetchCompanies"
-              label="Company name"
-              placeholder="Search company…"
-              add-label="Add new company"
-              :error="errors.company_id"
-              required
-              @add="openCompanyModal"
-            />
+            <!-- Expiry date -->
+            <div>
+              <label :for="expiryId" class="block text-sm font-medium text-slate-700">
+                Passport expiry date<span class="text-red-700" aria-hidden="true"> *</span>
+              </label>
+              <input
+                :id="expiryId"
+                ref="expiryInput"
+                v-model="expiryDate"
+                type="date"
+                required
+                :min="minExpiryDate"
+                :class="[
+                  inputClass,
+                  errors.passport_expiry_date ? 'border-red-500' : 'border-slate-300',
+                ]"
+                :aria-invalid="errors.passport_expiry_date ? 'true' : undefined"
+                :aria-describedby="`${expiryId}-hint${errors.passport_expiry_date ? ` ${expiryId}-error` : ''}`"
+              />
+              <p :id="`${expiryId}-hint`" class="mt-1 text-xs text-muted">
+                {{ toDisplayDate(expiryDate) || 'DD-MM-YYYY' }} · after the received date
+              </p>
+              <p
+                v-if="errors.passport_expiry_date"
+                :id="`${expiryId}-error`"
+                class="mt-1 text-sm text-red-700"
+              >
+                {{ errors.passport_expiry_date }}
+              </p>
+            </div>
           </div>
+
+          <!-- 5. Company -->
+          <SearchSelect
+            ref="companySelect"
+            v-model="company"
+            :fetch="fetchCompanies"
+            :subtitle-of="companySubtitle"
+            label="Company name"
+            placeholder="Search company…"
+            add-label="Add new company"
+            :error="errors.company_id"
+            required
+            @add="openCompanyModal"
+          />
 
           <div class="flex flex-col gap-3 border-t border-stroke pt-6 sm:flex-row sm:justify-end">
             <!-- The first submit button is the one Enter triggers. -->
@@ -544,6 +675,8 @@ const inputClass =
       name-label="Company name"
       :initial-name="quickAddName"
       :save="saveCompany"
+      with-country
+      :default-country-code="defaultCompanyCountryCode"
       @saved="onCompanyAdded"
     />
   </div>
