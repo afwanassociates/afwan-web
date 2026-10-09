@@ -6,6 +6,7 @@ import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
 import { canAccessArea, homeRouteFor } from '@/lib/roles'
 import { settingsPagesFor } from '@/lib/settingsPages'
+import { useWorkflowStore } from '@/stores/workflow'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -24,15 +25,33 @@ interface NavItem {
   label: string
   /** Also highlighted on any page under this path (e.g. every settings page). */
   section?: string
+  /** Count shown next to the label, with words for screen readers. */
+  badge?: { count: number; label: string }
 }
+
+const workflow = useWorkflowStore()
+watch(
+  () => auth.user?.role,
+  (role) => {
+    if (role && canAccessArea(role, 'data_entry')) workflow.load()
+  },
+  { immediate: true },
+)
 
 const navItems = computed(() => {
   const role = auth.user?.role
   if (!role) return []
   const items: NavItem[] = [{ name: homeRouteFor(role).name, label: 'Dashboard' }]
   if (canAccessArea(role, 'data_entry')) {
+    items.push({ name: 'all-passports', label: 'All Passports' })
     items.push({ name: 'passport-new', label: 'Add Passport' })
     items.push({ name: 'passports', label: 'Passport List' })
+    const step2 = workflow.summary?.step2
+    items.push({
+      name: 'medical',
+      label: 'Medical',
+      badge: step2 ? { count: step2.pending, label: 'pending' } : undefined,
+    })
   }
   if (canAccessArea(role, 'admin')) items.push({ name: 'staff-users', label: 'Users' })
   if (settingsPagesFor(role).length > 0) {
@@ -103,7 +122,16 @@ async function logout() {
               }"
               :aria-current="isActive(item) ? 'page' : undefined"
             >
-              {{ item.label }}
+              <span class="flex items-center justify-between gap-2">
+                <span data-label>{{ item.label }}</span>
+                <span
+                  v-if="item.badge"
+                  class="min-w-6 rounded-full bg-accent-400 px-1.5 text-center text-xs font-bold text-primary-950 tabular-nums"
+                  data-badge
+                >
+                  {{ item.badge.count }}<span class="sr-only">{{ ` ${item.badge.label}` }}</span>
+                </span>
+              </span>
             </RouterLink>
           </li>
         </ul>

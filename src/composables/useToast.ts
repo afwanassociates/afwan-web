@@ -2,7 +2,7 @@ import { ref } from 'vue'
 
 export interface Toast {
   id: number
-  type: 'success' | 'error'
+  type: 'success' | 'error' | 'warning'
   message: string
 }
 
@@ -27,5 +27,6 @@ export function useToast() {
     dismiss,
     success: (message: string) => show(message, 'success'),
     error: (message: string) => show(message, 'error', 8000),
+    warning: (message: string) => show(message, 'warning', 10000),
   }
 }

@@ -84,9 +84,14 @@ const router = createRouter({
       ],
     },
     {
-      // Passport data entry: data_entry, admin and super_admin (see canAccessArea).
+      // Passport data entry and medical: data_entry, admin and super_admin.
       path: '/data-entry',
-      meta: { requiresAuth: true, layout: 'staff', area: 'data_entry' },
+      meta: {
+        requiresAuth: true,
+        layout: 'staff',
+        area: 'data_entry',
+        roles: ['data_entry', 'admin', 'super_admin'],
+      },
       children: [
         { path: '', redirect: { name: 'passports' } },
         {
@@ -100,6 +105,30 @@ const router = createRouter({
           name: 'passport-new',
           component: () => import('@/views/PassportFormView.vue'),
           meta: { title: staffTitle('Add passport') },
+        },
+        {
+          path: 'all-passports',
+          name: 'all-passports',
+          component: () => import('@/views/AllPassportsView.vue'),
+          meta: { title: staffTitle('All passports') },
+        },
+        {
+          path: 'passports/:id(\\d+)',
+          name: 'passport-detail',
+          component: () => import('@/views/PassportDetailView.vue'),
+          meta: { title: staffTitle('Passport') },
+        },
+        {
+          path: 'medical',
+          name: 'medical',
+          component: () => import('@/views/MedicalView.vue'),
+          meta: { title: staffTitle('Medical') },
+        },
+        {
+          // Unfit passports are a tab of the Medical page; keep old links working.
+          path: 'unfit',
+          name: 'unfit',
+          redirect: (to) => ({ name: 'medical', query: { ...to.query, tab: 'unfit' } }),
         },
         {
           path: 'passports/:id(\\d+)/edit',

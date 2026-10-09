@@ -6,7 +6,7 @@ import PassportFormView from '../PassportFormView.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
 import { addDays, todayApiDate } from '@/lib/dates'
-import { httpError } from '@/test/helpers'
+import { httpError, makePassport } from '@/test/helpers'
 import type { AppDefaults, CountryOption } from '@/types/country'
 import type { CompanySummary, PassportEntry, ReferenceSummary } from '@/types/passport'
 
@@ -19,6 +19,7 @@ vi.mock('@/api/references', () => ({
   searchReferences: vi.fn(async () => []),
   createReference: vi.fn(),
 }))
+vi.mock('@/api/workflow', () => ({ fetchWorkflowSummary: vi.fn(async () => null) }))
 vi.mock('@/api/companies', () => ({
   searchCompanies: vi.fn(async () => []),
   createCompany: vi.fn(),
@@ -45,23 +46,13 @@ const COMPANY: CompanySummary = {
 const TODAY = todayApiDate()
 
 function makeEntry(overrides: Partial<PassportEntry> = {}): PassportEntry {
-  return {
-    id: 42,
-    passport_name: 'MD RAHIM',
-    passport_number: 'AB1234567',
+  return makePassport({
     country: null,
-    date_of_birth: '1990-05-17',
-    passport_received_date: '2026-09-30',
-    passport_expiry_date: '2031-09-29',
     reference: AGENCY,
     company: COMPANY,
-    created_by: 5,
-    updated_by: 5,
-    created_at: '',
-    updated_at: '',
-    can: { update: true, delete: false },
+    can: { update: true, delete: false, record_medical: true },
     ...overrides,
-  }
+  })
 }
 
 let wrapper: VueWrapper

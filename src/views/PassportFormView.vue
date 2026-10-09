@@ -12,6 +12,7 @@ import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { addDays, toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
 import { useCountriesStore } from '@/stores/countries'
+import { useWorkflowStore } from '@/stores/workflow'
 import {
   PASSPORT_NAME_MAX,
   normalizePassportName,
@@ -36,6 +37,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const countries = useCountriesStore()
+const workflow = useWorkflowStore()
 
 const nameId = useId()
 const numberId = useId()
@@ -335,10 +337,12 @@ async function save(action: SaveAction) {
     if (entryId.value !== null) {
       const saved = await updatePassport(entryId.value, payload)
       toast.success(`Passport ${saved.passport_number} updated.`)
+      workflow.refresh()
       router.push({ name: 'passports' })
     } else {
       const saved = await createPassport(payload)
       toast.success(`Passport ${saved.passport_number} saved.`)
+      workflow.refresh()
       if (action === 'save') {
         router.push({ name: 'passports' })
       } else {

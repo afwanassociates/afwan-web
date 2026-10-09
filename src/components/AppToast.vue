@@ -18,7 +18,9 @@ const { toasts, dismiss } = useToast()
       :class="
         toast.type === 'success'
           ? 'border-green-200 bg-green-50 text-green-900'
-          : 'border-red-200 bg-red-50 text-red-900'
+          : toast.type === 'warning'
+            ? 'border-accent-300 bg-accent-50 text-accent-900'
+            : 'border-red-200 bg-red-50 text-red-900'
       "
     >
       <p class="flex-1 font-medium">{{ toast.message }}</p>

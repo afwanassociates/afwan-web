@@ -15,6 +15,7 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import { toApiDate, todayApiDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth'
 import { useCountriesStore } from '@/stores/countries'
+import { useWorkflowStore } from '@/stores/workflow'
 import type { Paginated } from '@/types/auth'
 import type { PassportEntry, ReferenceType } from '@/types/passport'
 import type { CountrySummary } from '@/types/country'
@@ -25,6 +26,8 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const toast = useToast()
+const workflow = useWorkflowStore()
+workflow.load()
 
 const searchId = useId()
 const typeId = useId()
@@ -206,6 +209,21 @@ function clearFilters() {
 
 /* ---------- Loading ---------- */
 
+/**
+ * A search with no result here may match a passport in the Unfit list (they are left out
+ * of this list), so we check and say so.
+ */
+const unfitMatches = ref(0)
+
+async function checkUnfitMatches(q: string, id: number) {
+  try {
+    const unfit = await listPassports({ q, medical_status: 'unfit', per_page: 1 })
+    if (id === requestId) unfitMatches.value = unfit.meta.total
+  } catch {
+    // Only a hint: ignore failures.
+  }
+}
+
 const list = ref<Paginated<PassportEntry> | null>(null)
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
@@ -236,6 +254,8 @@ async function load() {
       return
     }
     list.value = result
+    unfitMatches.value = 0
+    if (result.data.length === 0 && f.q) checkUnfitMatches(f.q, id)
   } catch (error) {
     if (id !== requestId) return
     if (errorStatus(error) !== 401) {
@@ -279,6 +299,7 @@ async function confirmDelete() {
     deleteOpen.value = false
     toast.success(`Passport ${entry.passport_number} deleted.`)
     load()
+    workflow.refresh()
   } catch (error) {
     const status = errorStatus(error)
     if (status === 404) {
@@ -304,7 +325,16 @@ const inputClass =
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Passport list</h1>
-        <p class="mt-1 text-sm text-muted">Search and manage received passports.</p>
+        <p class="mt-1 text-sm text-muted">
+          Search and manage received passports.
+          <RouterLink
+            :to="{ name: 'all-passports' }"
+            class="font-semibold text-primary-700 underline underline-offset-2"
+            data-all-link
+          >
+            View all passports ({{ workflow.summary?.step1.total_all ?? '–' }})
+          </RouterLink>
+        </p>
       </div>
       <RouterLink :to="{ name: 'passport-new' }" class="btn btn-accent btn-icon">
         Add passport <ArrowIcon />
@@ -436,6 +466,18 @@ const inputClass =
             {{
               hasFilters ? 'Try other filters or clear them.' : 'Add the first received passport.'
             }}
+          </p>
+          <p
+            v-if="unfitMatches > 0"
+            class="mx-auto mt-3 max-w-md rounded-lg bg-accent-50 px-3 py-2 text-sm text-accent-900"
+            data-unfit-hint
+          >
+            Not found here. Check
+            <RouterLink
+              :to="{ name: 'medical', query: { tab: 'unfit', q: filters.q } }"
+              class="font-semibold underline underline-offset-2"
+              >Medical → Unfit</RouterLink
+            >.
           </p>
           <button
             v-if="hasFilters"

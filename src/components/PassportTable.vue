@@ -1,25 +1,30 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import { toDisplayDate } from '@/lib/dates'
+import PassportCell from '@/components/PassportCell.vue'
+import { COLUMN_LABELS, type PassportColumn } from '@/lib/passportColumns'
+import { businessToday } from '@/lib/dates'
 import type { PassportEntry } from '@/types/passport'
 
-/** Passport entries as a table on wide screens and as cards on narrow ones. */
-const props = defineProps<{
-  entries: PassportEntry[]
-  /** Id of the logged-in user, to show "You" in "Entered by". */
-  currentUserId: number | null
-}>()
+/**
+ * Passport entries as a table on wide screens and as cards on narrow ones.
+ * The passport name (linked to its detail page) and number always come first; `columns`
+ * picks the rest. The `actions` slot replaces the default Edit / Delete buttons.
+ */
+withDefaults(
+  defineProps<{
+    entries: PassportEntry[]
+    /** Id of the logged-in user, to show "You" in "Entered by". */
+    currentUserId: number | null
+    columns?: PassportColumn[]
+    /** Extra classes for a row or card, e.g. to mark unfit passports. */
+    rowClass?: (entry: PassportEntry) => string | undefined
+  }>(),
+  { columns: () => ['reference', 'company', 'received', 'entered_by'], rowClass: undefined },
+)
 defineEmits<{ delete: [entry: PassportEntry] }>()
+defineSlots<{ actions?(props: { entry: PassportEntry }): unknown }>()
 
-function enteredBy(entry: PassportEntry) {
-  if (entry.created_by === null) return '—'
-  return entry.created_by === props.currentUserId ? 'You' : `Staff #${entry.created_by}`
-}
-
-const badgeClass = (entry: PassportEntry) =>
-  entry.reference.type === 'agency'
-    ? 'bg-accent-100 text-accent-800'
-    : 'bg-primary-50 text-primary-800'
+const today = businessToday()
 
 const actionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-primary-50 focus-visible:bg-primary-50'
@@ -28,50 +33,51 @@ const actionClass =
 <template>
   <!-- Phones: cards -->
   <ul class="divide-y divide-stroke md:hidden">
-    <li v-for="entry in entries" :key="entry.id" class="py-4">
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <p class="font-semibold break-words text-primary-900">{{ entry.passport_name }}</p>
-          <p class="font-mono text-sm tracking-wider text-slate-700">
-            {{ entry.passport_number }}
-          </p>
-        </div>
-        <p class="shrink-0 text-sm text-muted">
-          {{ toDisplayDate(entry.passport_received_date) }}
-        </p>
-      </div>
-      <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-        <dt class="text-muted">Reference</dt>
-        <dd class="flex flex-wrap items-center gap-2 text-slate-800">
-          {{ entry.reference.name }}
-          <span class="rounded-full px-2 py-0.5 text-xs font-semibold" :class="badgeClass(entry)">
-            {{ entry.reference.type_label }}
-          </span>
-        </dd>
-        <dt class="text-muted">Company</dt>
-        <dd class="text-slate-800">
-          {{ entry.company.name }}
-          <span class="text-xs text-muted">· {{ entry.company.country.name }}</span>
-        </dd>
-        <dt class="text-muted">Entered by</dt>
-        <dd class="text-slate-800">{{ enteredBy(entry) }}</dd>
+    <li v-for="entry in entries" :key="entry.id" class="py-4" :class="rowClass?.(entry)" data-row>
+      <RouterLink
+        :to="{ name: 'passport-detail', params: { id: entry.id } }"
+        class="block min-w-0 rounded-sm"
+      >
+        <span
+          class="block font-semibold break-words text-primary-900 underline-offset-4 hover:underline"
+        >
+          {{ entry.passport_name }}
+        </span>
+        <span class="block font-mono text-sm tracking-wider text-slate-700">
+          {{ entry.passport_number }}
+        </span>
+      </RouterLink>
+      <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
+        <template v-for="column in columns" :key="column">
+          <dt class="text-muted">{{ COLUMN_LABELS[column] }}</dt>
+          <dd class="min-w-0 text-slate-800">
+            <PassportCell
+              :entry="entry"
+              :column="column"
+              :today="today"
+              :current-user-id="currentUserId"
+            />
+          </dd>
+        </template>
       </dl>
-      <div v-if="entry.can.update || entry.can.delete" class="mt-2 -ml-2 flex gap-1">
-        <RouterLink
-          v-if="entry.can.update"
-          :to="{ name: 'passport-edit', params: { id: entry.id } }"
-          :class="[actionClass, 'text-primary-700']"
-        >
-          Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
-        </RouterLink>
-        <button
-          v-if="entry.can.delete"
-          type="button"
-          :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-          @click="$emit('delete', entry)"
-        >
-          Delete<span class="sr-only"> passport {{ entry.passport_number }}</span>
-        </button>
+      <div class="mt-2 -ml-2 flex flex-wrap gap-1">
+        <slot name="actions" :entry="entry">
+          <RouterLink
+            v-if="entry.can.update"
+            :to="{ name: 'passport-edit', params: { id: entry.id } }"
+            :class="[actionClass, 'text-primary-700']"
+          >
+            Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
+          </RouterLink>
+          <button
+            v-if="entry.can.delete"
+            type="button"
+            :class="[actionClass, 'text-red-700 hover:bg-red-50']"
+            @click="$emit('delete', entry)"
+          >
+            Delete<span class="sr-only"> passport {{ entry.passport_number }}</span>
+          </button>
+        </slot>
       </div>
     </li>
   </ul>
@@ -81,57 +87,64 @@ const actionClass =
     <table class="w-full text-left text-sm">
       <thead class="border-b border-stroke text-xs tracking-wider text-muted uppercase">
         <tr>
-          <th scope="col" class="py-3 pr-4 font-semibold">Passport name</th>
-          <th scope="col" class="py-3 pr-4 font-semibold">Passport number</th>
-          <th scope="col" class="py-3 pr-4 font-semibold">Reference</th>
-          <th scope="col" class="py-3 pr-4 font-semibold">Company</th>
-          <th scope="col" class="py-3 pr-4 font-semibold whitespace-nowrap">Received</th>
-          <th scope="col" class="py-3 pr-4 font-semibold whitespace-nowrap">Entered by</th>
+          <th scope="col" class="py-3 pr-4 font-semibold">Passport</th>
+          <th
+            v-for="column in columns"
+            :key="column"
+            scope="col"
+            class="py-3 pr-4 font-semibold whitespace-nowrap"
+          >
+            {{ COLUMN_LABELS[column] }}
+          </th>
           <th scope="col" class="py-3 font-semibold"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-stroke">
-        <tr v-for="entry in entries" :key="entry.id" class="align-middle">
-          <td class="py-3 pr-4 font-semibold text-primary-900">{{ entry.passport_name }}</td>
-          <td class="py-3 pr-4 font-mono tracking-wider whitespace-nowrap text-slate-800">
-            {{ entry.passport_number }}
-          </td>
-          <td class="py-3 pr-4 text-slate-800">
-            <span class="flex flex-wrap items-center gap-2">
-              {{ entry.reference.name }}
-              <span
-                class="rounded-full px-2 py-0.5 text-xs font-semibold"
-                :class="badgeClass(entry)"
-              >
-                {{ entry.reference.type_label }}
-              </span>
+        <tr
+          v-for="entry in entries"
+          :key="entry.id"
+          class="align-middle"
+          :class="rowClass?.(entry)"
+          data-row
+        >
+          <td class="py-3 pr-4">
+            <RouterLink
+              :to="{ name: 'passport-detail', params: { id: entry.id } }"
+              class="rounded-sm font-semibold text-primary-900 underline-offset-4 hover:underline"
+            >
+              {{ entry.passport_name }}
+            </RouterLink>
+            <span class="block font-mono text-xs tracking-wider text-slate-600">
+              {{ entry.passport_number }}
             </span>
           </td>
-          <td class="py-3 pr-4 text-slate-800">
-            {{ entry.company.name }}
-            <span class="block text-xs text-muted">{{ entry.company.country.name }}</span>
+          <td v-for="column in columns" :key="column" class="py-3 pr-4 text-slate-800">
+            <PassportCell
+              :entry="entry"
+              :column="column"
+              :today="today"
+              :current-user-id="currentUserId"
+            />
           </td>
-          <td class="py-3 pr-4 whitespace-nowrap text-slate-800">
-            {{ toDisplayDate(entry.passport_received_date) }}
-          </td>
-          <td class="py-3 pr-4 whitespace-nowrap text-slate-800">{{ enteredBy(entry) }}</td>
           <td class="py-3">
-            <div class="flex justify-end gap-1">
-              <RouterLink
-                v-if="entry.can.update"
-                :to="{ name: 'passport-edit', params: { id: entry.id } }"
-                :class="[actionClass, 'text-primary-700']"
-              >
-                Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
-              </RouterLink>
-              <button
-                v-if="entry.can.delete"
-                type="button"
-                :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-                @click="$emit('delete', entry)"
-              >
-                Delete<span class="sr-only"> passport {{ entry.passport_number }}</span>
-              </button>
+            <div class="flex flex-wrap justify-end gap-1">
+              <slot name="actions" :entry="entry">
+                <RouterLink
+                  v-if="entry.can.update"
+                  :to="{ name: 'passport-edit', params: { id: entry.id } }"
+                  :class="[actionClass, 'text-primary-700']"
+                >
+                  Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
+                </RouterLink>
+                <button
+                  v-if="entry.can.delete"
+                  type="button"
+                  :class="[actionClass, 'text-red-700 hover:bg-red-50']"
+                  @click="$emit('delete', entry)"
+                >
+                  Delete<span class="sr-only"> passport {{ entry.passport_number }}</span>
+                </button>
+              </slot>
             </div>
           </td>
         </tr>

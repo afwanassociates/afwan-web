@@ -1,6 +1,7 @@
 /** Types matching the afwan-api data-entry endpoints (/api/data-entry/...). */
 
 import type { CountrySummary } from '@/types/country'
+import type { MedicalStatus, MedicalSummary, PassportWorkflow } from '@/types/medical'
 
 export type ReferenceType = 'person' | 'agency'
 
@@ -46,12 +47,16 @@ export interface PassportEntry {
   passport_expiry_date: string | null
   reference: ReferenceSummary
   company: CompanySummary
+  medical_status: MedicalStatus
+  medical_status_label: string
+  current_medical: MedicalSummary | null
+  workflow: PassportWorkflow
   created_by: number | null
   updated_by: number | null
   created_at: string
   updated_at: string
   /** What the current user may do with this entry (decided by the API's policy). */
-  can: { update: boolean; delete: boolean }
+  can: { update: boolean; delete: boolean; record_medical: boolean }
 }
 
 /** Body of POST /passports and PATCH /passports/{id}. */
@@ -69,6 +74,9 @@ export interface PassportPayload {
   passport_expiry_date: string
 }
 
+export type PassportSort =
+  'passport_received_date' | 'created_at' | 'medical_date' | 'valid_until' | 'status_date'
+
 /** Query of GET /passports. Dates are YYYY-MM-DD. */
 export interface PassportFilters {
   q?: string
@@ -79,6 +87,12 @@ export interface PassportFilters {
   company_country_code?: string
   received_from?: string
   received_to?: string
+  /** Without it the API leaves out unfit passports; 'unfit' lists only them; 'all' lists every status. */
+  medical_status?: MedicalStatus | 'all'
+  sort?: PassportSort
+  /** 'overview' returns lean PassportOverview items. */
+  view?: 'overview'
+  direction?: 'asc' | 'desc'
   page?: number
   per_page?: number
 }
@@ -92,4 +106,36 @@ export interface NewReference {
 export interface NewCompany {
   name: string
   country_code: string
+}
+
+/** Colour of a latest status (afwan-api config workflow.tones). */
+export type StatusTone = 'red' | 'amber' | 'blue' | 'green' | 'gray'
+
+/** A passport's latest status, e.g. "Medical: Pending" (from the API's workflow). */
+export interface LatestStatus {
+  stage: string
+  stage_label: string
+  status: string
+  status_label: string
+  /** Ready-to-show text, e.g. "Medical: Unfit". */
+  text: string
+  tone: StatusTone
+  /** YYYY-MM-DD, or null when no status date is recorded. */
+  date: string | null
+}
+
+/** A lean item of GET /passports?view=overview (the All Passports screen). */
+export interface PassportOverview {
+  id: number
+  passport_name: string
+  passport_number: string
+  date_of_birth: string | null
+  country: CountrySummary | null
+  passport_expiry_date: string | null
+  company: CompanySummary
+  reference: Pick<Reference, 'id' | 'name' | 'type'>
+  passport_received_date: string
+  entered_by: { id: number; name: string } | null
+  created_at: string
+  latest_status: LatestStatus
 }

@@ -88,6 +88,10 @@ describe('router guard (real routes)', () => {
       ['data_entry', '/staff/admin'],
       ['data_entry', '/staff/accounts'],
       ['accounts', '/staff/data-entry'],
+      ['accounts', '/data-entry/medical'],
+      ['accounts', '/data-entry/medical?tab=unfit'],
+      ['accounts', '/data-entry/all-passports'],
+      ['accounts', '/data-entry/passports/42'],
       ['accounts', '/staff/admin/users'],
     ] as const)('%s opening %s gets the 403 page', async (role, path) => {
       setSession(role)
@@ -103,6 +107,8 @@ describe('router guard (real routes)', () => {
     it.each([
       ['super_admin', '/staff/super-admin'],
       ['super_admin', '/data-entry/passports'],
+      ['super_admin', '/data-entry/all-passports'],
+      ['data_entry', '/data-entry/all-passports'],
       ['super_admin', '/staff/admin/users'],
       ['admin', '/staff/admin'],
       ['admin', '/data-entry/passports'],
@@ -181,6 +187,16 @@ describe('admin settings route', () => {
     expect(postLoginTarget(router, 'data_entry', '/admin/settings/countries')).toEqual({
       name: 'staff-data-entry',
     })
+  })
+})
+
+describe('old Unfit Passports address', () => {
+  it('redirects to the Unfit tab of the Medical page, keeping the search', async () => {
+    setSession('admin')
+    await router.push('/data-entry/unfit?q=ZW0751612')
+
+    expect(router.currentRoute.value.name).toBe('medical')
+    expect(router.currentRoute.value.query).toEqual({ q: 'ZW0751612', tab: 'unfit' })
   })
 })
 
