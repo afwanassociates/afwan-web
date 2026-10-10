@@ -14,6 +14,7 @@ export type PassportColumn =
   | 'remarks'
   | 'entered_by'
   | 'stage'
+  | 'passport_entered'
 
 export const COLUMN_LABELS: Record<PassportColumn, string> = {
   reference: 'Reference',
@@ -30,4 +31,5 @@ export const COLUMN_LABELS: Record<PassportColumn, string> = {
   remarks: 'Remarks',
   entered_by: 'Entered by',
   stage: 'Stage',
+  passport_entered: 'Stage',
 }

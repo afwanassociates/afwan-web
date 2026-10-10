@@ -19,7 +19,11 @@ import type { PassportEntry } from '@/types/passport'
  * centre. Saving the date moves a "not started" passport into Medical → Pending.
  */
 const open = defineModel<boolean>('open', { required: true })
-const props = defineProps<{ passport: PassportEntry | null }>()
+const props = defineProps<{
+  passport: PassportEntry | null
+  /** Replaces the default success toast (e.g. "Moved to Medical Pending"). */
+  successMessage?: string
+}>()
 const emit = defineEmits<{ saved: [passport: PassportEntry] }>()
 
 const SLIP_NO_MAX = 50
@@ -99,9 +103,10 @@ async function save() {
       medical_center_id: center.value?.id ?? null,
     })
     toast.success(
-      passport.medical_status === 'not_started'
-        ? `${passport.passport_number}: medical slip saved. It is now in Medical → Pending.`
-        : `${passport.passport_number}: medical slip updated.`,
+      props.successMessage ??
+        (passport.medical_status === 'not_started'
+          ? `${passport.passport_number}: medical slip saved. It is now in Medical → Pending.`
+          : `${passport.passport_number}: medical slip updated.`),
     )
     workflow.refresh()
     emit('saved', updated)

@@ -103,14 +103,12 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => wrapper.unmount())
 
 describe('a new passport', () => {
-  it('appears in the Passport list with Medical "Not started" (grey)', async () => {
+  it('appears in the Passport list as "Passport entered" with "Add medical slip"', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([NEW_PASSPORT]))
     await mountAt('/passports')
 
-    const badge = wrapper.get('tr[data-row] [data-status]')
-    expect(badge.text()).toBe('Not started')
-    expect(badge.attributes('data-status')).toBe('not_started')
-    expect(badge.classes()).toContain('bg-slate-100')
+    expect(listPassports).toHaveBeenCalledWith(expect.objectContaining({ stage: 'passport' }))
+    expect(wrapper.get('tr[data-row] [data-stage-badge]').text()).toBe('Passport entered')
     expect(row(50)!.get('[data-slip-action="50"]').text()).toContain('Add medical slip')
   })
 
@@ -166,12 +164,15 @@ describe('"Add medical slip" in the Passport list', () => {
     expect(slipForm().text()).toContain('Enter the medical slip date.')
   })
 
-  it('saves the slip; the row then shows Medical "Pending" (it moved to Medical → Pending)', async () => {
+  it('saves the slip; the row leaves the list, counts refresh and a toast says so', async () => {
+    const { fetchWorkflowSummary } = await import('@/api/workflow')
     vi.mocked(listPassports)
       .mockResolvedValueOnce(page([NEW_PASSPORT]))
-      .mockResolvedValue(page([WITH_SLIP]))
+      // Reloaded: it is no longer at the "Passport entered" stage.
+      .mockResolvedValue(page([]))
     vi.mocked(updateMedicalSlip).mockResolvedValue(WITH_SLIP)
     await mountAt('/passports')
+    const summaryCalls = vi.mocked(fetchWorkflowSummary).mock.calls.length
     await openSlipModal()
 
     await slipForm().get('[data-field="medical_slip_date"] input').setValue('2026-10-05')
@@ -184,15 +185,13 @@ describe('"Add medical slip" in the Passport list', () => {
       medical_slip_no: 'MG-77',
       medical_center_id: null,
     })
-    // The list reloads: the passport is now pending (amber) and its action is "Edit slip".
     expect(listPassports).toHaveBeenCalledTimes(2)
-    const badge = wrapper.get('tr[data-row] [data-status]')
-    expect(badge.text()).toBe('Pending')
-    expect(badge.classes()).toContain('bg-amber-50')
-    expect(wrapper.get('[data-slip-action="50"]').text()).toContain('Edit slip')
-    expect(useToast().toasts.value.map((t) => t.message)).toContain(
-      'NW5000001: medical slip saved. It is now in Medical → Pending.',
-    )
+    expect(listPassports).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'passport' }))
+    expect(wrapper.find('[data-slip-action="50"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-row]')).toHaveLength(0)
+    expect(wrapper.find('[data-empty]').exists()).toBe(true)
+    expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryCalls)
+    expect(useToast().toasts.value.map((t) => t.message)).toContain('Moved to Medical Pending')
   })
 
   it('keeps the dialog open with the server error on 422', async () => {
@@ -220,14 +219,11 @@ describe('other pages keep their filters (only All Passports lost them)', () => 
     expect(labels).toEqual(expect.arrayContaining(['Company', 'Company country', 'Sort by']))
   })
 
-  it('the Passport list keeps Company, Company country, Stage and its Medical column', async () => {
+  it('Medical keeps its tabs and the Company dropdown search', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([WITH_SLIP]))
-    await mountAt('/passports')
+    await mountAt('/medical')
 
-    const labels = wrapper.findAll('label').map((l) => l.text().trim())
-    expect(labels).toEqual(expect.arrayContaining(['Company', 'Company country', 'Stage']))
-    expect(wrapper.findAll('th').map((th) => th.text())).toContain('Medical')
-    const stages = wrapper.findAll('select[data-stage-filter] option').map((o) => o.text())
-    expect(stages).toContain('Completed')
+    expect(wrapper.find('[role="tablist"]').exists()).toBe(true)
+    expect(wrapper.find('input[role="combobox"]').exists()).toBe(true)
   })
 })

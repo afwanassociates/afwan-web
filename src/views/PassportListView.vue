@@ -1,25 +1,18 @@
 <script setup lang="ts">
-import { computed, ref, useId, watch } from 'vue'
+import { computed, onMounted, ref, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import ArrowIcon from '@/components/ArrowIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import PassportTable from '@/components/PassportTable.vue'
-import SearchSelect from '@/components/SearchSelect.vue'
-import CountrySelect from '@/components/CountrySelect.vue'
 import { deletePassport, listPassports } from '@/api/passports'
-import { searchReferences } from '@/api/references'
-import { searchCompanies } from '@/api/companies'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus } from '@/lib/errors'
-import { toApiDate, todayApiDate } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth'
-import { useCountriesStore } from '@/stores/countries'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { Paginated } from '@/types/auth'
-import type { PassportEntry, ReferenceType } from '@/types/passport'
-import type { CountrySummary } from '@/types/country'
+import type { PassportEntry } from '@/types/passport'
 
 const PER_PAGE = 15
 
@@ -31,28 +24,37 @@ const workflow = useWorkflowStore()
 workflow.load()
 
 const searchId = useId()
-const typeId = useId()
-const stageId = useId()
-const fromId = useId()
-const toId = useId()
+const referenceId = useId()
+const companyId = useId()
+
+/**
+ * This page lists only passports at the "Passport entered" stage: no medical slip date yet
+ * (and so not unfit). Adding the medical slip moves a passport on to Medical → Pending.
+ */
+const STAGE = 'passport'
 
 /* ---------- Filters, kept in the URL query ---------- */
 
+/** Query keys of older versions of this page; ignored and dropped from the URL. */
+const OLD_KEYS = [
+  'reference_type',
+  'reference_id',
+  'reference_name',
+  'company_id',
+  'company_name',
+  'company_country_code',
+  'received_from',
+  'received_to',
+  'stage',
+]
+
 interface Filters {
+  /** Name or passport number */
   q: string
-  reference_type: ReferenceType | ''
-  reference_id: number | null
-  /** Shown in the reference filter after a refresh (the API has no lookup by id). */
-  reference_name: string
-  company_id: number | null
-  company_name: string
-  /** 2-letter code of the company's country */
-  company_country_code: string
-  /** YYYY-MM-DD */
-  received_from: string
-  received_to: string
-  /** Current step: a step key from the config, or 'completed'. */
-  stage: string
+  /** Part of the reference's name */
+  reference: string
+  /** Part of the company's name */
+  company: string
   page: number
 }
 
@@ -62,173 +64,112 @@ const positiveInt = (value: unknown) => {
   return Number.isInteger(n) && n > 0 ? n : null
 }
 
-const filters = computed<Filters>(() => {
-  const query = route.query
-  const type = text(query.reference_type)
-  return {
-    q: text(query.q).trim(),
-    reference_type: type === 'person' || type === 'agency' ? type : '',
-    reference_id: positiveInt(query.reference_id),
-    reference_name: text(query.reference_name),
-    company_id: positiveInt(query.company_id),
-    company_name: text(query.company_name),
-    company_country_code: /^[A-Z]{2}$/.test(text(query.company_country_code))
-      ? text(query.company_country_code)
-      : '',
-    received_from: toApiDate(text(query.received_from)),
-    received_to: toApiDate(text(query.received_to)),
-    stage: /^[a-z_]+$/.test(text(query.stage)) ? text(query.stage) : '',
-    page: positiveInt(query.page) ?? 1,
-  }
-})
+const filters = computed<Filters>(() => ({
+  q: text(route.query.q).trim(),
+  reference: text(route.query.reference).trim(),
+  company: text(route.query.company).trim(),
+  page: positiveInt(route.query.page) ?? 1,
+}))
 
-const hasFilters = computed(() => {
-  const f = filters.value
-  return Boolean(
-    f.q ||
-    f.reference_type ||
-    f.reference_id ||
-    f.company_id ||
-    f.company_country_code ||
-    f.received_from ||
-    f.received_to ||
-    f.stage,
-  )
-})
+const hasFilters = computed(() =>
+  Boolean(filters.value.q || filters.value.reference || filters.value.company),
+)
 
-/** Builds the URL query from the current filters plus `changes`. Changing a filter resets the page. */
+/** Builds the URL query from the current filters plus `changes`. Changing a search resets the page. */
 function queryWith(changes: Partial<Filters>): LocationQuery {
   const next = { ...filters.value, page: 1, ...changes }
   const query: LocationQuery = {}
   if (next.q) query.q = next.q
-  if (next.reference_type) query.reference_type = next.reference_type
-  if (next.reference_id) {
-    query.reference_id = String(next.reference_id)
-    if (next.reference_name) query.reference_name = next.reference_name
-  }
-  if (next.company_id) {
-    query.company_id = String(next.company_id)
-    if (next.company_name) query.company_name = next.company_name
-  }
-  if (next.company_country_code) query.company_country_code = next.company_country_code
-  if (next.received_from) query.received_from = next.received_from
-  if (next.received_to) query.received_to = next.received_to
-  if (next.stage) query.stage = next.stage
+  if (next.reference) query.reference = next.reference
+  if (next.company) query.company = next.company
   if (next.page > 1) query.page = String(next.page)
   return query
 }
 
-function applyFilters(changes: Partial<Filters>, replace = false) {
-  const location = { query: queryWith(changes) }
-  return replace ? router.replace(location) : router.push(location)
-}
-
-// Search box: debounced, and `replace` so typing does not flood the browser history.
+// The three searches: debounced, and `replace` so typing does not flood the browser history.
 const search = ref(filters.value.q)
-const debouncedSearch = useDebounce((value: string) => applyFilters({ q: value.trim() }, true), 300)
-watch(
-  () => filters.value.q,
-  (q) => {
-    if (q !== search.value.trim()) search.value = q
-  },
-)
+const reference = ref(filters.value.reference)
+const company = ref(filters.value.company)
 
-const referenceType = computed({
-  get: () => filters.value.reference_type,
-  // References are filtered by type, so changing the type also clears the reference.
-  set: (type: ReferenceType | '') =>
-    applyFilters({ reference_type: type, reference_id: null, reference_name: '' }),
-})
-
-const referenceFilter = computed({
-  get: () =>
-    filters.value.reference_id
-      ? { id: filters.value.reference_id, name: filters.value.reference_name || 'Selected' }
-      : null,
-  set: (item: { id: number; name: string } | null) =>
-    applyFilters({ reference_id: item?.id ?? null, reference_name: item?.name ?? '' }),
-})
-
-interface CompanyFilterItem {
-  id: number
-  name: string
-  country?: CountrySummary
+/**
+ * Puts all three typed searches in the URL at once, so typing in two boxes quickly cannot
+ * lose one of them (each update would otherwise start from a URL the other has not yet
+ * changed).
+ */
+function applySearches() {
+  router.replace({
+    query: queryWith({
+      q: search.value.trim(),
+      reference: reference.value.trim(),
+      company: company.value.trim(),
+    }),
+  })
 }
 
-const companySubtitle = (item: CompanyFilterItem) => item.country?.name
+const debouncedSearch = useDebounce(applySearches, 300)
+const debouncedReference = useDebounce(applySearches, 300)
+const debouncedCompany = useDebounce(applySearches, 300)
 
-const companyFilter = computed({
-  get: () =>
-    filters.value.company_id
-      ? { id: filters.value.company_id, name: filters.value.company_name || 'Selected' }
-      : null,
-  set: (item: CompanyFilterItem | null) =>
-    applyFilters({ company_id: item?.id ?? null, company_name: item?.name ?? '' }),
-})
-
-const countries = useCountriesStore()
-countries.load()
-
-/** "All countries" when empty. Falls back to the code until the country list has loaded. */
-/** Stage filter: the steps from the config (from Medical on), then Completed. */
-workflow.loadConfig()
-const stageOptions = computed(() => [
-  { value: 'passport', label: 'Medical not started' },
-  ...(workflow.config?.steps ?? [])
-    .filter((s) => s.enabled && s.order > 1)
-    .sort((a, b) => a.order - b.order)
-    .map((s) => ({ value: s.key, label: s.label })),
-  { value: 'completed', label: 'Completed' },
-])
-
-const stageFilter = computed({
-  get: () => filters.value.stage,
-  set: (stage: string) => applyFilters({ stage }),
-})
-
-const companyCountryFilter = computed({
-  get: (): CountrySummary | null => {
-    const code = filters.value.company_country_code
-    if (!code) return null
-    return countries.byCode(code) ?? { code, name: code }
-  },
-  set: (country: CountrySummary | null) =>
-    applyFilters({ company_country_code: country?.code ?? '' }),
-})
-
-const fetchReferences = (q: string) =>
-  searchReferences({ type: filters.value.reference_type || undefined, q })
-const fetchCompanies = (q: string) => searchCompanies(q)
-
-// Date range: applied on change, after checking that "to" is not before "from".
-const today = todayApiDate()
-const dateFrom = ref(filters.value.received_from)
-const dateTo = ref(filters.value.received_to)
-const dateError = ref<string | null>(null)
-
-watch(
-  () => [filters.value.received_from, filters.value.received_to],
-  ([from, to]) => {
-    dateFrom.value = from ?? ''
-    dateTo.value = to ?? ''
-  },
-)
-
-function applyDates() {
-  if (dateFrom.value && dateTo.value && dateTo.value < dateFrom.value) {
-    dateError.value = '“To” must be on or after “From”.'
-    return
-  }
-  dateError.value = null
-  applyFilters({ received_from: dateFrom.value, received_to: dateTo.value })
+function clearReference() {
+  reference.value = ''
+  debouncedReference.cancel()
+  router.replace({ query: queryWith({ reference: '' }) })
 }
+
+function clearCompany() {
+  company.value = ''
+  debouncedCompany.cancel()
+  router.replace({ query: queryWith({ company: '' }) })
+}
+
+// Back / forward: show what the URL says.
+watch(filters, (f) => {
+  if (f.q !== search.value.trim()) search.value = f.q
+  if (f.reference !== reference.value.trim()) reference.value = f.reference
+  if (f.company !== company.value.trim()) company.value = f.company
+})
 
 function clearFilters() {
   search.value = ''
-  dateError.value = null
+  reference.value = ''
+  company.value = ''
   debouncedSearch.cancel()
+  debouncedReference.cancel()
+  debouncedCompany.cancel()
   router.push({ query: {} })
 }
+
+/** "Search reference" and "Search company": same behaviour, different query key. */
+const searchBoxes = [
+  {
+    key: 'reference',
+    id: referenceId,
+    label: 'Search reference',
+    placeholder: 'Reference name',
+    model: reference,
+    onInput: (value: string) => {
+      reference.value = value
+      debouncedReference.run()
+    },
+    clear: clearReference,
+  },
+  {
+    key: 'company',
+    id: companyId,
+    label: 'Search company',
+    placeholder: 'Company name',
+    model: company,
+    onInput: (value: string) => {
+      company.value = value
+      debouncedCompany.run()
+    },
+    clear: clearCompany,
+  },
+]
+
+onMounted(() => {
+  if (OLD_KEYS.some((key) => key in route.query)) router.replace({ query: queryWith({}) })
+})
 
 /* ---------- Loading ---------- */
 
@@ -260,13 +201,9 @@ async function load() {
   try {
     const result = await listPassports({
       q: f.q || undefined,
-      reference_type: f.reference_type || undefined,
-      reference_id: f.reference_id ?? undefined,
-      company_id: f.company_id ?? undefined,
-      company_country_code: f.company_country_code || undefined,
-      received_from: f.received_from || undefined,
-      received_to: f.received_to || undefined,
-      stage: f.stage || undefined,
+      reference: f.reference || undefined,
+      company: f.company || undefined,
+      stage: STAGE,
       page: f.page,
       per_page: PER_PAGE,
     })
@@ -311,17 +248,15 @@ function openSlip(entry: PassportEntry) {
   slipOpen.value = true
 }
 
-/** The row's medical status changes ("Not started" → "Pending"): reload the page. */
+/** The passport moved on to Medical → Pending: it leaves this list. Refresh list and counts. */
 function afterSlip() {
   load()
+  workflow.refresh()
 }
 
+// Everything here is "Passport entered", so the action is always "Add medical slip".
 const slipAction = (entry: PassportEntry) =>
-  entry.medical_status === 'not_started'
-    ? 'Add medical slip'
-    : entry.medical_status === 'pending'
-      ? 'Edit slip'
-      : null
+  entry.medical_status === 'not_started' ? 'Add medical slip' : null
 
 const rowActionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap hover:bg-primary-50 focus-visible:bg-primary-50'
@@ -376,7 +311,7 @@ const inputClass =
       <div>
         <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Passport list</h1>
         <p class="mt-1 text-sm text-muted">
-          Search and manage received passports.
+          Passports entered, waiting for their medical slip.
           <RouterLink
             :to="{ name: 'all-passports' }"
             class="font-semibold text-primary-700 underline underline-offset-2"
@@ -395,96 +330,60 @@ const inputClass =
       <h2 id="passport-list-heading" class="sr-only">Passport entries</h2>
 
       <!-- Search and filters -->
+      <!-- Search: name / passport number, reference and company (combined) -->
       <div role="search" class="space-y-4">
-        <div>
-          <label :for="searchId" class="block text-sm font-medium text-slate-700">Search</label>
-          <input
-            :id="searchId"
-            v-model="search"
-            type="search"
-            autocomplete="off"
-            placeholder="Name, passport number, reference or company"
-            :class="inputClass"
-            @input="debouncedSearch.run(search)"
-          />
-        </div>
-
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <label :for="typeId" class="block text-sm font-medium text-slate-700">
-              Reference type
+            <label :for="searchId" class="block text-sm font-medium text-slate-700">Search</label>
+            <input
+              :id="searchId"
+              v-model="search"
+              type="search"
+              autocomplete="off"
+              placeholder="Name or passport number"
+              :class="inputClass"
+              data-search
+              @input="debouncedSearch.run()"
+            />
+          </div>
+          <div v-for="box in searchBoxes" :key="box.key">
+            <label :for="box.id" class="block text-sm font-medium text-slate-700">
+              {{ box.label }}
             </label>
-            <select :id="typeId" v-model="referenceType" :class="inputClass">
-              <option value="">All</option>
-              <option value="person">Person</option>
-              <option value="agency">Agency</option>
-            </select>
-          </div>
-          <SearchSelect
-            :key="`reference-${filters.reference_type}`"
-            v-model="referenceFilter"
-            :fetch="fetchReferences"
-            label="Reference"
-            placeholder="Any reference"
-            clearable
-          />
-          <SearchSelect
-            v-model="companyFilter"
-            :fetch="fetchCompanies"
-            :subtitle-of="companySubtitle"
-            label="Company"
-            placeholder="Any company"
-            clearable
-          />
-          <CountrySelect
-            v-model="companyCountryFilter"
-            label="Company country"
-            placeholder="All countries"
-            clearable
-          />
-          <div>
-            <label :for="stageId" class="block text-sm font-medium text-slate-700">Stage</label>
-            <select :id="stageId" v-model="stageFilter" :class="inputClass" data-stage-filter>
-              <option value="">All stages</option>
-              <option v-for="option in stageOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </div>
-          <fieldset class="min-w-0">
-            <legend class="text-sm font-medium text-slate-700">Received date</legend>
-            <div class="mt-1 grid grid-cols-2 gap-2">
-              <div>
-                <label :for="fromId" class="block text-xs text-muted">From</label>
-                <input
-                  :id="fromId"
-                  v-model="dateFrom"
-                  type="date"
-                  :max="today"
-                  :class="[inputClass, 'px-2']"
-                  :aria-invalid="dateError ? 'true' : undefined"
-                  :aria-describedby="dateError ? `${fromId}-error` : undefined"
-                  @change="applyDates"
-                />
-              </div>
-              <div>
-                <label :for="toId" class="block text-xs text-muted">To</label>
-                <input
-                  :id="toId"
-                  v-model="dateTo"
-                  type="date"
-                  :max="today"
-                  :class="[inputClass, 'px-2']"
-                  :aria-invalid="dateError ? 'true' : undefined"
-                  :aria-describedby="dateError ? `${fromId}-error` : undefined"
-                  @change="applyDates"
-                />
-              </div>
+            <div class="relative">
+              <input
+                :id="box.id"
+                :value="box.model.value"
+                type="text"
+                autocomplete="off"
+                :placeholder="box.placeholder"
+                :class="[inputClass, 'pr-10']"
+                :data-search-box="box.key"
+                @input="box.onInput(($event.target as HTMLInputElement).value)"
+                @keydown.esc="box.clear"
+              />
+              <button
+                v-if="box.model.value"
+                type="button"
+                class="absolute top-1/2 right-1.5 mt-0.5 -translate-y-1/2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                :data-clear="box.key"
+                @click="box.clear"
+              >
+                <svg
+                  class="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  aria-hidden="true"
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
+                <span class="sr-only">Clear {{ box.label.toLowerCase() }}</span>
+              </button>
             </div>
-            <p v-if="dateError" :id="`${fromId}-error`" class="mt-1 text-sm text-red-700">
-              {{ dateError }}
-            </p>
-          </fieldset>
+          </div>
         </div>
 
         <button
@@ -493,7 +392,7 @@ const inputClass =
           class="text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
           @click="clearFilters"
         >
-          Clear all filters
+          Clear searches
         </button>
       </div>
 
@@ -517,13 +416,19 @@ const inputClass =
         </div>
 
         <!-- Empty -->
-        <div v-else-if="list.data.length === 0" class="py-12 text-center">
+        <div v-else-if="list.data.length === 0" class="py-12 text-center" data-empty>
           <p class="font-semibold text-ink">
-            {{ hasFilters ? 'No entries match your filters.' : 'No passport entries yet.' }}
+            {{
+              hasFilters
+                ? 'No passports match these searches.'
+                : 'No passports are waiting for a medical slip.'
+            }}
           </p>
           <p class="mt-1 text-sm text-muted">
             {{
-              hasFilters ? 'Try other filters or clear them.' : 'Add the first received passport.'
+              hasFilters
+                ? 'Check the name or passport number, reference and company searches, or clear them.'
+                : 'New passports appear here until their medical slip is added.'
             }}
           </p>
           <p
@@ -544,7 +449,7 @@ const inputClass =
             class="btn btn-white mt-5 text-sm"
             @click="clearFilters"
           >
-            Clear filters
+            Clear searches
           </button>
           <RouterLink v-else :to="{ name: 'passport-new' }" class="btn btn-accent mt-5 text-sm">
             Add passport
@@ -555,7 +460,8 @@ const inputClass =
           <PassportTable
             :entries="list.data"
             :current-user-id="auth.user?.id ?? null"
-            :columns="['reference', 'company', 'received', 'medical_status', 'stage', 'entered_by']"
+            :columns="['reference', 'company', 'received', 'passport_entered', 'entered_by']"
+            split-name-number
             @delete="askDelete"
           >
             <template #extra-actions="{ entry }">
@@ -608,7 +514,12 @@ const inputClass =
       </div>
     </section>
 
-    <MedicalSlipModal v-model:open="slipOpen" :passport="slipPassport" @saved="afterSlip" />
+    <MedicalSlipModal
+      v-model:open="slipOpen"
+      :passport="slipPassport"
+      success-message="Moved to Medical Pending"
+      @saved="afterSlip"
+    />
 
     <ConfirmDialog
       v-model:open="deleteOpen"

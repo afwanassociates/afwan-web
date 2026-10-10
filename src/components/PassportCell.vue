@@ -124,6 +124,17 @@ const enteredBy = computed(() => {
     <StageBadge :stage="entry.current_stage" :status="entry.stage_status" />
   </template>
 
+  <!-- Passport List: every row is at this stage, so one fixed badge. -->
+  <template v-else-if="column === 'passport_entered'">
+    <span
+      class="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-slate-700 ring-1 ring-slate-300"
+      data-stage-badge
+    >
+      <span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
+      Passport entered
+    </span>
+  </template>
+
   <template v-else-if="column === 'entered_by'">
     <span class="whitespace-nowrap">{{ enteredBy }}</span>
   </template>

@@ -19,8 +19,14 @@ withDefaults(
     columns?: PassportColumn[]
     /** Extra classes for a row or card, e.g. to mark unfit passports. */
     rowClass?: (entry: PassportEntry) => string | undefined
+    /** Wide screens: "Passport name" and "Passport number" as two columns (default: one cell). */
+    splitNameNumber?: boolean
   }>(),
-  { columns: () => ['reference', 'company', 'received', 'entered_by'], rowClass: undefined },
+  {
+    columns: () => ['reference', 'company', 'received', 'entered_by'],
+    rowClass: undefined,
+    splitNameNumber: false,
+  },
 )
 defineEmits<{ delete: [entry: PassportEntry] }>()
 defineSlots<{
@@ -92,7 +98,11 @@ const actionClass =
     <table class="w-full text-left text-sm">
       <thead class="border-b border-stroke text-xs tracking-wider text-muted uppercase">
         <tr>
-          <th scope="col" class="py-3 pr-4 font-semibold">Passport</th>
+          <template v-if="splitNameNumber">
+            <th scope="col" class="py-3 pr-4 font-semibold whitespace-nowrap">Passport name</th>
+            <th scope="col" class="py-3 pr-4 font-semibold whitespace-nowrap">Passport number</th>
+          </template>
+          <th v-else scope="col" class="py-3 pr-4 font-semibold">Passport</th>
           <th
             v-for="column in columns"
             :key="column"
@@ -112,16 +122,26 @@ const actionClass =
           :class="rowClass?.(entry)"
           data-row
         >
-          <td class="py-3 pr-4">
+          <td class="py-3 pr-4" data-cell="passport_name">
             <RouterLink
               :to="{ name: 'passport-detail', params: { id: entry.id } }"
               class="rounded-sm font-semibold text-primary-900 underline-offset-4 hover:underline"
             >
               {{ entry.passport_name }}
             </RouterLink>
-            <span class="block font-mono text-xs tracking-wider text-slate-600">
+            <span
+              v-if="!splitNameNumber"
+              class="block font-mono text-xs tracking-wider text-slate-600"
+            >
               {{ entry.passport_number }}
             </span>
+          </td>
+          <td
+            v-if="splitNameNumber"
+            class="py-3 pr-4 font-mono tracking-wider whitespace-nowrap text-slate-800"
+            data-cell="passport_number"
+          >
+            {{ entry.passport_number }}
           </td>
           <td v-for="column in columns" :key="column" class="py-3 pr-4 text-slate-800">
             <PassportCell
