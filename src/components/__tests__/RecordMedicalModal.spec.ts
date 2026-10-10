@@ -2,10 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import RecordMedicalModal from '../RecordMedicalModal.vue'
+import SearchSelect from '../SearchSelect.vue'
 import { fetchMedicalQueue, recordMedical } from '@/api/medical'
 import { getPassport } from '@/api/passports'
 import { addDays, addMonthsNoOverflow, businessToday, toDisplayDate } from '@/lib/dates'
-import { httpError, makePassport } from '@/test/helpers'
+import { useAuthStore } from '@/stores/auth'
+import { httpError, makePassport, makeUser } from '@/test/helpers'
 import type { MedicalSaveResponse } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
 
@@ -15,6 +17,10 @@ vi.mock('@/api/medical', () => ({
   fetchMedicalQueue: vi.fn(),
 }))
 vi.mock('@/api/passports', () => ({ getPassport: vi.fn() }))
+vi.mock('@/api/medicalCenters', () => ({
+  searchMedicalCenters: vi.fn(async () => []),
+  createMedicalCenter: vi.fn(),
+}))
 vi.mock('@/api/workflow', () => ({ fetchWorkflowSummary: vi.fn(async () => null) }))
 
 const TODAY = businessToday()
@@ -30,6 +36,9 @@ function saveResponse(passportId: number, warnings: string[] = []): MedicalSaveR
       valid_until: addMonthsNoOverflow(TODAY, 3),
       days_left: 90,
       remarks: null,
+      medical_center: null,
+      slip_no: null,
+      slip_date: null,
       recorded_by: { id: 5, name: 'Data Entry' },
       created_at: '',
       updated_by: 5,
@@ -76,6 +85,45 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => wrapper.unmount())
 
 describe('RecordMedicalModal', () => {
+  describe('medical center and slip', () => {
+    /** SearchSelect is generic, so test-utils cannot type its props; read them untyped. */
+    const propsOf = (c: { props(): unknown }) => c.props() as Record<string, unknown>
+    const centerSelect = () =>
+      wrapper.findAllComponents(SearchSelect).find((c) => propsOf(c).label === 'Medical center')!
+
+    it('sends the medical center, slip no and slip date', async () => {
+      vi.mocked(recordMedical).mockResolvedValue(saveResponse(42))
+      await openModal(makePassport())
+
+      expect(wrapper.text()).toContain('Medical slip date')
+      centerSelect().vm.$emit('update:modelValue', { id: 3, name: 'Gulf Medical Center' })
+      await wrapper.get('[data-field="slip_no"]').setValue(' MG-5521 ')
+      await wrapper.get('[data-field="slip_date"]').setValue('2026-10-02')
+      await resultButton('fit').trigger('click')
+      await submitWith()
+
+      expect(recordMedical).toHaveBeenCalledWith(42, {
+        medical_date: TODAY,
+        result: 'fit',
+        remarks: null,
+        medical_center_id: 3,
+        slip_no: 'MG-5521',
+        slip_date: '2026-10-02',
+      })
+    })
+
+    it('offers "Add new medical center" to admins only', async () => {
+      await openModal(makePassport())
+      useAuthStore().user = makeUser({ role: 'data_entry' })
+      await flushPromises()
+      expect(propsOf(centerSelect()).addLabel).toBeUndefined()
+
+      useAuthStore().user = makeUser({ role: 'admin' })
+      await flushPromises()
+      expect(propsOf(centerSelect()).addLabel).toBe('Add new medical center')
+    })
+  })
+
   it('shows a read-only passport summary', async () => {
     await openModal(makePassport({ passport_expiry_date: addDays(TODAY, -3) }))
 
@@ -130,6 +178,9 @@ describe('RecordMedicalModal', () => {
       medical_date: TODAY,
       result: 'unfit',
       remarks: null,
+      medical_center_id: null,
+      slip_no: null,
+      slip_date: null,
     })
     expect(isOpen()).toBe(false)
   })

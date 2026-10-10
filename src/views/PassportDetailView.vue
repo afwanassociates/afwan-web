@@ -5,8 +5,11 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalHistoryTable from '@/components/MedicalHistoryTable.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import RecordMedicalModal from '@/components/RecordMedicalModal.vue'
+import RecordStepModal from '@/components/RecordStepModal.vue'
+import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import { deleteMedical, listMedicals } from '@/api/medical'
+import { deleteStepRecord, listStepRecords } from '@/api/steps'
 import { getPassport } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { businessToday, daysLeft, toDisplayDate } from '@/lib/dates'
@@ -16,6 +19,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { MedicalRecord } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
+import type { StepRecord, StepRecordSummary } from '@/types/workflow'
 
 /** One passport: its progress, details, current medical and medical history. */
 const route = useRoute()
@@ -28,6 +32,9 @@ const passportId = computed(() => Number(route.params.id))
 
 const passport = ref<PassportEntry | null>(null)
 const history = ref<MedicalRecord[]>([])
+/** Steps 3+ history, grouped by step key. */
+const stepHistory = ref<Record<string, StepRecord[]>>({})
+workflow.loadConfig()
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
 
@@ -37,10 +44,15 @@ async function load() {
   isLoading.value = true
   loadError.value = null
   try {
-    const [entry, records] = await Promise.all([getPassport(id), listMedicals(id)])
+    const [entry, records, steps] = await Promise.all([
+      getPassport(id),
+      listMedicals(id),
+      listStepRecords(id),
+    ])
     if (passportId.value !== id) return
     passport.value = entry
     history.value = records
+    stepHistory.value = steps
   } catch (error) {
     loadError.value =
       errorStatus(error) === 404
@@ -53,10 +65,56 @@ async function load() {
 
 watch(passportId, load, { immediate: true })
 
-/** After any medical change: this page, the step bar and the sidebar badges. */
+/** After any medical or step change: this page, the step bar and the sidebar badges. */
 function afterChange() {
   load()
   workflow.refresh()
+}
+
+/* ---------- Steps 3+: record, update, edit, undo ---------- */
+
+const stepModalOpen = ref(false)
+const stepModalKey = ref<string | null>(null)
+const stepModalRecord = ref<StepRecordSummary | null>(null)
+
+function openStep(stepKey: string, record: StepRecordSummary | null) {
+  stepModalKey.value = stepKey
+  stepModalRecord.value = record
+  stepModalOpen.value = true
+}
+
+const undoTarget = ref<StepRecord | null>(null)
+const undoOpen = ref(false)
+const undoBusy = ref(false)
+const undoError = ref<string | null>(null)
+
+function askUndo(record: StepRecord) {
+  undoTarget.value = record
+  undoError.value = null
+  undoOpen.value = true
+}
+
+async function confirmUndo() {
+  const record = undoTarget.value
+  if (!record) return
+  undoBusy.value = true
+  undoError.value = null
+  try {
+    await deleteStepRecord(record.id)
+    undoOpen.value = false
+    toast.success(`${record.step_label}: ${record.status_label} undone.`)
+    afterChange()
+  } catch (error) {
+    const code = errorStatus(error)
+    if (code === 403) undoError.value = 'Only admins can undo a step.'
+    else if (code === 404) {
+      undoOpen.value = false
+      afterChange()
+    } else if (code !== 401)
+      undoError.value = errorMessage(error, 'Could not undo the step. Please try again.')
+  } finally {
+    undoBusy.value = false
+  }
 }
 
 /* ---------- Derived ---------- */
@@ -153,9 +211,7 @@ const dd = 'font-medium text-ink'
 
 <template>
   <div class="mx-auto max-w-6xl">
-    <WorkflowStepper
-      :current="passport?.workflow.current_step === 'passport' ? 'passport' : 'medical'"
-    />
+    <WorkflowStepper :active-step="passport?.current_stage ?? null" />
 
     <RouterLink
       :to="backLink.to"
@@ -200,9 +256,37 @@ const dd = 'font-medium text-ink'
         </div>
       </div>
 
+      <!-- Date warnings from the API (never blocking) -->
+      <ul
+        v-if="passport.warnings?.length"
+        class="mt-6 space-y-1 rounded-xl border border-accent-300 bg-accent-50 px-4 py-3 text-sm text-accent-900"
+        role="status"
+        data-passport-warnings
+      >
+        <li v-for="warning in passport.warnings" :key="warning.code" class="flex gap-2">
+          <span aria-hidden="true">⚠</span>{{ warning.message }}
+        </li>
+      </ul>
+
       <!-- This passport's progress -->
       <section class="glass-card mt-6 p-5" aria-label="Progress">
         <WorkflowStepper :steps="passport.workflow.steps" />
+      </section>
+
+      <!-- Step timeline -->
+      <section class="glass-card mt-6 p-5 sm:p-6" aria-labelledby="timeline-heading">
+        <h2 id="timeline-heading" class="text-lg font-semibold text-ink">Steps</h2>
+        <div class="mt-4">
+          <StepTimeline
+            :passport="passport"
+            :history="stepHistory"
+            :role="auth.user?.role"
+            :user-id="auth.user?.id ?? null"
+            @record="openStep"
+            @edit="openStep"
+            @undo="askUndo"
+          />
+        </div>
       </section>
 
       <div class="mt-6 grid gap-6 lg:grid-cols-2">
@@ -279,6 +363,12 @@ const dd = 'font-medium text-ink'
                 <template v-else>{{ medicalDaysLeft }}</template>
               </dd>
             </template>
+            <dt :class="dt">Medical center</dt>
+            <dd :class="dd">{{ medical.medical_center?.name ?? '—' }}</dd>
+            <dt :class="dt">Medical slip no</dt>
+            <dd :class="[dd, 'font-mono']">{{ medical.slip_no || '—' }}</dd>
+            <dt :class="dt">Medical slip date</dt>
+            <dd :class="dd">{{ toDisplayDate(medical.slip_date) || '—' }}</dd>
             <dt :class="dt">Recorded by</dt>
             <dd :class="dd">{{ medical.recorded_by?.name ?? '—' }}</dd>
             <dt :class="dt">Remarks</dt>
@@ -307,6 +397,30 @@ const dd = 'font-medium text-ink'
       :record="editing"
       @saved="afterChange"
     />
+
+    <RecordStepModal
+      v-model:open="stepModalOpen"
+      :passport="passport"
+      :step-key="stepModalKey"
+      :record="stepModalRecord"
+      @saved="afterChange"
+    />
+
+    <ConfirmDialog
+      v-model:open="undoOpen"
+      title="Undo latest step"
+      confirm-label="Undo"
+      danger
+      :busy="undoBusy"
+      :error="undoError"
+      @confirm="confirmUndo"
+    >
+      <p v-if="undoTarget">
+        Remove the <strong>{{ undoTarget.step_label }}</strong> record “{{
+          undoTarget.status_label
+        }}” of {{ toDisplayDate(undoTarget.step_date) }}? The passport goes back to that step.
+      </p>
+    </ConfirmDialog>
 
     <ConfirmDialog
       v-model:open="deleteOpen"

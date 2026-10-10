@@ -24,7 +24,7 @@ let wrapper: VueWrapper
 let save: ReturnType<typeof vi.fn<(values: QuickAddValues) => Promise<unknown>>>
 
 /** Mounts the company variant of the modal, closed, then opens it (as the form does). */
-async function openCompanyModal() {
+async function openCompanyModal(extraProps: Record<string, unknown> = {}) {
   setActivePinia(createPinia())
   save = vi.fn(async (values: QuickAddValues) => ({ id: 9, name: values.name }))
   wrapper = mount(QuickAddModal, {
@@ -36,6 +36,7 @@ async function openCompanyModal() {
       save,
       withCountry: true,
       defaultCountryCode: 'MY',
+      ...extraProps,
       'onUpdate:open': (value: boolean) => wrapper.setProps({ open: value }),
     },
     attachTo: document.body,
@@ -69,9 +70,53 @@ describe('QuickAddModal (company)', () => {
 
     await submit()
 
-    expect(save).toHaveBeenCalledWith({ name: 'ABC Sdn Bhd', phone: null, country_code: 'MY' })
+    expect(save).toHaveBeenCalledWith({
+      name: 'ABC Sdn Bhd',
+      phone: null,
+      country_code: 'MY',
+      agent: null,
+    })
     expect(wrapper.emitted('saved')).toEqual([[{ id: 9, name: 'ABC Sdn Bhd' }]])
     expect(isOpen()).toBe(false)
+  })
+
+  it('sends the optional agent details and quota (empty ones as null)', async () => {
+    await openCompanyModal({ withAgent: true })
+    const field = (name: string) => wrapper.get<HTMLInputElement>(`[data-field="${name}"] input`)
+
+    await field('agent_name').setValue('  Rahim  ')
+    await field('agent_phone').setValue('+60 12-345 (6789)')
+    await field('bd_agency_name').setValue('Dhaka Overseas')
+    await field('quota').setValue('25')
+    await submit()
+
+    expect(save).toHaveBeenCalledWith({
+      name: 'ABC Sdn Bhd',
+      phone: null,
+      country_code: 'MY',
+      agent: {
+        agent_name: 'Rahim',
+        agent_phone: '+60 12-345 (6789)',
+        agent_email: null,
+        bd_agency_name: 'Dhaka Overseas',
+        quota: 25,
+      },
+    })
+  })
+
+  it('checks the agent phone and email before saving', async () => {
+    await openCompanyModal({ withAgent: true })
+    const field = (name: string) => wrapper.get<HTMLInputElement>(`[data-field="${name}"] input`)
+
+    await field('agent_phone').setValue('call me')
+    await field('agent_email').setValue('not-an-email')
+    await submit()
+
+    expect(save).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-field="agent_phone"]').text()).toContain(
+      'may only contain digits, spaces, +, - and brackets',
+    )
+    expect(wrapper.get('[data-field="agent_email"]').text()).toContain('Enter a valid email')
   })
 
   it('lets the user choose another country', async () => {

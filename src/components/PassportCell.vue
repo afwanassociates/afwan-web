@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
+import StageBadge from '@/components/StageBadge.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import { daysLeft, toDisplayDate } from '@/lib/dates'
 import { EXPIRING_SOON_DAYS } from '@/lib/medical'
@@ -107,6 +108,10 @@ const enteredBy = computed(() => {
 
   <template v-else-if="column === 'remarks'">
     <span class="line-clamp-2 break-words">{{ medical?.remarks || '—' }}</span>
+  </template>
+
+  <template v-else-if="column === 'stage'">
+    <StageBadge :stage="entry.current_stage" :status="entry.stage_status" />
   </template>
 
   <template v-else-if="column === 'entered_by'">

@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
+import { REPORT_ROLES } from '@/lib/companyReport'
 import { canAccessArea, homeRouteFor } from '@/lib/roles'
 import { settingsPagesFor } from '@/lib/settingsPages'
 import { useWorkflowStore } from '@/stores/workflow'
@@ -17,7 +18,7 @@ const isLoggingOut = ref(false)
 
 /**
  * "Dashboard" (the user's own role dashboard only), plus the passport screens for anyone who
- * can open the data-entry area, "Users" for anyone who can open the admin area and "Settings"
+ * can open the data-entry area, "Companies" for every role that may see the report, "Users" for anyone who can open the admin area and "Settings"
  * for anyone who may open at least one settings page.
  */
 interface NavItem {
@@ -52,6 +53,20 @@ const navItems = computed(() => {
       label: 'Medical',
       badge: step2 ? { count: step2.pending, label: 'pending' } : undefined,
     })
+    const stages = workflow.summary?.stages
+    const waiting = stages
+      ? Object.entries(stages)
+          .filter(([key]) => key !== 'medical')
+          .reduce((sum, [, counts]) => sum + (counts.waiting ?? 0), 0)
+      : null
+    items.push({
+      name: 'process',
+      label: 'Process',
+      badge: waiting === null ? undefined : { count: waiting, label: 'waiting' },
+    })
+  }
+  if ((REPORT_ROLES as readonly string[]).includes(role)) {
+    items.push({ name: 'companies', label: 'Companies', section: '/reports/companies' })
   }
   if (canAccessArea(role, 'admin')) items.push({ name: 'staff-users', label: 'Users' })
   if (settingsPagesFor(role).length > 0) {

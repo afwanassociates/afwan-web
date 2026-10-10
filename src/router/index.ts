@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { prefersReducedMotion } from '@/lib/scroll'
 import { ROLES, homeRouteFor } from '@/lib/roles'
+import { REPORT_ROLES } from '@/lib/companyReport'
 import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
 import { useAuthStore } from '@/stores/auth'
 import { authGuard } from '@/router/guard'
@@ -119,6 +120,12 @@ const router = createRouter({
           meta: { title: staffTitle('Passport') },
         },
         {
+          path: 'process',
+          name: 'process',
+          component: () => import('@/views/ProcessView.vue'),
+          meta: { title: staffTitle('Process') },
+        },
+        {
           path: 'medical',
           name: 'medical',
           component: () => import('@/views/MedicalView.vue'),
@@ -135,6 +142,26 @@ const router = createRouter({
           name: 'passport-edit',
           component: () => import('@/views/PassportFormView.vue'),
           meta: { title: staffTitle('Edit passport') },
+        },
+      ],
+    },
+    {
+      // Read-only reports: data_entry, accounts, admin and super_admin.
+      path: '/reports',
+      meta: { requiresAuth: true, layout: 'staff', roles: REPORT_ROLES },
+      children: [
+        { path: '', redirect: { name: 'companies' } },
+        {
+          path: 'companies',
+          name: 'companies',
+          component: () => import('@/views/CompaniesView.vue'),
+          meta: { title: staffTitle('Companies') },
+        },
+        {
+          path: 'companies/:id(\\d+)',
+          name: 'company-report',
+          component: () => import('@/views/CompanyView.vue'),
+          meta: { title: staffTitle('Company') },
         },
       ],
     },

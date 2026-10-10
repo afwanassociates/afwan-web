@@ -1,7 +1,8 @@
 import { ref } from 'vue'
 import { defineStore } from 'pinia'
-import { fetchWorkflowSummary } from '@/api/workflow'
+import { fetchWorkflowConfig, fetchWorkflowSummary } from '@/api/workflow'
 import type { WorkflowSummary } from '@/types/medical'
+import type { StepConfig, WorkflowConfig } from '@/types/workflow'
 
 /**
  * Workflow counts shared by the step bar, the sidebar badges and the "Unfit passports (N)"
@@ -35,5 +36,28 @@ export const useWorkflowStore = defineStore('workflow', () => {
     return pending
   }
 
-  return { summary, loadFailed, load, refresh }
+  /* ---------- Step definitions (loaded once per session) ---------- */
+
+  const config = ref<WorkflowConfig | null>(null)
+  let configPending: Promise<void> | null = null
+
+  function loadConfig(): Promise<void> {
+    if (config.value) return Promise.resolve()
+    configPending ??= fetchWorkflowConfig()
+      .then((value) => {
+        config.value = value
+      })
+      .catch(() => {
+        // Callers show their own error; a later call retries.
+      })
+      .finally(() => (configPending = null))
+    return configPending
+  }
+
+  /** A step's definition by key. */
+  function stepConfig(key: string | null | undefined): StepConfig | undefined {
+    return key ? config.value?.steps.find((s) => s.key === key) : undefined
+  }
+
+  return { summary, loadFailed, load, refresh, config, loadConfig, stepConfig }
 })

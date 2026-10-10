@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
+import QuickAddModal, { type QuickAddValues } from '@/components/QuickAddModal.vue'
+import SearchSelect from '@/components/SearchSelect.vue'
 import { fetchMedicalQueue, recordMedical, updateMedical } from '@/api/medical'
+import { createMedicalCenter, searchMedicalCenters } from '@/api/medicalCenters'
 import { getPassport } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { addDays, businessToday, daysLeft, toApiDate, toDisplayDate } from '@/lib/dates'
@@ -9,11 +12,18 @@ import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import {
   MEDICAL_VALIDITY_MONTHS,
   REMARKS_MAX,
+  isMedicalAdmin,
   medicalDateWarnings,
   validUntilFor,
 } from '@/lib/medical'
+import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
-import type { MedicalRecord, MedicalResult, MedicalSaveResponse } from '@/types/medical'
+import type {
+  MedicalCenterSummary,
+  MedicalRecord,
+  MedicalResult,
+  MedicalSaveResponse,
+} from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
 
 /**
@@ -36,10 +46,15 @@ const emit = defineEmits<{ saved: [response: MedicalSaveResponse] }>()
 
 const toast = useToast()
 const workflow = useWorkflowStore()
+const auth = useAuthStore()
+
+const SLIP_NO_MAX = 50
 
 const dateId = useId()
 const remarksId = useId()
 const resultLabelId = useId()
+const slipNoId = useId()
+const slipDateId = useId()
 
 const today = businessToday()
 const oldestAllowed = addDays(today, -365)
@@ -49,6 +64,9 @@ const current = ref<PassportEntry | null>(null)
 const medicalDate = ref(today)
 const result = ref<MedicalResult | null>(null)
 const remarks = ref('')
+const center = ref<MedicalCenterSummary | null>(null)
+const slipNo = ref('')
+const slipDate = ref('')
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
@@ -74,6 +92,10 @@ function resetForm(keepDate = false) {
   if (!keepDate) medicalDate.value = props.record?.medical_date ?? today
   result.value = props.record?.result ?? null
   remarks.value = props.record?.remarks ?? ''
+  // "Save and next pending" keeps the centre (same batch); the slip is per passport.
+  if (!keepDate) center.value = props.record?.medical_center ?? null
+  slipNo.value = props.record?.slip_no ?? ''
+  slipDate.value = props.record?.slip_date ?? ''
   errors.value = {}
   banner.value = null
   confirmingUnfit.value = false
@@ -84,6 +106,29 @@ watch(open, (isOpen) => {
   current.value = props.passport
   resetForm()
 })
+
+watch(center, () => delete errors.value.medical_center_id)
+watch(slipNo, () => delete errors.value.slip_no)
+watch(slipDate, () => delete errors.value.slip_date)
+
+/* ---------- Medical centre (admins may add a new one) ---------- */
+
+const fetchCenters = (q: string) => searchMedicalCenters(q)
+const canAddCenter = computed(() => isMedicalAdmin(auth.user?.role))
+const centerModalOpen = ref(false)
+const centerQuery = ref('')
+
+function openCenterModal(query: string) {
+  centerQuery.value = query
+  centerModalOpen.value = true
+}
+
+const saveCenter = (values: QuickAddValues) => createMedicalCenter(values.name)
+
+function onCenterAdded(item: MedicalCenterSummary) {
+  center.value = item
+  toast.success(`Medical center “${item.name}” added.`)
+}
 
 watch(result, () => {
   confirmingUnfit.value = false
@@ -131,6 +176,9 @@ function validate(): boolean {
   else if (validDate.value < oldestAllowed)
     e.medical_date = 'The medical date cannot be more than 1 year ago.'
   if (!result.value) e.result = 'Choose Fit or Unfit.'
+  if (slipNo.value.trim().length > SLIP_NO_MAX)
+    e.slip_no = `The medical slip no must be at most ${SLIP_NO_MAX} characters.`
+  if (slipDate.value && !toApiDate(slipDate.value)) e.slip_date = 'Enter a valid date.'
   if (remarks.value.length > REMARKS_MAX)
     e.remarks = `The remarks must be at most ${REMARKS_MAX} characters.`
   errors.value = e
@@ -170,6 +218,9 @@ async function save(action: SaveAction) {
     medical_date: validDate.value,
     result: result.value,
     remarks: remarks.value.trim() || null,
+    medical_center_id: center.value?.id ?? null,
+    slip_no: slipNo.value.trim() || null,
+    slip_date: toApiDate(slipDate.value) || null,
   }
   try {
     const response = props.record
@@ -354,6 +405,63 @@ const resultButtonClass = (value: MedicalResult) => {
         </p>
       </fieldset>
 
+      <!-- Medical center and slip (optional) -->
+      <SearchSelect
+        v-model="center"
+        :fetch="fetchCenters"
+        label="Medical center"
+        placeholder="Search medical center…"
+        :add-label="canAddCenter ? 'Add new medical center' : undefined"
+        :error="errors.medical_center_id"
+        clearable
+        data-field="medical_center"
+        @add="openCenterModal"
+      />
+
+      <div class="grid gap-5 sm:grid-cols-2">
+        <div>
+          <label :for="slipNoId" class="block text-sm font-medium text-slate-700">
+            Medical slip no <span class="font-normal text-muted">(optional)</span>
+          </label>
+          <input
+            :id="slipNoId"
+            v-model="slipNo"
+            type="text"
+            autocomplete="off"
+            :maxlength="SLIP_NO_MAX"
+            class="mt-1 block w-full rounded-lg border bg-white px-3 py-2.5 text-slate-900 focus:border-primary-600"
+            :class="errors.slip_no ? 'border-red-500' : 'border-slate-300'"
+            :aria-invalid="errors.slip_no ? 'true' : undefined"
+            :aria-describedby="errors.slip_no ? `${slipNoId}-error` : undefined"
+            data-field="slip_no"
+          />
+          <p v-if="errors.slip_no" :id="`${slipNoId}-error`" class="mt-1 text-sm text-red-700">
+            {{ errors.slip_no }}
+          </p>
+        </div>
+        <div>
+          <label :for="slipDateId" class="block text-sm font-medium text-slate-700">
+            Medical slip date <span class="font-normal text-muted">(optional)</span>
+          </label>
+          <input
+            :id="slipDateId"
+            v-model="slipDate"
+            type="date"
+            class="mt-1 block w-full rounded-lg border bg-white px-3 py-2.5 text-slate-900 focus:border-primary-600"
+            :class="errors.slip_date ? 'border-red-500' : 'border-slate-300'"
+            :aria-invalid="errors.slip_date ? 'true' : undefined"
+            :aria-describedby="`${slipDateId}-hint${errors.slip_date ? ` ${slipDateId}-error` : ''}`"
+            data-field="slip_date"
+          />
+          <p :id="`${slipDateId}-hint`" class="mt-1 text-xs text-muted">
+            {{ toDisplayDate(slipDate) || 'DD-MM-YYYY' }}
+          </p>
+          <p v-if="errors.slip_date" :id="`${slipDateId}-error`" class="mt-1 text-sm text-red-700">
+            {{ errors.slip_date }}
+          </p>
+        </div>
+      </div>
+
       <!-- Remarks -->
       <div>
         <label :for="remarksId" class="block text-sm font-medium text-slate-700">
@@ -451,4 +559,14 @@ const resultButtonClass = (value: MedicalResult) => {
       </div>
     </form>
   </BaseDialog>
+
+  <!-- Outside the medical dialog's form: forms cannot be nested. -->
+  <QuickAddModal
+    v-model:open="centerModalOpen"
+    title="Add new medical center"
+    name-label="Medical center name"
+    :initial-name="centerQuery"
+    :save="saveCenter"
+    @saved="onCenterAdded"
+  />
 </template>

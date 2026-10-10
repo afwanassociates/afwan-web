@@ -6,10 +6,12 @@ import PassportListView from '../PassportListView.vue'
 import { listPassports } from '@/api/passports'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
+import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { PassportEntry, PassportFilters } from '@/types/passport'
 
 vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), deletePassport: vi.fn() }))
 vi.mock('@/api/workflow', () => ({
+  fetchWorkflowConfig: vi.fn(async () => WORKFLOW_CONFIG),
   fetchWorkflowSummary: vi.fn(async () => ({
     steps: [],
     step1: { total_all: 4, total_active: 1, incomplete: 0 },
@@ -58,6 +60,7 @@ async function mountList(path: string) {
       { path: '/unfit', name: 'unfit', component: Empty },
       { path: '/all-passports', name: 'all-passports', component: Empty },
       { path: '/medical', name: 'medical', component: Empty },
+      { path: '/process', name: 'process', component: { template: '<div />' } },
     ],
   })
   await router.push(path)
@@ -125,5 +128,53 @@ describe('Passport List without medical parts', () => {
 
     const edit = wrapper.findAll('a').find((a) => a.text().startsWith('Edit'))
     expect(edit?.attributes('href')).toBe('/passports/42/edit')
+  })
+
+  it("shows each passport's stage as a badge with text", async () => {
+    vi.mocked(listPassports).mockResolvedValue(
+      page([makePassport({ current_stage: 'visa', stage_status: 'in_process' })]),
+    )
+    await mountList('/passports')
+
+    expect(wrapper.findAll('th').map((th) => th.text())).toContain('Stage')
+    const badge = wrapper.get('tr[data-row] [data-stage-badge]')
+    expect(badge.text()).toBe('Visa, In process')
+    expect(badge.attributes('data-tone')).toBe('info')
+  })
+
+  it('filters by stage through the URL and resets to page 1', async () => {
+    vi.mocked(listPassports).mockResolvedValue(page([makePassport()]))
+    await mountList('/passports?q=rahim&page=3')
+
+    const select = wrapper.get('select[data-stage-filter]')
+    expect(select.findAll('option').map((o) => o.text())).toEqual([
+      'All stages',
+      'Medical',
+      'Calling / Work Permit',
+      'Visa',
+      'BMET Clearance',
+      'Flight',
+      'Completed',
+    ])
+
+    await select.setValue('bmet')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query).toEqual({ q: 'rahim', stage: 'bmet' })
+    expect(listPassports).toHaveBeenLastCalledWith(
+      expect.objectContaining({ stage: 'bmet', q: 'rahim', page: 1 }),
+    )
+    // Still no top step bar on this page.
+    expect(wrapper.find('nav[aria-label="Workflow steps"]').exists()).toBe(false)
+  })
+
+  it('reads the stage filter from the URL', async () => {
+    vi.mocked(listPassports).mockResolvedValue(page([]))
+    await mountList('/passports?stage=completed')
+
+    expect(listPassports).toHaveBeenCalledWith(expect.objectContaining({ stage: 'completed' }))
+    expect((wrapper.get('select[data-stage-filter]').element as HTMLSelectElement).value).toBe(
+      'completed',
+    )
   })
 })

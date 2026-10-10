@@ -9,6 +9,7 @@ import { listPassports, getPassport } from '@/api/passports'
 import { listMedicals } from '@/api/medical'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
+import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { Role } from '@/types/auth'
 import type { MedicalRecord } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
@@ -21,7 +22,16 @@ vi.mock('@/api/medical', () => ({
   updateMedical: vi.fn(),
   fetchMedicalQueue: vi.fn(),
 }))
-vi.mock('@/api/workflow', () => ({ fetchWorkflowSummary: vi.fn(async () => null) }))
+vi.mock('@/api/workflow', () => ({
+  fetchWorkflowSummary: vi.fn(async () => null),
+  fetchWorkflowConfig: vi.fn(async () => WORKFLOW_CONFIG),
+}))
+vi.mock('@/api/steps', () => ({
+  listStepRecords: vi.fn(async () => ({})),
+  deleteStepRecord: vi.fn(),
+  recordStep: vi.fn(),
+  updateStepRecord: vi.fn(),
+}))
 vi.mock('@/api/countries', () => ({
   fetchCountries: vi.fn(async () => []),
   fetchDefaults: vi.fn(async () => ({
@@ -42,6 +52,9 @@ const UNFIT: PassportEntry = makePassport({
     valid_until: null,
     days_left: null,
     remarks: 'Hepatitis B positive',
+    medical_center: null,
+    slip_no: null,
+    slip_date: null,
     recorded_by: { id: 5, name: 'Admin' },
     created_at: '',
   },
@@ -58,6 +71,9 @@ function record(overrides: Partial<MedicalRecord> = {}): MedicalRecord {
     valid_until: null,
     days_left: null,
     remarks: null,
+    medical_center: null,
+    slip_no: null,
+    slip_date: null,
     recorded_by: { id: 5, name: 'Admin' },
     created_at: '',
     updated_by: 5,
@@ -91,6 +107,7 @@ async function mountView(component: object, role: Role, path: string) {
     history: createMemoryHistory(),
     routes: [
       { path: '/medical', name: 'medical', component },
+      { path: '/process', name: 'process', component: { template: '<div />' } },
       { path: '/passports/:id', name: 'passport-detail', component },
       { path: '/passports/:id/edit', name: 'passport-edit', component: Empty },
       { path: '/passports', name: 'passports', component: Empty },

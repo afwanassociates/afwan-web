@@ -32,7 +32,9 @@ const ROUTE_NAMES = [
   'passport-new',
   'all-passports',
   'medical',
+  'process',
   'unfit',
+  'companies',
 ]
 
 async function mountAs(role: Role, path = '/home') {
@@ -91,6 +93,8 @@ describe('StaffLayout menu', () => {
         'Add Passport',
         'Passport List',
         'Medical',
+        'Process',
+        'Companies',
         'Users',
         'Settings',
       ],
@@ -103,12 +107,26 @@ describe('StaffLayout menu', () => {
         'Add Passport',
         'Passport List',
         'Medical',
+        'Process',
+        'Companies',
         'Users',
         'Settings',
       ],
     ],
-    ['data_entry', ['Dashboard', 'All Passports', 'Add Passport', 'Passport List', 'Medical']],
-    ['accounts', ['Dashboard']],
+    [
+      'data_entry',
+      [
+        'Dashboard',
+        'All Passports',
+        'Add Passport',
+        'Passport List',
+        'Medical',
+        'Process',
+        'Companies',
+      ],
+    ],
+    // Accounts: read-only Companies report only.
+    ['accounts', ['Dashboard', 'Companies']],
   ] as const)('shows %s one "Dashboard" and its own screens', async (role, labels) => {
     await mountAs(role)
 

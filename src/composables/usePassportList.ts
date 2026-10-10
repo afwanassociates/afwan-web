@@ -24,6 +24,8 @@ export interface PassportListOptions<T = PassportEntry> {
   perPage?: number
   /** Loads one page; defaults to GET /passports with full PassportEntry items. */
   fetch?: (filters: PassportFilters) => Promise<Paginated<T>>
+  /** Wait to load until this is true (e.g. until the page's tabs are known). */
+  ready?: () => boolean
 }
 
 interface CompanyFilterItem {
@@ -145,6 +147,7 @@ export function usePassportList<T = PassportEntry>(options: PassportListOptions<
   let requestId = 0
 
   async function load() {
+    if (options.ready && !options.ready()) return
     const id = ++requestId
     const f = filters.value
     const [sortField, direction] = (f.sort ?? '').split(':') as [
@@ -181,8 +184,10 @@ export function usePassportList<T = PassportEntry>(options: PassportListOptions<
     }
   }
 
+  // Reload when the URL changes, and when the page's fixed filters or readiness change
+  // (e.g. a tab that only becomes known once its config has loaded).
   watch(
-    () => route.query,
+    () => [route.query, JSON.stringify(options.fixed()), options.ready?.() ?? true],
     () => {
       if (route.name === options.routeName) load()
     },

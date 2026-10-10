@@ -2,6 +2,7 @@
 
 import type { CountrySummary } from '@/types/country'
 import type { MedicalStatus, MedicalSummary, PassportWorkflow } from '@/types/medical'
+import type { WorkflowWarning } from '@/types/workflow'
 
 export type ReferenceType = 'person' | 'agency'
 
@@ -25,10 +26,23 @@ export interface Company {
   name: string
   /** Where the employer is. */
   country: CountrySummary
+  agent_name: string | null
+  agent_phone: string | null
+  agent_email: string | null
+  /** The Bangladeshi recruiting agency. */
+  bd_agency_name: string | null
+  /** Workers the company asked for. */
+  quota: number | null
   is_active: boolean
   created_at: string
   updated_at: string
 }
+
+/** Optional agent details of a company (all nullable). */
+export type CompanyAgentDetails = Pick<
+  Company,
+  'agent_name' | 'agent_phone' | 'agent_email' | 'bd_agency_name' | 'quota'
+>
 
 /** The company as embedded in a passport entry. */
 export type CompanySummary = Pick<Company, 'id' | 'name' | 'country'>
@@ -51,6 +65,12 @@ export interface PassportEntry {
   medical_status_label: string
   current_medical: MedicalSummary | null
   workflow: PassportWorkflow
+  /** Step the passport is at ('medical', 'calling', …, 'completed'). */
+  current_stage?: string | null
+  /** Status at that step ('pending', 'unfit', 'waiting', 'in_process', 'rejected'). */
+  stage_status?: string | null
+  /** Date problems worth a look (never blocking). */
+  warnings?: WorkflowWarning[]
   created_by: number | null
   updated_by: number | null
   created_at: string
@@ -92,6 +112,10 @@ export interface PassportFilters {
   sort?: PassportSort
   /** 'overview' returns lean PassportOverview items. */
   view?: 'overview'
+  /** Current step: medical, calling, visa, bmet, flight or completed. */
+  stage?: string
+  /** Status at that step: pending, unfit, waiting, in_process or rejected. */
+  stage_status?: string
   direction?: 'asc' | 'desc'
   page?: number
   per_page?: number
@@ -103,7 +127,7 @@ export interface NewReference {
   phone?: string | null
 }
 
-export interface NewCompany {
+export interface NewCompany extends Partial<CompanyAgentDetails> {
   name: string
   country_code: string
 }

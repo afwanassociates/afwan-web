@@ -157,7 +157,7 @@ const actionClass =
 
 <template>
   <div class="mx-auto max-w-7xl">
-    <WorkflowStepper current="medical" />
+    <WorkflowStepper active-step="medical" />
 
     <h1 class="mt-6 text-2xl font-bold text-primary-900 sm:text-3xl">Medical</h1>
     <p class="mt-1 text-sm text-muted">

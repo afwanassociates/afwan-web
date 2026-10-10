@@ -44,6 +44,10 @@ export const STEP_STATE_TEXT: Record<StepState, string> = {
   failed: 'Unfit',
   locked: 'Locked',
   ready: 'Ready',
+  waiting: 'Waiting',
+  in_process: 'In process',
+  rejected: 'Rejected',
+  completed: 'Completed',
 }
 
 export type StepTone = 'success' | 'warning' | 'danger' | 'muted' | 'info'
@@ -52,16 +56,20 @@ export function stepTone(state: StepState): StepTone {
   switch (state) {
     case 'done':
     case 'passed':
+    case 'completed':
       return 'success'
     case 'pending':
     case 'needs_attention':
     case 'expired':
+    case 'waiting':
       return 'warning'
     case 'failed':
+    case 'rejected':
       return 'danger'
     case 'locked':
       return 'muted'
     case 'ready':
+    case 'in_process':
       return 'info'
   }
 }

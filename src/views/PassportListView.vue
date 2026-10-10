@@ -31,6 +31,7 @@ workflow.load()
 
 const searchId = useId()
 const typeId = useId()
+const stageId = useId()
 const fromId = useId()
 const toId = useId()
 
@@ -49,6 +50,8 @@ interface Filters {
   /** YYYY-MM-DD */
   received_from: string
   received_to: string
+  /** Current step: a step key from the config, or 'completed'. */
+  stage: string
   page: number
 }
 
@@ -73,6 +76,7 @@ const filters = computed<Filters>(() => {
       : '',
     received_from: toApiDate(text(query.received_from)),
     received_to: toApiDate(text(query.received_to)),
+    stage: /^[a-z_]+$/.test(text(query.stage)) ? text(query.stage) : '',
     page: positiveInt(query.page) ?? 1,
   }
 })
@@ -86,7 +90,8 @@ const hasFilters = computed(() => {
     f.company_id ||
     f.company_country_code ||
     f.received_from ||
-    f.received_to,
+    f.received_to ||
+    f.stage,
   )
 })
 
@@ -107,6 +112,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   if (next.company_country_code) query.company_country_code = next.company_country_code
   if (next.received_from) query.received_from = next.received_from
   if (next.received_to) query.received_to = next.received_to
+  if (next.stage) query.stage = next.stage
   if (next.page > 1) query.page = String(next.page)
   return query
 }
@@ -163,6 +169,21 @@ const countries = useCountriesStore()
 countries.load()
 
 /** "All countries" when empty. Falls back to the code until the country list has loaded. */
+/** Stage filter: the steps from the config (from Medical on), then Completed. */
+workflow.loadConfig()
+const stageOptions = computed(() => [
+  ...(workflow.config?.steps ?? [])
+    .filter((s) => s.enabled && s.order > 1)
+    .sort((a, b) => a.order - b.order)
+    .map((s) => ({ value: s.key, label: s.label })),
+  { value: 'completed', label: 'Completed' },
+])
+
+const stageFilter = computed({
+  get: () => filters.value.stage,
+  set: (stage: string) => applyFilters({ stage }),
+})
+
 const companyCountryFilter = computed({
   get: (): CountrySummary | null => {
     const code = filters.value.company_country_code
@@ -243,6 +264,7 @@ async function load() {
       company_country_code: f.company_country_code || undefined,
       received_from: f.received_from || undefined,
       received_to: f.received_to || undefined,
+      stage: f.stage || undefined,
       page: f.page,
       per_page: PER_PAGE,
     })
@@ -392,6 +414,15 @@ const inputClass =
             placeholder="All countries"
             clearable
           />
+          <div>
+            <label :for="stageId" class="block text-sm font-medium text-slate-700">Stage</label>
+            <select :id="stageId" v-model="stageFilter" :class="inputClass" data-stage-filter>
+              <option value="">All stages</option>
+              <option v-for="option in stageOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
           <fieldset class="min-w-0">
             <legend class="text-sm font-medium text-slate-700">Received date</legend>
             <div class="mt-1 grid grid-cols-2 gap-2">
@@ -496,6 +527,7 @@ const inputClass =
           <PassportTable
             :entries="list.data"
             :current-user-id="auth.user?.id ?? null"
+            :columns="['reference', 'company', 'received', 'stage', 'entered_by']"
             @delete="askDelete"
           />
 
