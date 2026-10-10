@@ -8,6 +8,8 @@ export interface CompanyCounts {
   medical_fit: number
   medical_unfit: number
   medical_pending: number
+  /** No medical slip date yet. */
+  not_started: number
   calling_done: number
   visa_done: number
   bmet_done: number
@@ -54,7 +56,11 @@ export interface CompanyReportParams {
   per_page?: number
 }
 
-/** An item of GET /reports/companies/{id}/passports. */
-export interface CompanyPassport extends PassportEntry {
+/**
+ * An item of GET /reports/companies/{id}/passports: read-only, so it carries no action
+ * permissions except whether the viewer may edit the passport details.
+ */
+export interface CompanyPassport extends Omit<PassportEntry, 'can'> {
   latest_status: LatestStatus
+  can_edit_passport: boolean
 }

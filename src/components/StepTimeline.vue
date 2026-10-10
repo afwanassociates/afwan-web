@@ -75,14 +75,14 @@ function detailsOf(stepKey: string, record: StepRecordSummary) {
     .filter((d) => d.value)
 }
 
-/** The current medical's centre and slip, when recorded. */
+/** The passport's medical slip (MYGRAM) and centre, when entered. */
 const medicalDetails = computed(() => {
-  const m = props.passport.current_medical
-  if (!m) return []
+  const slip = props.passport.medical_slip
+  if (!slip) return []
   return [
-    { label: 'Medical center', value: m.medical_center?.name, mono: false },
-    { label: 'Medical slip no', value: m.slip_no, mono: true },
-    { label: 'Medical slip date', value: toDisplayDate(m.slip_date), mono: false },
+    { label: 'Medical slip date', value: toDisplayDate(slip.date), mono: false },
+    { label: 'Medical slip no', value: slip.no, mono: true },
+    { label: 'Medical center', value: slip.medical_center?.name, mono: false },
   ].filter((d) => d.value)
 })
 

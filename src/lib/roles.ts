@@ -51,6 +51,9 @@ export function canAccessArea(userRole: Role, areaRole: Role): boolean {
   return user.rank > area.rank
 }
 
+/** Roles of the admin panel (users, companies). */
+export const ADMIN_ROLES: readonly Role[] = ['admin', 'super_admin']
+
 /** Roles that may open the admin settings (countries and defaults). */
 export const SETTINGS_ROLES: readonly Role[] = ['admin', 'super_admin']
 

@@ -54,4 +54,18 @@ describe('LatestStatusText', () => {
     expect(wrapper.attributes('data-tone')).toBe('gray')
     expect(wrapper.get('[data-status-text]').text()).toBe('Other: Unknown')
   })
+
+  it.each([
+    // Not started: no medical slip yet.
+    [{ stage: 'passport', status: 'not_started', tone: 'amber' }, 'Passport entered', 'gray'],
+    // Slip date entered, no result yet.
+    [{ stage: 'medical', status: 'pending', tone: 'amber' }, 'Medical pending', 'amber'],
+  ] as const)('words %o as "%s" (%s)', (overrides, text, tone) => {
+    const wrapper = mount(LatestStatusText, {
+      props: { latestStatus: { ...status(overrides.tone, 'API text'), ...overrides } },
+    })
+
+    expect(wrapper.get('[data-status-text]').text()).toBe(text)
+    expect(wrapper.attributes('data-tone')).toBe(tone)
+  })
 })

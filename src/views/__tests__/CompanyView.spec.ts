@@ -8,7 +8,7 @@ import { fetchCompanyPassports, fetchCompanyReport } from '@/api/reports'
 import { useAuthStore } from '@/stores/auth'
 import { httpError, makePassport, makeUser } from '@/test/helpers'
 import type { Role } from '@/types/auth'
-import type { Company } from '@/types/passport'
+import type { Company, PassportEntry } from '@/types/passport'
 import type { CompanyPassport, CompanyReportRow } from '@/types/report'
 
 vi.mock('@/api/reports', () => ({
@@ -29,6 +29,7 @@ const ROW: CompanyReportRow = {
   medical_fit: 2,
   medical_unfit: 1,
   medical_pending: 0,
+  not_started: 0,
   calling_done: 1,
   visa_done: 0,
   bmet_done: 0,
@@ -46,10 +47,16 @@ const STEPS = [
   { key: 'flight', label: 'Flight', enabled: true, state: 'locked' as const },
 ]
 
-function passport(id: number, name: string): CompanyPassport {
-  const base = makePassport({ id, passport_name: name })
+function passport(id: number, name: string, canEdit = true): CompanyPassport {
+  // The report's passports carry no `can` block, only can_edit_passport.
+  const base: Omit<PassportEntry, 'can'> & { can?: unknown } = makePassport({
+    id,
+    passport_name: name,
+  })
+  delete base.can
   return {
     ...base,
+    can_edit_passport: canEdit,
     company: { id: 7, name: 'ABC Sdn Bhd', country: { code: 'MY', name: 'Malaysia' } },
     workflow: { current_step: 'calling', steps: STEPS },
     latest_status: {
@@ -65,7 +72,8 @@ function passport(id: number, name: string): CompanyPassport {
 }
 
 const PAGE_1 = {
-  data: [passport(11, 'KARIM UDDIN'), passport(12, 'SALMA BEGUM')],
+  // Data entry may edit only the passports they entered: 12 is someone else's.
+  data: [passport(11, 'KARIM UDDIN'), passport(12, 'SALMA BEGUM', false)],
   links: { first: null, last: null, prev: null, next: '?page=2' },
   meta: { current_page: 1, last_page: 2, per_page: 15, total: 17, from: 1, to: 15 },
 }
@@ -85,6 +93,7 @@ async function mountAs(role: Role, path = '/reports/companies/7') {
       { path: '/reports/companies', name: 'companies', component: { template: '<div />' } },
       { path: '/reports/companies/:id', name: 'company-report', component: CompanyView },
       { path: '/passports/:id', name: 'passport-detail', component: { template: '<div />' } },
+      { path: '/passports/:id/edit', name: 'passport-edit', component: { template: '<div />' } },
     ],
   })
   await router.push(path)
@@ -133,7 +142,14 @@ describe('CompanyView', () => {
 
     expect(fetchCompanyPassports).toHaveBeenCalledWith(7, { page: 1, per_page: 15 })
     const headers = wrapper.findAll('[data-passports] thead th').map((th) => th.text())
-    expect(headers).toEqual(['Name', 'Passport no', 'Reference', 'Progress', 'Latest status'])
+    expect(headers).toEqual([
+      'Name',
+      'Passport no',
+      'Reference',
+      'Latest status',
+      'Progress',
+      'Actions',
+    ])
 
     const first = wrapper.get('[data-passport-row="11"]')
     expect(first.text()).toContain('KARIM UDDIN')
@@ -143,24 +159,45 @@ describe('CompanyView', () => {
     expect(wrapper.text()).toContain('Showing 1–15 of 17')
   })
 
-  it('links rows to the passport page for data entry', async () => {
+  it('offers only "Edit passport", and only where can_edit_passport is true', async () => {
     await mountAs('data_entry')
 
-    const link = wrapper.get('[data-passport-row="12"] a')
-    expect(link.attributes('href')).toBe('/passports/12')
-    await wrapper.get('[data-passport-row="12"]').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.name).toBe('passport-detail')
+    const editable = wrapper.get('[data-passport-row="11"]')
+    const notEditable = wrapper.get('[data-passport-row="12"]')
+
+    // The only control in an editable row is "Edit passport", back to this page after saving.
+    expect(editable.findAll('a, button')).toHaveLength(1)
+    const edit = editable.get('a[data-edit-passport]')
+    expect(edit.text()).toContain('Edit passport')
+    expect(edit.attributes('href')).toBe('/passports/11/edit?back=/reports/companies/7')
+    // can_edit_passport false: no action at all.
+    expect(notEditable.findAll('a, button')).toHaveLength(0)
   })
 
-  it('accounts: read-only, no passport links and no agent contact lookup', async () => {
+  it('has no workflow actions: no Record medical, Record step or links into the workflow', async () => {
+    await mountAs('admin')
+
+    const table = wrapper.get('[data-passports]')
+    const text = table.text()
+    expect(text).not.toMatch(/Record|Update status|Repeat medical|Re-test|Add medical slip/)
+    expect(table.findAll('a').every((a) => a.attributes('data-edit-passport') !== undefined)).toBe(
+      true,
+    )
+    expect(table.findAll('button')).toHaveLength(0)
+    // The step bar is display-only.
+    const bar = wrapper.get('[data-passport-row="11"] [data-state]').element.closest('a, button')
+    expect(bar).toBeNull()
+  })
+
+  it('accounts: read-only, no edit actions and no agent contact lookup', async () => {
+    vi.mocked(fetchCompanyPassports).mockResolvedValue({
+      ...PAGE_1,
+      data: PAGE_1.data.map((p) => ({ ...p, can_edit_passport: false })),
+    })
     await mountAs('accounts')
 
-    expect(wrapper.find('[data-passport-row="11"] a').exists()).toBe(false)
+    expect(wrapper.find('[data-edit-passport]').exists()).toBe(false)
     expect(searchCompanies).not.toHaveBeenCalled()
-    await wrapper.get('[data-passport-row="11"]').trigger('click')
-    await flushPromises()
-    expect(router.currentRoute.value.name).toBe('company-report')
   })
 
   it('shows an empty state when the company has no passports', async () => {

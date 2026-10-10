@@ -76,6 +76,40 @@ describe('router guard (real routes)', () => {
     })
   })
 
+  describe('admin panel › Companies (/staff/admin/companies)', () => {
+    it.each(['admin', 'super_admin'] as const)('%s can open it', async (role) => {
+      setSession(role)
+      await router.push('/staff/admin/companies')
+
+      expect(router.currentRoute.value.name).toBe('admin-companies')
+    })
+
+    it.each(['data_entry', 'accounts'] as const)('%s gets the 403 page', async (role) => {
+      setSession(role)
+      await router.push('/staff/admin/companies?status=inactive')
+
+      expect(router.currentRoute.value.name).toBe('forbidden')
+      expect(router.currentRoute.value.query.from).toBe('/staff/admin/companies?status=inactive')
+    })
+
+    it('sends guests to login', async () => {
+      setSession(null)
+      await router.push('/staff/admin/companies')
+
+      expect(router.currentRoute.value.name).toBe('login')
+    })
+
+    it.each(['admin', 'super_admin', 'data_entry', 'accounts'] as const)(
+      '%s can open the Company report (top menu)',
+      async (role) => {
+        setSession(role)
+        await router.push('/reports/companies')
+
+        expect(router.currentRoute.value.name).toBe('companies')
+      },
+    )
+  })
+
   describe('wrong role', () => {
     it.each([
       ['admin', '/staff/super-admin'],

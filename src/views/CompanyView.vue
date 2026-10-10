@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, watch } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import LatestStatusText from '@/components/LatestStatusText.vue'
 import PassportListBody from '@/components/PassportListBody.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
@@ -23,11 +23,10 @@ import type { CompanyCounts, CompanyPassport, CompanyReportRow } from '@/types/r
 
 /**
  * One company of the Companies report: a header card with the company, its agent and its
- * counts, then the company's passports (newest first). Read-only. Passport rows open the
- * passport page for users who may open it.
+ * counts, then the company's passports (newest first). Read-only: the step bar is display
+ * only and the one row action is "Edit passport" (when the API's can_edit_passport allows).
  */
 const route = useRoute()
-const router = useRouter()
 const auth = useAuthStore()
 
 const PER_PAGE = 15
@@ -38,7 +37,8 @@ const page = computed(() => {
   return Number.isInteger(value) && value > 1 ? value : 1
 })
 
-const canOpenPassports = computed(() => {
+/** Only data-entry users and admins may read the agent's phone and email (company lookup). */
+const canLookUpContact = computed(() => {
   const role = auth.user?.role
   return role !== undefined && canAccessArea(role, 'data_entry')
 })
@@ -77,7 +77,7 @@ async function loadHeader(id: number, nameHint: string | null) {
     rowMissing.value = row.value === null
   }
   contact.value = null
-  if (row.value && canOpenPassports.value) {
+  if (row.value && canLookUpContact.value) {
     try {
       const match = (await searchCompanies(row.value.name)).find((c) => c.id === id)
       if (match) contact.value = { agent_phone: match.agent_phone, agent_email: match.agent_email }
@@ -89,6 +89,8 @@ async function loadHeader(id: number, nameHint: string | null) {
 
 const MINI_COUNTS: { key: keyof CompanyCounts; label: string }[] = [
   { key: 'total', label: 'Total' },
+  { key: 'not_started', label: 'Not started' },
+  { key: 'medical_pending', label: 'Medical pending' },
   { key: 'medical_fit', label: 'Medical fit' },
   { key: 'medical_unfit', label: 'Unfit' },
   { key: 'calling_done', label: 'Calling' },
@@ -139,11 +141,15 @@ watch(
 )
 
 const pageLink = (p: number) => ({ query: { ...route.query, page: p > 1 ? String(p) : undefined } })
-const passportLink = (id: number) => ({ name: 'passport-detail', params: { id } })
-
-function openPassport(id: number) {
-  if (canOpenPassports.value) router.push(passportLink(id))
-}
+/**
+ * The only row action: the passport details form (name, number, reference, dates, country,
+ * company). It comes back to this page after saving.
+ */
+const editLink = (id: number) => ({
+  name: 'passport-edit',
+  params: { id },
+  query: { back: route.fullPath },
+})
 
 const title = computed(() => row.value?.name ?? list.value?.data[0]?.company.name ?? 'Company')
 const th = 'py-3 pr-4 font-semibold'
@@ -228,7 +234,7 @@ const th = 'py-3 pr-4 font-semibold'
             </div>
           </dl>
 
-          <ul class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-8" data-mini-counts>
+          <ul class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5" data-mini-counts>
             <li
               v-for="c in MINI_COUNTS"
               :key="c.key"
@@ -263,8 +269,11 @@ const th = 'py-3 pr-4 font-semibold'
                     <th scope="col" :class="th">Name</th>
                     <th scope="col" :class="th">Passport no</th>
                     <th scope="col" :class="th">Reference</th>
+                    <th scope="col" :class="th">Latest status</th>
                     <th scope="col" :class="th">Progress</th>
-                    <th scope="col" :class="[th, 'pr-0']">Latest status</th>
+                    <th scope="col" :class="[th, 'pr-0']">
+                      <span class="sr-only">Actions</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-stroke">
@@ -272,30 +281,31 @@ const th = 'py-3 pr-4 font-semibold'
                     v-for="p in list?.data ?? []"
                     :key="p.id"
                     class="align-top"
-                    :class="{ 'cursor-pointer hover:bg-primary-50/60': canOpenPassports }"
                     :data-passport-row="p.id"
-                    @click="openPassport(p.id)"
                   >
                     <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
-                      <RouterLink
-                        v-if="canOpenPassports"
-                        :to="passportLink(p.id)"
-                        class="text-primary-800 underline-offset-4 hover:underline"
-                        @click.stop
-                      >
-                        {{ p.passport_name }}
-                      </RouterLink>
-                      <template v-else>{{ p.passport_name }}</template>
+                      {{ p.passport_name }}
                     </th>
                     <td class="py-3 pr-4 font-mono tracking-wider whitespace-nowrap text-ink">
                       {{ p.passport_number }}
                     </td>
-                    <td class="py-3 pr-4 text-slate-700">{{ p.reference.name }}</td>
+                    <td class="py-3 pr-4 text-slate-700">{{ p.reference?.name ?? '—' }}</td>
                     <td class="py-3 pr-4">
+                      <LatestStatusText :latest-status="p.latest_status" />
+                    </td>
+                    <td class="py-3 pr-4">
+                      <!-- Display only: no workflow buttons on this page. -->
                       <WorkflowStepper :steps="p.workflow.steps" compact />
                     </td>
-                    <td class="py-3">
-                      <LatestStatusText :latest-status="p.latest_status" />
+                    <td class="py-3 text-right">
+                      <RouterLink
+                        v-if="p.can_edit_passport"
+                        :to="editLink(p.id)"
+                        class="rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap text-primary-700 hover:bg-primary-50"
+                        data-edit-passport
+                      >
+                        Edit passport<span class="sr-only"> {{ p.passport_number }}</span>
+                      </RouterLink>
                     </td>
                   </tr>
                 </tbody>

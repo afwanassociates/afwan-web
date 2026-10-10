@@ -12,6 +12,9 @@ onMounted(() => workflow.loadConfig())
 const text = computed(() => {
   if (!props.stage) return '—'
   if (props.stage === 'completed') return 'Completed'
+  // Same words as the latest status: grey "Passport entered", amber "Medical pending".
+  if (props.stage === 'passport' || props.status === 'not_started') return 'Passport entered'
+  if (props.stage === 'medical' && props.status === 'pending') return 'Medical pending'
   const step = workflow.stepConfig(props.stage)
   const stage = step?.short_label ?? step?.label ?? humanize(props.stage)
   return props.status ? `${stage}, ${humanize(props.status)}` : stage

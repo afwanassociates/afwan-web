@@ -1,6 +1,8 @@
 import api from '@/lib/api'
+import type { PassportEntry } from '@/types/passport'
 import type {
   MedicalPayload,
+  MedicalSlipPayload,
   MedicalQueueItem,
   MedicalRecord,
   MedicalSaveResponse,
@@ -49,4 +51,19 @@ export async function fetchMedicalQueue(
     meta: { next_cursor: string | null }
   }>(`${BASE}/medical/queue`, { params })
   return data
+}
+
+/**
+ * Saves a passport's medical slip (MYGRAM date, number, centre). Entering the date moves the
+ * passport from "not started" into Medical → Pending. Returns the updated passport.
+ */
+export async function updateMedicalSlip(
+  passportId: number,
+  payload: MedicalSlipPayload,
+): Promise<PassportEntry> {
+  const { data } = await api.patch<{ data: PassportEntry }>(
+    `${BASE}/passports/${passportId}/medical-slip`,
+    payload,
+  )
+  return data.data
 }

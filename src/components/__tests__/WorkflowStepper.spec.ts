@@ -81,6 +81,17 @@ describe('WorkflowStepper (summary bar)', () => {
     expect(step('completed').get('[data-completed]').text()).toBe('(9)')
   })
 
+  it('keeps the Completed card by default; hide-completed (All Passports) leaves it out', async () => {
+    await mountStepper()
+    expect(wrapper.find('[data-step="completed"]').exists()).toBe(true)
+    wrapper.unmount()
+
+    await mountStepper({ hideCompleted: true })
+    expect(wrapper.find('[data-step="completed"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Completed')
+    expect(wrapper.findAll('[data-step]')).toHaveLength(6)
+  })
+
   it('links step 1 to the Passport List, step 2 to Medical and later steps to Process tabs', async () => {
     await mountStepper()
 

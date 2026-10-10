@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, useTemplateRef, watch } from 'vue'
-import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import SearchSelect from '@/components/SearchSelect.vue'
 import QuickAddModal, { type QuickAddValues } from '@/components/QuickAddModal.vue'
 import CountrySelect from '@/components/CountrySelect.vue'
@@ -33,8 +33,24 @@ import type {
 } from '@/types/passport'
 import type { CountrySummary } from '@/types/country'
 
+/** Used when the default passport country setting gives no usable country. */
+const FALLBACK_PASSPORT_COUNTRY: CountrySummary = { code: 'MY', name: 'Malaysia' }
+
 const route = useRoute()
 const router = useRouter()
+
+/** Where an edit returns to: ?back= (an internal path, e.g. a company page) or the list. */
+const backTarget = computed<RouteLocationRaw>(() => {
+  const back = route.query.back
+  return typeof back === 'string' && back.startsWith('/') && !back.startsWith('//')
+    ? back
+    : { name: 'passports' }
+})
+const backLabel = computed(() =>
+  typeof backTarget.value === 'string' && backTarget.value.startsWith('/reports/companies')
+    ? 'Company'
+    : 'Passport list',
+)
 const toast = useToast()
 const countries = useCountriesStore()
 const workflow = useWorkflowStore()
@@ -58,6 +74,17 @@ const passportNumber = ref('')
 const country = ref<CountrySummary | null>(null)
 /** Edit mode: the saved country, kept selectable even if it was deactivated since. */
 const savedCountry = ref<CountrySummary | null>(null)
+/** New entries: the default country is being loaded (the dropdown shows a loading state). */
+const isCountryLoading = ref(false)
+/** The user picked a country themselves: a late-loading default must not replace it. */
+let countryPickedByUser = false
+/** Bumped on every reset, so an older, slower default load is ignored. */
+let defaultRun = 0
+
+function onCountryPicked(value: CountrySummary | null) {
+  countryPickedByUser = true
+  country.value = value
+}
 const dateOfBirth = ref('')
 const referenceType = ref<ReferenceType>('person')
 const reference = ref<ReferenceSummary | null>(null)
@@ -93,6 +120,7 @@ function clearForm() {
   passportName.value = ''
   passportNumber.value = ''
   country.value = null
+  countryPickedByUser = false
   dateOfBirth.value = ''
   expiryDate.value = ''
   reference.value = null
@@ -101,12 +129,27 @@ function clearForm() {
   banner.value = null
 }
 
-/** New entries only: preselect the default passport country, when the admin has set one. */
+/**
+ * New entries only: preselect the default passport country. Waits for BOTH the country
+ * list and the settings (fetched again each time the form opens), then sets the value
+ * once, matched by code. A missing, empty or inactive setting, or a failed request, falls
+ * back to Malaysia. Never replaces a country the user already picked; edits keep theirs.
+ */
 async function applyPassportCountryDefault() {
-  await countries.load()
   if (isEdit.value) return
-  const code = countries.defaults?.default_passport_country_code
-  country.value = code ? (countries.byCode(code) ?? null) : null
+  const run = ++defaultRun
+  isCountryLoading.value = true
+  try {
+    const [, settingsLoaded] = await Promise.all([countries.load(), countries.refreshDefaults()])
+    if (run !== defaultRun || isEdit.value || countryPickedByUser) return
+    const code = settingsLoaded ? countries.defaults?.default_passport_country_code : null
+    country.value =
+      (code ? countries.byCode(code) : undefined) ??
+      countries.byCode(FALLBACK_PASSPORT_COUNTRY.code) ??
+      FALLBACK_PASSPORT_COUNTRY
+  } finally {
+    if (run === defaultRun) isCountryLoading.value = false
+  }
 }
 
 async function focusName() {
@@ -142,7 +185,8 @@ async function init() {
     savedCountry.value = loaded.country
     dateOfBirth.value = loaded.date_of_birth ?? ''
     expiryDate.value = loaded.passport_expiry_date ?? ''
-    referenceType.value = loaded.reference.type
+    // Older entries always have a reference; newer ones may have none.
+    referenceType.value = loaded.reference?.type ?? 'person'
     reference.value = loaded.reference
     company.value = loaded.company
     receivedDate.value = loaded.passport_received_date
@@ -260,14 +304,15 @@ function formValues(): PassportFormValues {
   }
 }
 
+/** The form's field order (also the order errors are focused in). */
 const FIELD_ORDER: (keyof PassportFormErrors)[] = [
   'passport_name',
   'passport_number',
-  'country_code',
+  'passport_expiry_date',
   'date_of_birth',
   'reference_id',
   'passport_received_date',
-  'passport_expiry_date',
+  'country_code',
   'company_id',
 ]
 
@@ -326,7 +371,7 @@ async function save(action: SaveAction) {
     passport_number: normalizePassportNumber(values.passport_number),
     country_code: values.country_code,
     date_of_birth: toApiDate(values.date_of_birth),
-    reference_id: values.reference_id as number,
+    reference_id: values.reference_id,
     company_id: values.company_id as number,
     passport_received_date: toApiDate(values.passport_received_date),
     passport_expiry_date: toApiDate(values.passport_expiry_date),
@@ -338,7 +383,7 @@ async function save(action: SaveAction) {
       const saved = await updatePassport(entryId.value, payload)
       toast.success(`Passport ${saved.passport_number} updated.`)
       workflow.refresh()
-      router.push({ name: 'passports' })
+      router.push(backTarget.value)
     } else {
       const saved = await createPassport(payload)
       toast.success(`Passport ${saved.passport_number} saved.`)
@@ -377,10 +422,11 @@ const inputClass =
 <template>
   <div class="mx-auto max-w-3xl">
     <RouterLink
-      :to="{ name: 'passports' }"
+      :to="backTarget"
       class="inline-flex items-center gap-1 rounded-sm text-sm font-semibold text-primary-700 hover:underline"
+      data-back
     >
-      <span aria-hidden="true">←</span> Passport list
+      <span aria-hidden="true">←</span> {{ backLabel }}
     </RouterLink>
     <h1 class="mt-2 text-2xl font-bold text-primary-900 sm:text-3xl">
       {{ isEdit ? 'Edit passport' : 'Add passport' }}
@@ -413,9 +459,13 @@ const inputClass =
         </p>
 
         <form class="space-y-6" novalidate @submit.prevent="onSubmit">
-          <div class="grid gap-6 sm:grid-cols-2">
+          <!--
+            One grid in reading order: the DOM order (and so the Tab order) is the visual
+            order. One column on phones, two on wider screens; Reference and Company span both.
+          -->
+          <div class="grid gap-6 sm:grid-cols-2" data-fields>
             <!-- 1. Passport name -->
-            <div>
+            <div data-field="passport_name">
               <label :for="nameId" class="block text-sm font-medium text-slate-700">
                 Passport name<span class="text-red-700" aria-hidden="true"> *</span>
               </label>
@@ -449,9 +499,8 @@ const inputClass =
                 {{ errors.passport_name }}
               </p>
             </div>
-
             <!-- 2. Passport number -->
-            <div>
+            <div data-field="passport_number">
               <label :for="numberId" class="block text-sm font-medium text-slate-700">
                 Passport number<span class="text-red-700" aria-hidden="true"> *</span>
               </label>
@@ -492,104 +541,8 @@ const inputClass =
                 {{ errors.passport_number }}
               </p>
             </div>
-          </div>
-
-          <div class="grid gap-6 sm:grid-cols-2">
-            <!-- Passport country (optional) -->
-            <CountrySelect
-              ref="countrySelect"
-              v-model="country"
-              label="Passport country"
-              hint="Optional."
-              :keep="savedCountry"
-              :error="errors.country_code"
-              clearable
-            />
-
-            <!-- Date of birth -->
-            <div>
-              <label :for="birthId" class="block text-sm font-medium text-slate-700">
-                Date of birth<span class="text-red-700" aria-hidden="true"> *</span>
-              </label>
-              <input
-                :id="birthId"
-                ref="birthInput"
-                v-model="dateOfBirth"
-                type="date"
-                required
-                :max="yesterday"
-                :class="[inputClass, errors.date_of_birth ? 'border-red-500' : 'border-slate-300']"
-                :aria-invalid="errors.date_of_birth ? 'true' : undefined"
-                :aria-describedby="`${birthId}-hint${errors.date_of_birth ? ` ${birthId}-error` : ''}`"
-              />
-              <p :id="`${birthId}-hint`" class="mt-1 text-xs text-muted">
-                {{ toDisplayDate(dateOfBirth) || 'DD-MM-YYYY' }}
-              </p>
-              <p
-                v-if="errors.date_of_birth"
-                :id="`${birthId}-error`"
-                class="mt-1 text-sm text-red-700"
-              >
-                {{ errors.date_of_birth }}
-              </p>
-            </div>
-          </div>
-
-          <!-- 3. Reference: type toggle + search -->
-          <fieldset class="space-y-3 rounded-xl border border-stroke p-4">
-            <legend class="px-1 text-sm font-semibold text-ink">Reference</legend>
-            <ReferenceTypeToggle
-              :model-value="referenceType"
-              @update:model-value="onReferenceTypeChange"
-            />
-            <SearchSelect
-              :key="referenceType"
-              ref="referenceSelect"
-              v-model="reference"
-              :fetch="fetchReferences"
-              :label="referenceType === 'person' ? 'Reference person' : 'Reference agency'"
-              :placeholder="`Search ${referenceTypeLabel}…`"
-              :add-label="`Add new ${referenceTypeLabel}`"
-              :error="errors.reference_id"
-              required
-              @add="openReferenceModal"
-            />
-          </fieldset>
-
-          <div class="grid gap-6 sm:grid-cols-2">
-            <!-- 4. Received date -->
-            <div>
-              <label :for="dateId" class="block text-sm font-medium text-slate-700">
-                Passport received date<span class="text-red-700" aria-hidden="true"> *</span>
-              </label>
-              <input
-                :id="dateId"
-                ref="dateInput"
-                v-model="receivedDate"
-                type="date"
-                required
-                :max="today"
-                :class="[
-                  inputClass,
-                  errors.passport_received_date ? 'border-red-500' : 'border-slate-300',
-                ]"
-                :aria-invalid="errors.passport_received_date ? 'true' : undefined"
-                :aria-describedby="`${dateId}-hint${errors.passport_received_date ? ` ${dateId}-error` : ''}`"
-              />
-              <p :id="`${dateId}-hint`" class="mt-1 text-xs text-muted">
-                {{ toDisplayDate(receivedDate) || 'DD-MM-YYYY' }} · cannot be in the future
-              </p>
-              <p
-                v-if="errors.passport_received_date"
-                :id="`${dateId}-error`"
-                class="mt-1 text-sm text-red-700"
-              >
-                {{ errors.passport_received_date }}
-              </p>
-            </div>
-
-            <!-- Expiry date -->
-            <div>
+            <!-- 3. Passport expiry date -->
+            <div data-field="passport_expiry_date">
               <label :for="expiryId" class="block text-sm font-medium text-slate-700">
                 Passport expiry date<span class="text-red-700" aria-hidden="true"> *</span>
               </label>
@@ -618,21 +571,118 @@ const inputClass =
                 {{ errors.passport_expiry_date }}
               </p>
             </div>
+            <!-- 4. Passport date of birth -->
+            <div data-field="date_of_birth">
+              <label :for="birthId" class="block text-sm font-medium text-slate-700">
+                Passport date of birth<span class="text-red-700" aria-hidden="true"> *</span>
+              </label>
+              <input
+                :id="birthId"
+                ref="birthInput"
+                v-model="dateOfBirth"
+                type="date"
+                required
+                :max="yesterday"
+                :class="[inputClass, errors.date_of_birth ? 'border-red-500' : 'border-slate-300']"
+                :aria-invalid="errors.date_of_birth ? 'true' : undefined"
+                :aria-describedby="`${birthId}-hint${errors.date_of_birth ? ` ${birthId}-error` : ''}`"
+              />
+              <p :id="`${birthId}-hint`" class="mt-1 text-xs text-muted">
+                {{ toDisplayDate(dateOfBirth) || 'DD-MM-YYYY' }}
+              </p>
+              <p
+                v-if="errors.date_of_birth"
+                :id="`${birthId}-error`"
+                class="mt-1 text-sm text-red-700"
+              >
+                {{ errors.date_of_birth }}
+              </p>
+            </div>
+            <!-- 5. Reference (required): type toggle + search; full width -->
+            <fieldset
+              class="space-y-3 rounded-xl border border-stroke p-4 sm:col-span-2"
+              data-field="reference"
+            >
+              <legend class="px-1 text-sm font-semibold text-ink">
+                Reference<span class="text-red-700" aria-hidden="true"> *</span>
+              </legend>
+              <ReferenceTypeToggle
+                :model-value="referenceType"
+                @update:model-value="onReferenceTypeChange"
+              />
+              <SearchSelect
+                :key="referenceType"
+                ref="referenceSelect"
+                v-model="reference"
+                :fetch="fetchReferences"
+                :label="referenceType === 'person' ? 'Reference person' : 'Reference agency'"
+                :placeholder="`Search ${referenceTypeLabel}…`"
+                :add-label="`Add new ${referenceTypeLabel}`"
+                :error="errors.reference_id"
+                required
+                @add="openReferenceModal"
+              />
+            </fieldset>
+            <!-- 6. Passport received date -->
+            <div data-field="passport_received_date">
+              <label :for="dateId" class="block text-sm font-medium text-slate-700">
+                Passport received date<span class="text-red-700" aria-hidden="true"> *</span>
+              </label>
+              <input
+                :id="dateId"
+                ref="dateInput"
+                v-model="receivedDate"
+                type="date"
+                required
+                :max="today"
+                :class="[
+                  inputClass,
+                  errors.passport_received_date ? 'border-red-500' : 'border-slate-300',
+                ]"
+                :aria-invalid="errors.passport_received_date ? 'true' : undefined"
+                :aria-describedby="`${dateId}-hint${errors.passport_received_date ? ` ${dateId}-error` : ''}`"
+              />
+              <p :id="`${dateId}-hint`" class="mt-1 text-xs text-muted">
+                {{ toDisplayDate(receivedDate) || 'DD-MM-YYYY' }} · cannot be in the future
+              </p>
+              <p
+                v-if="errors.passport_received_date"
+                :id="`${dateId}-error`"
+                class="mt-1 text-sm text-red-700"
+              >
+                {{ errors.passport_received_date }}
+              </p>
+            </div>
+            <!-- 7. Country (the passport's): preselected from the settings, else Malaysia -->
+            <CountrySelect
+              ref="countrySelect"
+              :model-value="country"
+              label="Country"
+              :placeholder="isCountryLoading ? 'Loading countries…' : undefined"
+              :disabled="isCountryLoading"
+              :keep="savedCountry ?? country"
+              :error="errors.country_code"
+              required
+              data-field="country"
+              :aria-busy="isCountryLoading ? 'true' : undefined"
+              @update:model-value="onCountryPicked"
+            />
+            <!-- 8. Company: full width -->
+            <SearchSelect
+              ref="companySelect"
+              class="sm:col-span-2"
+              data-field="company"
+              v-model="company"
+              :fetch="fetchCompanies"
+              :subtitle-of="companySubtitle"
+              label="Company name"
+              placeholder="Search company…"
+              add-label="Add new company"
+              :error="errors.company_id"
+              required
+              @add="openCompanyModal"
+            />
           </div>
-
-          <!-- 5. Company -->
-          <SearchSelect
-            ref="companySelect"
-            v-model="company"
-            :fetch="fetchCompanies"
-            :subtitle-of="companySubtitle"
-            label="Company name"
-            placeholder="Search company…"
-            add-label="Add new company"
-            :error="errors.company_id"
-            required
-            @add="openCompanyModal"
-          />
 
           <div class="flex flex-col gap-3 border-t border-stroke pt-6 sm:flex-row sm:justify-end">
             <!-- The first submit button is the one Enter triggers. -->

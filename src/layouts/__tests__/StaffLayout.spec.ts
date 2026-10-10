@@ -35,6 +35,7 @@ const ROUTE_NAMES = [
   'process',
   'unfit',
   'companies',
+  'admin-companies',
 ]
 
 async function mountAs(role: Role, path = '/home') {
@@ -94,8 +95,8 @@ describe('StaffLayout menu', () => {
         'Passport List',
         'Medical',
         'Process',
-        'Companies',
         'Users',
+        'Companies',
         'Settings',
       ],
     ],
@@ -108,29 +109,46 @@ describe('StaffLayout menu', () => {
         'Passport List',
         'Medical',
         'Process',
-        'Companies',
         'Users',
+        'Companies',
         'Settings',
       ],
     ],
     [
       'data_entry',
-      [
-        'Dashboard',
-        'All Passports',
-        'Add Passport',
-        'Passport List',
-        'Medical',
-        'Process',
-        'Companies',
-      ],
+      ['Dashboard', 'All Passports', 'Add Passport', 'Passport List', 'Medical', 'Process'],
     ],
-    // Accounts: read-only Companies report only.
-    ['accounts', ['Dashboard', 'Companies']],
+    // Accounts: the Company report is in the top menu.
+    ['accounts', ['Dashboard']],
   ] as const)('shows %s one "Dashboard" and its own screens', async (role, labels) => {
     await mountAs(role)
 
     expect(navLabels()).toEqual(labels)
+  })
+
+  it.each(['super_admin', 'admin', 'data_entry', 'accounts'] as const)(
+    'shows %s the "Company" report in the top menu',
+    async (role) => {
+      await mountAs(role, '/companies')
+
+      const top = wrapper.findAll('nav[aria-label="Reports"] a')
+      expect(top.map((a) => a.text())).toEqual(['Company'])
+      expect(top[0]!.attributes('href')).toBe('/companies')
+    },
+  )
+
+  it.each([
+    ['admin', true],
+    ['super_admin', true],
+    ['data_entry', false],
+    ['accounts', false],
+  ] as const)('admin panel "Companies" in the sidebar for %s: %s', async (role, shown) => {
+    await mountAs(role)
+
+    const link = wrapper
+      .findAll('nav[aria-label="Staff portal"] a')
+      .find((a) => a.attributes('href') === '/admin-companies')
+    expect(Boolean(link)).toBe(shown)
   })
 
   it.each([

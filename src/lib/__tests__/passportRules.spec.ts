@@ -12,7 +12,7 @@ const TODAY = '2026-10-05'
 const valid: PassportFormValues = {
   passport_name: 'MD RAHIM',
   passport_number: 'AB1234567',
-  country_code: null,
+  country_code: 'MY',
   date_of_birth: '1990-05-17',
   reference_id: 1,
   company_id: 2,
@@ -68,17 +68,25 @@ describe('validatePassportForm', () => {
     ).toEqual({
       passport_name: 'Enter the passport name.',
       passport_number: 'Enter the passport number.',
+      country_code: 'Select the passport country.',
       date_of_birth: 'Enter the date of birth.',
-      reference_id: 'Select a reference.',
+      reference_id: 'Reference is required.',
       company_id: 'Select a company.',
       passport_received_date: 'Enter the received date.',
       passport_expiry_date: 'Enter the passport expiry date.',
     })
   })
 
-  it('treats the passport country as optional', () => {
-    expect(validate({ country_code: null })).toEqual({})
+  it('requires the passport country', () => {
+    expect(validate({ country_code: null })).toEqual({
+      country_code: 'Select the passport country.',
+    })
     expect(validate({ country_code: 'BD' })).toEqual({})
+  })
+
+  it('requires the reference', () => {
+    expect(validate({ reference_id: null })).toEqual({ reference_id: 'Reference is required.' })
+    expect(validate({ reference_id: 7 })).toEqual({})
   })
 
   describe('date of birth', () => {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, useTemplateRef } from 'vue'
-import { useRoute, useRouter, type LocationQuery } from 'vue-router'
+import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import PassportListBody from '@/components/PassportListBody.vue'
 import PassportListFilters from '@/components/PassportListFilters.vue'
 import PassportTable from '@/components/PassportTable.vue'
@@ -39,12 +39,12 @@ const TABS: Tab[] = [
     key: 'pending',
     label: 'Pending medical',
     status: 'pending',
-    columns: ['country', 'company', 'received', 'waiting'],
+    columns: ['country', 'company', 'slip_date', 'received', 'waiting'],
     sorts: [
       { value: 'passport_received_date:asc', label: 'Waiting longest first' },
       { value: 'passport_received_date:desc', label: 'Received most recently' },
     ],
-    emptyTitle: 'No passports are waiting for a medical.',
+    emptyTitle: 'No passports are waiting for a medical result.',
   },
   {
     key: 'fit',
@@ -112,6 +112,19 @@ const { hasFilters, search, company, companyCountry, sort, list, isLoading, load
 /** Re-testing an unfit passport is for admins only; the API's flag must agree too. */
 const canRetest = (entry: PassportEntry) =>
   isMedicalAdmin(auth.user?.role) && entry.can.record_medical
+
+/**
+ * Pending means "slip date entered, no result yet". A passport without a slip date is
+ * "not started" and belongs to the Passport list only, so it is never shown here.
+ */
+const shownList = computed(() => {
+  const value = list.value
+  if (!value || tab.value.key !== 'pending') return value
+  return { ...value, data: value.data.filter((e) => e.medical_status === 'pending') }
+})
+
+/** Passports whose medical has not started (no slip date): shown as a hint, not a tab. */
+const notStarted = computed(() => workflow.summary?.step2.not_started ?? 0)
 
 function countFor(key: TabKey): number | null {
   const step2 = workflow.summary?.step2
@@ -188,7 +201,12 @@ const actionClass =
           >
             {{ t.label }}
             <span
-              class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700 tabular-nums"
+              class="rounded-full px-2 py-0.5 text-xs tabular-nums"
+              :class="
+                t.key === 'pending' && countFor(t.key)
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-slate-100 text-slate-700'
+              "
               data-tab-count
             >
               {{ countFor(t.key) ?? '–' }}
@@ -196,6 +214,23 @@ const actionClass =
           </button>
         </div>
       </div>
+
+      <p
+        v-if="tab.key === 'pending' && notStarted > 0"
+        class="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700"
+        data-not-started-hint
+      >
+        <span class="rounded-full bg-white px-2 py-0.5 text-xs font-semibold ring-1 ring-slate-300">
+          {{ notStarted }} not started
+        </span>
+        Passports without a medical slip date are not listed here.
+        <RouterLink
+          :to="{ name: 'passports', query: { stage: 'passport' } }"
+          class="font-semibold text-primary-700 underline underline-offset-2"
+        >
+          Add their slip from the Passport list
+        </RouterLink>
+      </p>
 
       <div
         :id="`medical-panel-${tab.key}`"
@@ -216,7 +251,7 @@ const actionClass =
 
         <div class="mt-6 border-t border-stroke pt-2">
           <PassportListBody
-            :list="list"
+            :list="shownList"
             :is-loading="isLoading"
             :load-error="loadError"
             :page-link="listing.pageLink"
@@ -224,18 +259,20 @@ const actionClass =
             @retry="listing.load"
           >
             <PassportTable
-              :entries="list?.data ?? []"
+              :entries="shownList?.data ?? []"
               :current-user-id="auth.user?.id ?? null"
               :columns="tab.columns"
             >
               <template #actions="{ entry }">
                 <button
-                  v-if="tab.key === 'pending' && entry.can.record_medical"
+                  v-if="
+                    tab.key === 'pending' && entry.can.record_medical && entry.medical_slip?.date
+                  "
                   type="button"
                   :class="[actionClass, 'bg-primary-900 text-white hover:bg-primary-700']"
                   @click="openRecord(entry)"
                 >
-                  Record medical<span class="sr-only"> for {{ entry.passport_number }}</span>
+                  Record medical result<span class="sr-only"> for {{ entry.passport_number }}</span>
                 </button>
                 <button
                   v-else-if="tab.key === 'expired' && entry.can.record_medical"
@@ -266,6 +303,7 @@ const actionClass =
       :passport="modalPassport"
       :with-next="tab.key === 'pending'"
       @saved="listing.load"
+      @slip-saved="listing.load"
     />
   </div>
 </template>

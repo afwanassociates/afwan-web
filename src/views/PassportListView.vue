@@ -3,6 +3,7 @@ import { computed, ref, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import ArrowIcon from '@/components/ArrowIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import PassportTable from '@/components/PassportTable.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import CountrySelect from '@/components/CountrySelect.vue'
@@ -172,6 +173,7 @@ countries.load()
 /** Stage filter: the steps from the config (from Medical on), then Completed. */
 workflow.loadConfig()
 const stageOptions = computed(() => [
+  { value: 'passport', label: 'Medical not started' },
   ...(workflow.config?.steps ?? [])
     .filter((s) => s.enabled && s.order > 1)
     .sort((a, b) => a.order - b.order)
@@ -297,6 +299,32 @@ watch(
 )
 
 const pageLink = (page: number) => ({ query: queryWith({ page }) })
+
+/* ---------- Medical slip ---------- */
+
+/** data_entry, admin and super_admin (everyone who can open this page) may add a slip. */
+const slipOpen = ref(false)
+const slipPassport = ref<PassportEntry | null>(null)
+
+function openSlip(entry: PassportEntry) {
+  slipPassport.value = entry
+  slipOpen.value = true
+}
+
+/** The row's medical status changes ("Not started" → "Pending"): reload the page. */
+function afterSlip() {
+  load()
+}
+
+const slipAction = (entry: PassportEntry) =>
+  entry.medical_status === 'not_started'
+    ? 'Add medical slip'
+    : entry.medical_status === 'pending'
+      ? 'Edit slip'
+      : null
+
+const rowActionClass =
+  'rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap hover:bg-primary-50 focus-visible:bg-primary-50'
 
 /* ---------- Delete ---------- */
 
@@ -527,9 +555,27 @@ const inputClass =
           <PassportTable
             :entries="list.data"
             :current-user-id="auth.user?.id ?? null"
-            :columns="['reference', 'company', 'received', 'stage', 'entered_by']"
+            :columns="['reference', 'company', 'received', 'medical_status', 'stage', 'entered_by']"
             @delete="askDelete"
-          />
+          >
+            <template #extra-actions="{ entry }">
+              <button
+                v-if="slipAction(entry)"
+                type="button"
+                :class="[
+                  rowActionClass,
+                  entry.medical_status === 'not_started'
+                    ? 'bg-accent-100 text-primary-900 hover:bg-accent-200'
+                    : 'text-primary-700',
+                ]"
+                :data-slip-action="entry.id"
+                @click="openSlip(entry)"
+              >
+                {{ slipAction(entry)
+                }}<span class="sr-only"> for passport {{ entry.passport_number }}</span>
+              </button>
+            </template>
+          </PassportTable>
 
           <nav
             aria-label="Pagination"
@@ -561,6 +607,8 @@ const inputClass =
         </div>
       </div>
     </section>
+
+    <MedicalSlipModal v-model:open="slipOpen" :passport="slipPassport" @saved="afterSlip" />
 
     <ConfirmDialog
       v-model:open="deleteOpen"

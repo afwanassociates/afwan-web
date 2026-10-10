@@ -21,6 +21,8 @@ export function validUntilFor(medicalDate: string): string {
 /** Short badge text for a medical status. */
 export function medicalStatusText(status: MedicalStatus, validUntil?: string | null): string {
   switch (status) {
+    case 'not_started':
+      return 'Not started'
     case 'pending':
       return 'Pending'
     case 'fit':
@@ -36,6 +38,7 @@ export function medicalStatusText(status: MedicalStatus, validUntil?: string | n
 
 /** Words for a workflow step state (shown or read out, never colour alone). */
 export const STEP_STATE_TEXT: Record<StepState, string> = {
+  not_started: 'Not started',
   done: 'Done',
   passed: 'Passed',
   needs_attention: 'Needs attention',
@@ -67,6 +70,7 @@ export function stepTone(state: StepState): StepTone {
     case 'rejected':
       return 'danger'
     case 'locked':
+    case 'not_started':
       return 'muted'
     case 'ready':
     case 'in_process':

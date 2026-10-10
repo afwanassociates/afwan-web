@@ -6,6 +6,8 @@ export type PassportColumn =
   | 'received'
   | 'waiting'
   | 'medical'
+  | 'medical_status'
+  | 'slip_date'
   | 'medical_date'
   | 'valid_until'
   | 'days_left'
@@ -20,6 +22,8 @@ export const COLUMN_LABELS: Record<PassportColumn, string> = {
   received: 'Received',
   waiting: 'Waiting',
   medical: 'Medical',
+  medical_status: 'Medical',
+  slip_date: 'Medical slip date',
   medical_date: 'Medical date',
   valid_until: 'Valid until',
   days_left: 'Days left',

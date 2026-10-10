@@ -4,10 +4,16 @@ import type { StepRecordSummary } from '@/types/workflow'
 
 export type MedicalResult = 'fit' | 'unfit'
 
-/** expiring_soon is a fit result with 14 days or fewer left. */
-export type MedicalStatus = 'pending' | 'fit' | 'expiring_soon' | 'expired' | 'unfit'
+/**
+ * not_started: no medical slip date yet (only in the Passport list); pending: slip date
+ * entered, no result yet (Medical → Pending). expiring_soon is a fit result with 14 days
+ * or fewer left.
+ */
+export type MedicalStatus =
+  'not_started' | 'pending' | 'fit' | 'expiring_soon' | 'expired' | 'unfit'
 
 export type StepState =
+  | 'not_started'
   | 'done'
   | 'needs_attention'
   | 'pending'
@@ -52,11 +58,6 @@ export interface MedicalSummary {
   valid_until: string | null
   days_left: number | null
   remarks: string | null
-  medical_center: MedicalCenterSummary | null
-  /** The medical slip (MYGRAM). */
-  slip_no: string | null
-  /** YYYY-MM-DD */
-  slip_date: string | null
   recorded_by: { id: number; name: string } | null
   created_at: string
 }
@@ -93,10 +94,25 @@ export interface MedicalPayload {
   medical_date: string
   result: MedicalResult
   remarks: string | null
-  medical_center_id: number | null
-  slip_no: string | null
+}
+
+/**
+ * A passport's medical slip ("MYGRAM"). Entering its date moves the passport from
+ * not_started into Medical → Pending; a result can only be recorded after that.
+ */
+export interface MedicalSlip {
   /** YYYY-MM-DD */
-  slip_date: string | null
+  date: string | null
+  no: string | null
+  medical_center: MedicalCenterSummary | null
+}
+
+/** Body of PATCH /passports/{id}/medical-slip. */
+export interface MedicalSlipPayload {
+  /** YYYY-MM-DD; required (null clears it, only while no result is recorded). */
+  medical_slip_date: string | null
+  medical_slip_no: string | null
+  medical_center_id: number | null
 }
 
 /** An item of GET /medical/queue (oldest received first). */
@@ -115,7 +131,14 @@ export interface WorkflowSummary {
   /** total_all counts every passport (unfit included); total_active leaves unfit out. */
   step1: { total_all: number; total_active: number; incomplete: number }
   /** fit includes expiring_soon. */
-  step2: { pending: number; fit: number; expiring_soon: number; expired: number; unfit: number }
+  step2: {
+    not_started?: number
+    pending: number
+    fit: number
+    expiring_soon: number
+    expired: number
+    unfit: number
+  }
   step3: { enabled: boolean; ready: number }
   /** Passports currently at each stage (by step key). */
   stages?: Record<string, StageCounts>

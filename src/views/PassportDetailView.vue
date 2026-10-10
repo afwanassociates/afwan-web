@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalHistoryTable from '@/components/MedicalHistoryTable.vue'
+import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import RecordMedicalModal from '@/components/RecordMedicalModal.vue'
 import RecordStepModal from '@/components/RecordStepModal.vue'
@@ -139,6 +140,9 @@ const medicalAction = computed(() => {
   const p = passport.value
   if (!p?.can.record_medical) return null
   switch (p.medical_status) {
+    case 'not_started':
+      // The result needs the medical slip date first.
+      return { label: 'Add medical slip', class: 'btn-accent', slip: true }
     case 'pending':
       return { label: 'Record medical', class: 'btn-accent' }
     case 'unfit':
@@ -161,7 +165,13 @@ const backLink = computed(() =>
 const modalOpen = ref(false)
 const editing = ref<MedicalRecord | null>(null)
 
+const slipModalOpen = ref(false)
+
 function openRecord() {
+  if (medicalAction.value && 'slip' in medicalAction.value) {
+    slipModalOpen.value = true
+    return
+  }
   editing.value = null
   modalOpen.value = true
 }
@@ -306,10 +316,13 @@ const dd = 'font-medium text-ink'
             <dd :class="dd">{{ toDisplayDate(passport.passport_expiry_date) || '—' }}</dd>
             <dt :class="dt">Reference</dt>
             <dd :class="dd">
-              {{ passport.reference.name }}
-              <span class="text-xs font-normal text-muted"
-                >({{ passport.reference.type_label }})</span
-              >
+              <template v-if="passport.reference">
+                {{ passport.reference.name }}
+                <span class="text-xs font-normal text-muted"
+                  >({{ passport.reference.type_label }})</span
+                >
+              </template>
+              <template v-else>—</template>
             </dd>
             <dt :class="dt">Company</dt>
             <dd :class="dd">
@@ -338,7 +351,25 @@ const dd = 'font-medium text-ink'
               :valid-until="medical?.valid_until"
             />
           </div>
-          <p v-if="!medical" class="mt-4 text-sm text-muted">No medical has been recorded yet.</p>
+          <dl
+            v-if="passport.medical_slip?.date"
+            class="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 border-b border-stroke pb-3 text-sm"
+            data-medical-slip
+          >
+            <dt :class="dt">Medical slip date</dt>
+            <dd :class="dd">{{ toDisplayDate(passport.medical_slip.date) }}</dd>
+            <dt :class="dt">Medical slip no</dt>
+            <dd :class="[dd, 'font-mono']">{{ passport.medical_slip.no || '—' }}</dd>
+            <dt :class="dt">Medical center</dt>
+            <dd :class="dd">{{ passport.medical_slip.medical_center?.name ?? '—' }}</dd>
+          </dl>
+          <p v-if="!medical" class="mt-4 text-sm text-muted">
+            {{
+              passport.medical_status === 'not_started'
+                ? 'Medical not started: add the medical slip first.'
+                : 'No medical has been recorded yet.'
+            }}
+          </p>
           <dl v-else class="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
             <dt :class="dt">Result</dt>
             <dd :class="dd">{{ medical.result === 'fit' ? 'Fit' : 'Unfit' }}</dd>
@@ -363,12 +394,6 @@ const dd = 'font-medium text-ink'
                 <template v-else>{{ medicalDaysLeft }}</template>
               </dd>
             </template>
-            <dt :class="dt">Medical center</dt>
-            <dd :class="dd">{{ medical.medical_center?.name ?? '—' }}</dd>
-            <dt :class="dt">Medical slip no</dt>
-            <dd :class="[dd, 'font-mono']">{{ medical.slip_no || '—' }}</dd>
-            <dt :class="dt">Medical slip date</dt>
-            <dd :class="dd">{{ toDisplayDate(medical.slip_date) || '—' }}</dd>
             <dt :class="dt">Recorded by</dt>
             <dd :class="dd">{{ medical.recorded_by?.name ?? '—' }}</dd>
             <dt :class="dt">Remarks</dt>
@@ -396,7 +421,9 @@ const dd = 'font-medium text-ink'
       :passport="passport"
       :record="editing"
       @saved="afterChange"
+      @slip-saved="afterChange"
     />
+    <MedicalSlipModal v-model:open="slipModalOpen" :passport="passport" @saved="afterChange" />
 
     <RecordStepModal
       v-model:open="stepModalOpen"

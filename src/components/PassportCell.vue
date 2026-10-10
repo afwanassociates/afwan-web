@@ -38,7 +38,8 @@ const enteredBy = computed(() => {
 </script>
 
 <template>
-  <template v-if="column === 'reference'">
+  <template v-if="column === 'reference' && !entry.reference">—</template>
+  <template v-else-if="column === 'reference' && entry.reference">
     <span class="inline-flex flex-wrap items-center gap-2">
       {{ entry.reference.name }}
       <span
@@ -76,6 +77,15 @@ const enteredBy = computed(() => {
       <MedicalStatusBadge :status="entry.medical_status" :valid-until="medical?.valid_until" />
       <WorkflowStepper :steps="entry.workflow.steps" compact />
     </span>
+  </template>
+
+  <!-- The medical status only (no step bar): "Not started" grey, "Pending" amber, … -->
+  <template v-else-if="column === 'medical_status'">
+    <MedicalStatusBadge :status="entry.medical_status" :valid-until="medical?.valid_until" />
+  </template>
+
+  <template v-else-if="column === 'slip_date'">
+    <span class="whitespace-nowrap">{{ toDisplayDate(entry.medical_slip?.date) || '—' }}</span>
   </template>
 
   <template v-else-if="column === 'medical_date'">

@@ -8,7 +8,8 @@ import type { PassportEntry } from '@/types/passport'
 /**
  * Passport entries as a table on wide screens and as cards on narrow ones.
  * The passport name (linked to its detail page) and number always come first; `columns`
- * picks the rest. The `actions` slot replaces the default Edit / Delete buttons.
+ * picks the rest. The `actions` slot replaces the default Edit / Delete buttons;
+ * `extra-actions` adds buttons before them.
  */
 withDefaults(
   defineProps<{
@@ -22,7 +23,10 @@ withDefaults(
   { columns: () => ['reference', 'company', 'received', 'entered_by'], rowClass: undefined },
 )
 defineEmits<{ delete: [entry: PassportEntry] }>()
-defineSlots<{ actions?(props: { entry: PassportEntry }): unknown }>()
+defineSlots<{
+  actions?(props: { entry: PassportEntry }): unknown
+  'extra-actions'?(props: { entry: PassportEntry }): unknown
+}>()
 
 const today = businessToday()
 
@@ -61,6 +65,7 @@ const actionClass =
         </template>
       </dl>
       <div class="mt-2 -ml-2 flex flex-wrap gap-1">
+        <slot name="extra-actions" :entry="entry" />
         <slot name="actions" :entry="entry">
           <RouterLink
             v-if="entry.can.update"
@@ -128,6 +133,7 @@ const actionClass =
           </td>
           <td class="py-3">
             <div class="flex flex-wrap justify-end gap-1">
+              <slot name="extra-actions" :entry="entry" />
               <slot name="actions" :entry="entry">
                 <RouterLink
                   v-if="entry.can.update"

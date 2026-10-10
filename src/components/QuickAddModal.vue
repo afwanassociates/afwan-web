@@ -5,6 +5,12 @@ import CountrySelect from '@/components/CountrySelect.vue'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { useCountriesStore } from '@/stores/countries'
 import type { CountrySummary } from '@/types/country'
+import {
+  AGENT_FIELDS,
+  emptyAgentValues,
+  validateAgentValues,
+  type AgentFormValues,
+} from '@/lib/companyForm'
 import type { CompanyAgentDetails } from '@/types/passport'
 
 export interface QuickAddValues {
@@ -51,18 +57,6 @@ const emit = defineEmits<{ saved: [item: T] }>()
 
 const NAME_MAX = 150
 const PHONE_MAX = 30
-const QUOTA_MAX = 4294967295
-const PHONE_PATTERN = /^[0-9+\-\s()]+$/
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-/** The agent fields, in form order (`quota` is handled separately). */
-const AGENT_FIELDS = [
-  { name: 'agent_name', label: 'Agent name', type: 'text', max: NAME_MAX },
-  { name: 'agent_phone', label: 'Agent phone', type: 'tel', max: PHONE_MAX },
-  { name: 'agent_email', label: 'Agent email', type: 'email', max: NAME_MAX },
-  { name: 'bd_agency_name', label: 'Bangladesh agency name', type: 'text', max: NAME_MAX },
-] as const
-type AgentField = (typeof AGENT_FIELDS)[number]['name']
 
 const nameId = useId()
 const phoneId = useId()
@@ -73,22 +67,16 @@ const countries = useCountriesStore()
 const name = ref('')
 const phone = ref('')
 const country = ref<CountrySummary | null>(null)
-const agent = ref<Record<AgentField, string>>(emptyAgent())
-const quota = ref('')
+const agent = ref<AgentFormValues>(emptyAgentValues())
 const errors = ref<Record<string, string>>({})
 const formError = ref<string | null>(null)
 const isSaving = ref(false)
-
-function emptyAgent(): Record<AgentField, string> {
-  return { agent_name: '', agent_phone: '', agent_email: '', bd_agency_name: '' }
-}
 
 watch(open, async (isOpen) => {
   if (!isOpen) return
   name.value = props.initialName
   phone.value = ''
-  agent.value = emptyAgent()
-  quota.value = ''
+  agent.value = emptyAgentValues()
   errors.value = {}
   formError.value = null
   country.value = null
@@ -137,26 +125,9 @@ async function onSubmit() {
 
 /** Checks the agent fields (adding to `errors`) and returns them trimmed, empty as null. */
 function validateAgent(): CompanyAgentDetails {
-  const v = Object.fromEntries(
-    AGENT_FIELDS.map((f) => [f.name, agent.value[f.name].trim() || null]),
-  ) as Record<AgentField, string | null>
-  for (const f of AGENT_FIELDS) {
-    if ((v[f.name]?.length ?? 0) > f.max)
-      errors.value[f.name] = `The ${f.label.toLowerCase()} must be at most ${f.max} characters.`
-  }
-  if (v.agent_phone && !errors.value.agent_phone && !PHONE_PATTERN.test(v.agent_phone))
-    errors.value.agent_phone = 'The agent phone may only contain digits, spaces, +, - and brackets.'
-  if (v.agent_email && !errors.value.agent_email && !EMAIL_PATTERN.test(v.agent_email))
-    errors.value.agent_email = 'Enter a valid email address.'
-
-  const quotaText = String(quota.value ?? '').trim()
-  let quotaValue: number | null = null
-  if (quotaText) {
-    quotaValue = Number(quotaText)
-    if (!/^\d+$/.test(quotaText) || quotaValue > QUOTA_MAX)
-      errors.value.quota = 'The quota must be a whole number of 0 or more.'
-  }
-  return { ...v, quota: quotaValue }
+  const { values, errors: agentErrors } = validateAgentValues(agent.value)
+  Object.assign(errors.value, agentErrors)
+  return values
 }
 
 const inputClass =
@@ -254,7 +225,7 @@ const inputClass =
             </label>
             <input
               :id="`${fieldId}-quota`"
-              v-model="quota"
+              v-model="agent.quota"
               type="number"
               inputmode="numeric"
               min="0"

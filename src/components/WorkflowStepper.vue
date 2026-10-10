@@ -22,8 +22,10 @@ const props = withDefaults(
     /** Passport mode: the passport's workflow steps. */
     steps?: WorkflowStep[] | null
     compact?: boolean
+    /** Summary mode: leave out the "Completed (N)" card (the All Passports overview). */
+    hideCompleted?: boolean
   }>(),
-  { activeStep: null, steps: null, compact: false },
+  { activeStep: null, steps: null, compact: false, hideCompleted: false },
 )
 
 const workflow = useWorkflowStore()
@@ -136,6 +138,7 @@ const ARROW = 'M8 12h8M13 8l4 4-4 4'
 const SPIN = 'M12 4a8 8 0 1 1-8 8' // in process
 
 const stateIcon: Record<StepState, string> = {
+  not_started: DOTS,
   done: CHECK,
   passed: CHECK,
   completed: CHECK,
@@ -322,10 +325,10 @@ const passportSummary = computed(() =>
           </component>
         </li>
       </template>
-      <li class="flex w-3 shrink-0 items-center" aria-hidden="true">
+      <li v-if="!hideCompleted" class="flex w-3 shrink-0 items-center" aria-hidden="true">
         <span class="h-0.5 w-full bg-slate-300" />
       </li>
-      <li class="w-28 shrink-0 snap-start" data-step="completed">
+      <li v-if="!hideCompleted" class="w-28 shrink-0 snap-start" data-step="completed">
         <RouterLink
           :to="{ name: 'process', query: { tab: 'completed' } }"
           class="flex h-full flex-col justify-center gap-1 rounded-xl border px-2.5 py-2"

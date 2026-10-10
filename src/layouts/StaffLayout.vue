@@ -5,7 +5,7 @@ import AppLogo from '@/components/AppLogo.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
 import { REPORT_ROLES } from '@/lib/companyReport'
-import { canAccessArea, homeRouteFor } from '@/lib/roles'
+import { ADMIN_ROLES, canAccessArea, homeRouteFor } from '@/lib/roles'
 import { settingsPagesFor } from '@/lib/settingsPages'
 import { useWorkflowStore } from '@/stores/workflow'
 
@@ -65,14 +65,22 @@ const navItems = computed(() => {
       badge: waiting === null ? undefined : { count: waiting, label: 'waiting' },
     })
   }
-  if ((REPORT_ROLES as readonly string[]).includes(role)) {
-    items.push({ name: 'companies', label: 'Companies', section: '/reports/companies' })
+  if (canAccessArea(role, 'admin')) {
+    items.push({ name: 'staff-users', label: 'Users' })
+    // Admin panel › Companies (create / edit / deactivate). The report is in the top menu.
+    if (ADMIN_ROLES.includes(role)) items.push({ name: 'admin-companies', label: 'Companies' })
   }
-  if (canAccessArea(role, 'admin')) items.push({ name: 'staff-users', label: 'Users' })
   if (settingsPagesFor(role).length > 0) {
     items.push({ name: 'settings', label: 'Settings', section: '/admin/settings' })
   }
   return items
+})
+
+/** Top navigation: the company-wise report, for every role that may see it. */
+const topItems = computed(() => {
+  const role = auth.user?.role
+  if (!role || !(REPORT_ROLES as readonly string[]).includes(role)) return []
+  return [{ name: 'companies', label: 'Company', section: '/reports/companies' }]
 })
 
 function isActive(item: NavItem) {
@@ -174,6 +182,22 @@ async function logout() {
             />
           </svg>
         </button>
+
+        <nav v-if="topItems.length" aria-label="Reports" class="min-w-0">
+          <ul class="flex items-center gap-1">
+            <li v-for="item in topItems" :key="item.name">
+              <RouterLink
+                :to="{ name: item.name }"
+                class="block rounded-full px-4 py-2 text-sm font-semibold text-primary-900 hover:bg-primary-50"
+                :class="{ 'bg-primary-100 text-primary-950': isActive(item) }"
+                :aria-current="isActive(item) ? 'page' : undefined"
+                data-top-nav
+              >
+                {{ item.label }}
+              </RouterLink>
+            </li>
+          </ul>
+        </nav>
 
         <div v-if="auth.user" class="ml-auto min-w-0 text-right">
           <p class="truncate text-sm font-semibold text-primary-900">{{ auth.user.name }}</p>

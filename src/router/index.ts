@@ -1,7 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { prefersReducedMotion } from '@/lib/scroll'
-import { ROLES, homeRouteFor } from '@/lib/roles'
+import { ADMIN_ROLES, ROLES, homeRouteFor } from '@/lib/roles'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
 import { useAuthStore } from '@/stores/auth'
@@ -75,6 +75,13 @@ const router = createRouter({
           name: 'staff-users',
           component: () => import('@/views/staff/UsersView.vue'),
           meta: { area: 'admin', title: staffTitle('Users') },
+        },
+        {
+          // Admin panel › Companies: admin and super_admin only.
+          path: 'admin/companies',
+          name: 'admin-companies',
+          component: () => import('@/views/admin/CompaniesAdminView.vue'),
+          meta: { area: 'admin', roles: ADMIN_ROLES, title: staffTitle('Companies') },
         },
         {
           path: 'forbidden',
@@ -155,7 +162,7 @@ const router = createRouter({
           path: 'companies',
           name: 'companies',
           component: () => import('@/views/CompaniesView.vue'),
-          meta: { title: staffTitle('Companies') },
+          meta: { title: staffTitle('Company report') },
         },
         {
           path: 'companies/:id(\\d+)',

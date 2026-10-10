@@ -26,10 +26,11 @@ export function normalizePassportNumber(value: string): string {
 export interface PassportFormValues {
   passport_name: string
   passport_number: string
-  /** Optional */
+  /** Required: the passport's country. */
   country_code: string | null
   /** YYYY-MM-DD from the native date input */
   date_of_birth: string
+  /** Required: the person or agency the passport came through. */
   reference_id: number | null
   company_id: number | null
   /** YYYY-MM-DD from the native date input */
@@ -57,7 +58,8 @@ export function validatePassportForm(
   else if (!PASSPORT_NUMBER_PATTERN.test(number))
     errors.passport_number = 'The passport number must be 6 to 20 letters and digits.'
 
-  if (values.reference_id === null) errors.reference_id = 'Select a reference.'
+  if (values.reference_id === null) errors.reference_id = 'Reference is required.'
+  if (!values.country_code) errors.country_code = 'Select the passport country.'
   if (values.company_id === null) errors.company_id = 'Select a company.'
 
   // YYYY-MM-DD strings compare correctly as text.

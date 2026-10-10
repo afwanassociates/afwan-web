@@ -12,8 +12,10 @@ const props = defineProps<{
 
 const text = computed(() => medicalStatusText(props.status, props.validUntil))
 
+/** Not started is grey; Pending (slip date entered, waiting for the result) is amber. */
 const toneClass: Record<MedicalStatus, string> = {
-  pending: 'bg-slate-100 text-slate-800 ring-slate-300',
+  not_started: 'bg-slate-100 text-slate-700 ring-slate-300',
+  pending: 'bg-amber-50 text-amber-800 ring-amber-300',
   fit: 'bg-green-50 text-green-800 ring-green-300',
   expiring_soon: 'bg-accent-50 text-accent-800 ring-accent-300',
   expired: 'bg-orange-50 text-orange-800 ring-orange-300',
@@ -22,6 +24,7 @@ const toneClass: Record<MedicalStatus, string> = {
 
 // 24×24 outline icons.
 const iconPath: Record<MedicalStatus, string> = {
+  not_started: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', // empty circle
   pending: 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z', // clock
   fit: 'M5 12.5l4.5 4.5L19 7.5', // check
   expiring_soon:

@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { toDisplayDate } from '@/lib/dates'
+import { latestStatusDisplay } from '@/lib/latestStatus'
 import type { LatestStatus, StatusTone } from '@/types/passport'
 
 /**
@@ -7,7 +9,10 @@ import type { LatestStatus, StatusTone } from '@/types/passport'
  * The status is always written out; the colour and dot only support it.
  * Text colours are 700/600 shades: at least 4.5:1 contrast on white.
  */
-defineProps<{ latestStatus: LatestStatus }>()
+const props = defineProps<{ latestStatus: LatestStatus }>()
+
+/** "Passport entered" (grey) and "Medical pending" (amber) are worded here. */
+const display = computed(() => latestStatusDisplay(props.latestStatus))
 
 const TEXT: Record<StatusTone, string> = {
   red: 'text-red-700',
@@ -30,18 +35,18 @@ const tone = (value: string): StatusTone => (value in TEXT ? (value as StatusTon
 </script>
 
 <template>
-  <span class="inline-flex flex-col" :data-tone="tone(latestStatus.tone)">
+  <span class="inline-flex flex-col" :data-tone="tone(display.tone)">
     <span
       class="inline-flex items-center gap-1.5 font-semibold"
-      :class="TEXT[tone(latestStatus.tone)]"
+      :class="TEXT[tone(display.tone)]"
       data-status-text
     >
       <span
         class="h-2 w-2 shrink-0 rounded-full"
-        :class="DOT[tone(latestStatus.tone)]"
+        :class="DOT[tone(display.tone)]"
         aria-hidden="true"
       />
-      {{ latestStatus.text }}
+      {{ display.text }}
     </span>
     <span v-if="latestStatus.date" class="mt-0.5 text-xs text-slate-500" data-status-date>
       {{ toDisplayDate(latestStatus.date) }}

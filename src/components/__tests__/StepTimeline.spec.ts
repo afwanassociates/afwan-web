@@ -62,6 +62,11 @@ const HISTORY: Record<string, StepRecord[]> = {
 }
 
 const passport = makePassport({
+  medical_slip: {
+    date: '2026-07-28',
+    no: 'SLIP-77',
+    medical_center: { id: 2, name: 'Gulf Medical Center' },
+  },
   current_medical: {
     id: 7,
     medical_date: '2026-08-01',
@@ -69,9 +74,6 @@ const passport = makePassport({
     valid_until: '2026-11-01',
     days_left: 22,
     remarks: null,
-    medical_center: { id: 2, name: 'Gulf Medical Center' },
-    slip_no: 'SLIP-77',
-    slip_date: '2026-07-28',
     recorded_by: null,
     created_at: '',
   },

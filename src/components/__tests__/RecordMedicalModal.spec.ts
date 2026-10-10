@@ -2,12 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import RecordMedicalModal from '../RecordMedicalModal.vue'
-import SearchSelect from '../SearchSelect.vue'
+import MedicalSlipModal from '../MedicalSlipModal.vue'
 import { fetchMedicalQueue, recordMedical } from '@/api/medical'
 import { getPassport } from '@/api/passports'
 import { addDays, addMonthsNoOverflow, businessToday, toDisplayDate } from '@/lib/dates'
-import { useAuthStore } from '@/stores/auth'
-import { httpError, makePassport, makeUser } from '@/test/helpers'
+import { httpError, makePassport, notStartedPassport } from '@/test/helpers'
 import type { MedicalSaveResponse } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
 
@@ -36,9 +35,6 @@ function saveResponse(passportId: number, warnings: string[] = []): MedicalSaveR
       valid_until: addMonthsNoOverflow(TODAY, 3),
       days_left: 90,
       remarks: null,
-      medical_center: null,
-      slip_no: null,
-      slip_date: null,
       recorded_by: { id: 5, name: 'Data Entry' },
       created_at: '',
       updated_by: 5,
@@ -85,42 +81,59 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => wrapper.unmount())
 
 describe('RecordMedicalModal', () => {
-  describe('medical center and slip', () => {
-    /** SearchSelect is generic, so test-utils cannot type its props; read them untyped. */
-    const propsOf = (c: { props(): unknown }) => c.props() as Record<string, unknown>
-    const centerSelect = () =>
-      wrapper.findAllComponents(SearchSelect).find((c) => propsOf(c).label === 'Medical center')!
+  describe('medical slip (saved on the passport)', () => {
+    const slipModal = () => wrapper.findComponent(MedicalSlipModal)
+    /** The result form (the slip dialog has a form of its own). */
+    const resultForm = () => wrapper.findAll('form').find((f) => f.find('[data-result]').exists())
 
-    it('sends the medical center, slip no and slip date', async () => {
+    it('pre-fills the slip read-only and does not send it with the result', async () => {
       vi.mocked(recordMedical).mockResolvedValue(saveResponse(42))
-      await openModal(makePassport())
+      await openModal(
+        makePassport({
+          medical_slip: {
+            date: '2026-10-02',
+            no: 'MG-5521',
+            medical_center: { id: 3, name: 'Gulf Medical Center' },
+          },
+        }),
+      )
 
-      expect(wrapper.text()).toContain('Medical slip date')
-      centerSelect().vm.$emit('update:modelValue', { id: 3, name: 'Gulf Medical Center' })
-      await wrapper.get('[data-field="slip_no"]').setValue(' MG-5521 ')
-      await wrapper.get('[data-field="slip_date"]').setValue('2026-10-02')
+      const summary = wrapper.get('[data-slip-summary]')
+      expect(summary.get('[data-slip-date]').text()).toBe('02-10-2026')
+      expect(summary.get('[data-slip-no]').text()).toBe('MG-5521')
+      expect(summary.get('[data-slip-center]').text()).toBe('Gulf Medical Center')
+      // Read-only here: no slip inputs in the result form.
+      expect(resultForm()!.find('[data-field="medical_slip_date"]').exists()).toBe(false)
+      expect(resultForm()!.find('input[type="text"]').exists()).toBe(false)
+
       await resultButton('fit').trigger('click')
       await submitWith()
-
       expect(recordMedical).toHaveBeenCalledWith(42, {
         medical_date: TODAY,
         result: 'fit',
         remarks: null,
-        medical_center_id: 3,
-        slip_no: 'MG-5521',
-        slip_date: '2026-10-02',
       })
     })
 
-    it('offers "Add new medical center" to admins only', async () => {
+    it('changes the slip only through "Edit slip"', async () => {
       await openModal(makePassport())
-      useAuthStore().user = makeUser({ role: 'data_entry' })
-      await flushPromises()
-      expect(propsOf(centerSelect()).addLabel).toBeUndefined()
+      expect((slipModal().props() as { open: boolean }).open).toBe(false)
 
-      useAuthStore().user = makeUser({ role: 'admin' })
-      await flushPromises()
-      expect(propsOf(centerSelect()).addLabel).toBe('Add new medical center')
+      await wrapper.get('[data-edit-slip]').trigger('click')
+
+      expect((slipModal().props() as { open: boolean }).open).toBe(true)
+    })
+
+    it('refuses to record a result without a slip date', async () => {
+      await openModal(makePassport(notStartedPassport()))
+
+      expect(wrapper.get('[data-missing-slip]').text()).toContain('No medical slip date yet.')
+      // No result form at all.
+      expect(resultForm()).toBeUndefined()
+      expect(recordMedical).not.toHaveBeenCalled()
+
+      await wrapper.get('[data-add-slip]').trigger('click')
+      expect((slipModal().props() as { open: boolean }).open).toBe(true)
     })
   })
 
@@ -178,9 +191,6 @@ describe('RecordMedicalModal', () => {
       medical_date: TODAY,
       result: 'unfit',
       remarks: null,
-      medical_center_id: null,
-      slip_no: null,
-      slip_date: null,
     })
     expect(isOpen()).toBe(false)
   })

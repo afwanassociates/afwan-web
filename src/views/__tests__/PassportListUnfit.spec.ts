@@ -91,11 +91,13 @@ describe('Passport List without medical parts', () => {
     expect(link.attributes('href')).toBe('/all-passports')
   })
 
-  it('has no medical column, medical status filter or unfit link', async () => {
+  it('has a medical status column but no medical status filter or unfit link', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([makePassport()]))
     await mountList('/passports')
 
-    expect(wrapper.findAll('th').map((th) => th.text())).not.toContain('Medical')
+    // The medical status only ("Not started" / "Pending" …), no step bar.
+    expect(wrapper.findAll('th').map((th) => th.text())).toContain('Medical')
+    expect(wrapper.get('tr[data-row] [data-status]').text()).toBe('Pending')
     expect(wrapper.text()).not.toContain('Medical status')
     expect(wrapper.text()).not.toContain('Unfit passports')
     expect(listPassports).toHaveBeenCalledWith(
@@ -149,6 +151,7 @@ describe('Passport List without medical parts', () => {
     const select = wrapper.get('select[data-stage-filter]')
     expect(select.findAll('option').map((o) => o.text())).toEqual([
       'All stages',
+      'Medical not started',
       'Medical',
       'Calling / Work Permit',
       'Visa',

@@ -18,13 +18,14 @@ export const useCountriesStore = defineStore('countries', () => {
   let pending: Promise<void> | null = null
 
   async function fetchAll(fresh: boolean) {
-    try {
-      const [list, values] = await Promise.all([fetchCountries(fresh), fetchDefaults()])
-      countries.value = list
-      defaults.value = values
+    // Independent: a failed settings request must not leave the country list empty.
+    const [list, values] = await Promise.allSettled([fetchCountries(fresh), fetchDefaults()])
+    if (values.status === 'fulfilled') defaults.value = values.value
+    if (list.status === 'fulfilled') {
+      countries.value = list.value
       isLoaded.value = true
       loadError.value = false
-    } catch {
+    } else {
       loadError.value = true
     }
   }
@@ -40,6 +41,21 @@ export const useCountriesStore = defineStore('countries', () => {
   function reload(): Promise<void> {
     pending = fetchAll(true).finally(() => (pending = null))
     return pending
+  }
+
+  /**
+   * Fetches the defaults again (e.g. when a form opens), so a changed setting applies
+   * without reloading the app. Keeps the previous values and returns false if the request
+   * fails.
+   */
+  async function refreshDefaults(): Promise<boolean> {
+    try {
+      defaults.value = await fetchDefaults()
+      return true
+    } catch {
+      // The caller decides what to fall back to.
+      return false
+    }
   }
 
   /** An active country by code, or undefined. */
@@ -60,5 +76,15 @@ export const useCountriesStore = defineStore('countries', () => {
     return result
   }
 
-  return { countries, defaults, isLoaded, loadError, load, reload, byCode, search }
+  return {
+    countries,
+    defaults,
+    isLoaded,
+    loadError,
+    load,
+    reload,
+    refreshDefaults,
+    byCode,
+    search,
+  }
 })

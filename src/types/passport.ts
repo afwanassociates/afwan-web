@@ -1,7 +1,7 @@
 /** Types matching the afwan-api data-entry endpoints (/api/data-entry/...). */
 
 import type { CountrySummary } from '@/types/country'
-import type { MedicalStatus, MedicalSummary, PassportWorkflow } from '@/types/medical'
+import type { MedicalSlip, MedicalStatus, MedicalSummary, PassportWorkflow } from '@/types/medical'
 import type { WorkflowWarning } from '@/types/workflow'
 
 export type ReferenceType = 'person' | 'agency'
@@ -34,6 +34,8 @@ export interface Company {
   /** Workers the company asked for. */
   quota: number | null
   is_active: boolean
+  /** Only in the admin list and admin responses. */
+  passports_count?: number
   created_at: string
   updated_at: string
 }
@@ -59,8 +61,11 @@ export interface PassportEntry {
   passport_received_date: string
   /** YYYY-MM-DD; null on entries made before the field existed. */
   passport_expiry_date: string | null
-  reference: ReferenceSummary
+  /** Null when the passport came without a reference (the reference is optional). */
+  reference: ReferenceSummary | null
   company: CompanySummary
+  /** Missing from responses of older API versions. */
+  medical_slip?: MedicalSlip
   medical_status: MedicalStatus
   medical_status_label: string
   current_medical: MedicalSummary | null
@@ -86,7 +91,8 @@ export interface PassportPayload {
   country_code: string | null
   /** YYYY-MM-DD */
   date_of_birth: string
-  reference_id: number
+  /** Required by the form (the API also accepts null). */
+  reference_id: number | null
   company_id: number
   /** YYYY-MM-DD */
   passport_received_date: string
@@ -100,6 +106,10 @@ export type PassportSort =
 /** Query of GET /passports. Dates are YYYY-MM-DD. */
 export interface PassportFilters {
   q?: string
+  /** Part of the reference's name, any case (combines with q). */
+  reference?: string
+  /** Part of the company's name, any case (combines with q and reference). */
+  company?: string
   reference_id?: number
   reference_type?: ReferenceType
   company_id?: number
@@ -132,6 +142,13 @@ export interface NewCompany extends Partial<CompanyAgentDetails> {
   country_code: string
 }
 
+/** Body of POST /admin/companies and PATCH /admin/companies/{id}. */
+export interface AdminCompanyPayload extends CompanyAgentDetails {
+  name: string
+  country_code: string
+  is_active: boolean
+}
+
 /** Colour of a latest status (afwan-api config workflow.tones). */
 export type StatusTone = 'red' | 'amber' | 'blue' | 'green' | 'gray'
 
@@ -157,7 +174,7 @@ export interface PassportOverview {
   country: CountrySummary | null
   passport_expiry_date: string | null
   company: CompanySummary
-  reference: Pick<Reference, 'id' | 'name' | 'type'>
+  reference: Pick<Reference, 'id' | 'name' | 'type'> | null
   passport_received_date: string
   entered_by: { id: number; name: string } | null
   created_at: string

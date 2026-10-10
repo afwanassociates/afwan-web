@@ -1,20 +1,14 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import LatestStatusText from '@/components/LatestStatusText.vue'
-import PassportExpiryBadge from '@/components/PassportExpiryBadge.vue'
 import { businessToday, toDisplayDate } from '@/lib/dates'
 import type { PassportOverview } from '@/types/passport'
 
 /**
  * Read-only passport overview (All Passports): a table on wide screens, cards on narrow
- * ones. No actions. The "Latest status" header sorts by the status date.
+ * ones. No actions and no sorting (the API lists newest first).
  */
-defineProps<{
-  entries: PassportOverview[]
-  /** Current direction of the status-date sort, or null when sorted by something else. */
-  statusSort: 'asc' | 'desc' | null
-}>()
-defineEmits<{ sortStatus: [] }>()
+defineProps<{ entries: PassportOverview[] }>()
 
 /** created_at is a timestamp: show its Dhaka calendar date. */
 const enteredOn = (createdAt: string) => {
@@ -28,8 +22,6 @@ const headers = [
   'Passport name',
   'Passport number',
   'Latest status',
-  'Country',
-  'Passport expiry',
   'Reference',
   'Company',
   'Received',
@@ -60,17 +52,13 @@ const headers = [
       <dl class="mt-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
         <dt class="text-muted">Date of birth</dt>
         <dd class="text-slate-800">{{ toDisplayDate(entry.date_of_birth) || '—' }}</dd>
-        <dt class="text-muted">Country</dt>
-        <dd class="text-slate-800">{{ entry.country?.name ?? '—' }}</dd>
-        <dt class="text-muted">Passport expiry</dt>
-        <dd class="flex flex-wrap items-center gap-2 text-slate-800">
-          {{ toDisplayDate(entry.passport_expiry_date) || '—' }}
-          <PassportExpiryBadge :expiry-date="entry.passport_expiry_date" />
-        </dd>
         <dt class="text-muted">Reference</dt>
         <dd class="text-slate-800">
-          {{ entry.reference.name }}
-          <span class="text-xs text-muted">({{ typeLabel(entry.reference.type) }})</span>
+          <template v-if="entry.reference">
+            {{ entry.reference.name }}
+            <span class="text-xs text-muted">({{ typeLabel(entry.reference.type) }})</span>
+          </template>
+          <template v-else>—</template>
         </dd>
         <dt class="text-muted">Company</dt>
         <dd class="text-slate-800">
@@ -98,38 +86,8 @@ const headers = [
             :key="header"
             scope="col"
             class="py-3 pr-4 font-semibold whitespace-nowrap"
-            :aria-sort="
-              header === 'Latest status'
-                ? statusSort === 'asc'
-                  ? 'ascending'
-                  : statusSort === 'desc'
-                    ? 'descending'
-                    : 'none'
-                : undefined
-            "
           >
-            <button
-              v-if="header === 'Latest status'"
-              type="button"
-              class="inline-flex items-center gap-1 rounded-sm uppercase hover:text-primary-900"
-              data-sort-status
-              @click="$emit('sortStatus')"
-            >
-              Latest status
-              <span aria-hidden="true">{{
-                statusSort === 'asc' ? '↑' : statusSort === 'desc' ? '↓' : '↕'
-              }}</span>
-              <span class="sr-only">
-                (sort by status date{{
-                  statusSort === 'desc'
-                    ? ', newest first'
-                    : statusSort === 'asc'
-                      ? ', oldest first'
-                      : ''
-                }})
-              </span>
-            </button>
-            <template v-else>{{ header }}</template>
+            {{ header }}
           </th>
         </tr>
       </thead>
@@ -152,14 +110,12 @@ const headers = [
           <td class="py-3 pr-4 whitespace-nowrap">
             <LatestStatusText :latest-status="entry.latest_status" />
           </td>
-          <td class="py-3 pr-4 text-slate-800">{{ entry.country?.name ?? '—' }}</td>
-          <td class="py-3 pr-4 whitespace-nowrap text-slate-800">
-            <span class="block">{{ toDisplayDate(entry.passport_expiry_date) || '—' }}</span>
-            <PassportExpiryBadge :expiry-date="entry.passport_expiry_date" />
-          </td>
           <td class="py-3 pr-4 text-slate-800">
-            {{ entry.reference.name }}
-            <span class="block text-xs text-muted">{{ typeLabel(entry.reference.type) }}</span>
+            <template v-if="entry.reference">
+              {{ entry.reference.name }}
+              <span class="block text-xs text-muted">{{ typeLabel(entry.reference.type) }}</span>
+            </template>
+            <template v-else>—</template>
           </td>
           <td class="py-3 pr-4 text-slate-800">
             {{ entry.company.name }}

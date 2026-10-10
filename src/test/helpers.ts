@@ -42,7 +42,10 @@ export function httpError(
   )
 }
 
-/** A complete passport entry for tests; pending medical by default. */
+/**
+ * A complete passport entry for tests; pending medical by default (slip date entered, no
+ * result). Pass `notStartedPassport()` overrides for a new passport without a slip.
+ */
 export function makePassport(overrides: Partial<PassportEntry> = {}): PassportEntry {
   return {
     id: 42,
@@ -54,6 +57,7 @@ export function makePassport(overrides: Partial<PassportEntry> = {}): PassportEn
     passport_expiry_date: '2031-09-29',
     reference: { id: 8, type: 'agency', type_label: 'Agency', name: 'Star' },
     company: { id: 3, name: 'Gulf Builders', country: { code: 'MY', name: 'Malaysia' } },
+    medical_slip: { date: '2026-09-30', no: 'MG-100', medical_center: null },
     medical_status: 'pending',
     medical_status_label: 'Medical Pending',
     current_medical: null,
@@ -71,5 +75,24 @@ export function makePassport(overrides: Partial<PassportEntry> = {}): PassportEn
     updated_at: '',
     can: { update: true, delete: false, record_medical: true },
     ...overrides,
+  }
+}
+
+/** Overrides for a just-created passport: no medical slip yet, so medical "not started". */
+export function notStartedPassport(): Partial<PassportEntry> {
+  return {
+    medical_slip: { date: null, no: null, medical_center: null },
+    medical_status: 'not_started',
+    medical_status_label: 'Medical Not Started',
+    current_stage: 'passport',
+    stage_status: 'not_started',
+    workflow: {
+      steps: [
+        { key: 'passport', label: 'Passport', enabled: true, state: 'done' },
+        { key: 'medical', label: 'Medical', enabled: true, state: 'not_started' },
+        { key: 'step3', label: 'Step 3', enabled: false, state: 'locked' },
+      ],
+      current_step: 'passport',
+    },
   }
 }
