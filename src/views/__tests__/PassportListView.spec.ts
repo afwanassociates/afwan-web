@@ -212,29 +212,19 @@ describe('Passport List ("Passport entered" only)', () => {
         'Reference',
         'Company',
         'Received',
-        'Stage',
         'Entered by',
         'Actions',
       ])
       expect(headers).not.toContain('Medical')
+      expect(headers).not.toContain('Stage')
+      expect(wrapper.find('[data-stage-badge]').exists()).toBe(false)
       const row = wrapper.get('tr[data-row]')
       expect(row.get('[data-cell="passport_name"]').text()).toBe('KARIM UDDIN')
       expect(row.get('[data-cell="passport_number"]').text()).toBe('NW5000001')
       expect(row.find('[data-status]').exists()).toBe(false) // no medical status badge
-    })
-
-    it('the Stage column always shows "Passport entered"', async () => {
-      vi.mocked(listPassports).mockResolvedValue(
-        page([
-          ENTERED,
-          // Even an unexpected row shows the same fixed badge: there are no other stage values here.
-          makePassport({ id: 51, current_stage: 'visa', stage_status: 'in_process' }),
-        ]),
-      )
-      await mountList()
-
-      const badges = wrapper.findAll('tr[data-row] [data-stage-badge]').map((b) => b.text())
-      expect(badges).toEqual(['Passport entered', 'Passport entered'])
+      // No scan UI in the list (only has_scan exists on list items).
+      expect(wrapper.find('[data-scan-card], img, object').exists()).toBe(false)
+      expect(wrapper.text()).not.toMatch(/scan/i)
     })
 
     it('keeps the row actions: Add medical slip, Edit and Delete', async () => {

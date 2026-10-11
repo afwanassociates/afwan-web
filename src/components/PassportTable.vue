@@ -21,20 +21,33 @@ withDefaults(
     rowClass?: (entry: PassportEntry) => string | undefined
     /** Wide screens: "Passport name" and "Passport number" as two columns (default: one cell). */
     splitNameNumber?: boolean
+    /** Columns the page draws itself through the `cell` slot (default: none). */
+    customColumns?: PassportColumn[]
+    /** Show the default Edit / Delete buttons when a row has no page actions (default: yes). */
+    defaultActions?: boolean
+    /** Keep the actions column visible at the right edge when the table scrolls sideways. */
+    stickyActions?: boolean
   }>(),
   {
     columns: () => ['reference', 'company', 'received', 'entered_by'],
     rowClass: undefined,
     splitNameNumber: false,
+    customColumns: () => [],
+    defaultActions: true,
+    stickyActions: false,
   },
 )
 defineEmits<{ delete: [entry: PassportEntry] }>()
 defineSlots<{
   actions?(props: { entry: PassportEntry }): unknown
   'extra-actions'?(props: { entry: PassportEntry }): unknown
+  cell?(props: { entry: PassportEntry; column: PassportColumn }): unknown
 }>()
 
 const today = businessToday()
+
+/** Right-pinned actions column: white background and a soft edge over scrolled cells. */
+const STICKY = 'sticky right-0 z-10 bg-white pl-3 shadow-[-12px_0_12px_-12px_rgb(15_23_42/0.25)]'
 
 const actionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-primary-50 focus-visible:bg-primary-50'
@@ -61,7 +74,14 @@ const actionClass =
         <template v-for="column in columns" :key="column">
           <dt class="text-muted">{{ COLUMN_LABELS[column] }}</dt>
           <dd class="min-w-0 text-slate-800">
+            <slot
+              v-if="customColumns.includes(column)"
+              name="cell"
+              :entry="entry"
+              :column="column"
+            />
             <PassportCell
+              v-else
               :entry="entry"
               :column="column"
               :today="today"
@@ -74,14 +94,14 @@ const actionClass =
         <slot name="extra-actions" :entry="entry" />
         <slot name="actions" :entry="entry">
           <RouterLink
-            v-if="entry.can.update"
+            v-if="defaultActions && entry.can.update"
             :to="{ name: 'passport-edit', params: { id: entry.id } }"
             :class="[actionClass, 'text-primary-700']"
           >
             Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
           </RouterLink>
           <button
-            v-if="entry.can.delete"
+            v-if="defaultActions && entry.can.delete"
             type="button"
             :class="[actionClass, 'text-red-700 hover:bg-red-50']"
             @click="$emit('delete', entry)"
@@ -111,7 +131,9 @@ const actionClass =
           >
             {{ COLUMN_LABELS[column] }}
           </th>
-          <th scope="col" class="py-3 font-semibold"><span class="sr-only">Actions</span></th>
+          <th scope="col" class="py-3 font-semibold" :class="{ [STICKY]: stickyActions }">
+            <span class="sr-only">Actions</span>
+          </th>
         </tr>
       </thead>
       <tbody class="divide-y divide-stroke">
@@ -143,27 +165,39 @@ const actionClass =
           >
             {{ entry.passport_number }}
           </td>
-          <td v-for="column in columns" :key="column" class="py-3 pr-4 text-slate-800">
+          <td
+            v-for="column in columns"
+            :key="column"
+            class="py-3 pr-4 text-slate-800"
+            :data-column="column"
+          >
+            <slot
+              v-if="customColumns.includes(column)"
+              name="cell"
+              :entry="entry"
+              :column="column"
+            />
             <PassportCell
+              v-else
               :entry="entry"
               :column="column"
               :today="today"
               :current-user-id="currentUserId"
             />
           </td>
-          <td class="py-3">
+          <td class="py-3" :class="{ [STICKY]: stickyActions }" data-actions>
             <div class="flex flex-wrap justify-end gap-1">
               <slot name="extra-actions" :entry="entry" />
               <slot name="actions" :entry="entry">
                 <RouterLink
-                  v-if="entry.can.update"
+                  v-if="defaultActions && entry.can.update"
                   :to="{ name: 'passport-edit', params: { id: entry.id } }"
                   :class="[actionClass, 'text-primary-700']"
                 >
                   Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
                 </RouterLink>
                 <button
-                  v-if="entry.can.delete"
+                  v-if="defaultActions && entry.can.delete"
                   type="button"
                   :class="[actionClass, 'text-red-700 hover:bg-red-50']"
                   @click="$emit('delete', entry)"

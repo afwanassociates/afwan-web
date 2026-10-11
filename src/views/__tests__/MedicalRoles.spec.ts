@@ -8,7 +8,7 @@ import MedicalHistoryTable from '@/components/MedicalHistoryTable.vue'
 import { listPassports, getPassport } from '@/api/passports'
 import { listMedicals } from '@/api/medical'
 import { useAuthStore } from '@/stores/auth'
-import { makePassport, makeUser } from '@/test/helpers'
+import { makePassport, makeUser, notStartedPassport } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { Role } from '@/types/auth'
 import type { MedicalRecord } from '@/types/medical'
@@ -18,9 +18,9 @@ vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), getPassport: vi.fn()
 vi.mock('@/api/medical', () => ({
   listMedicals: vi.fn(),
   deleteMedical: vi.fn(),
-  recordMedical: vi.fn(),
-  updateMedical: vi.fn(),
-  fetchMedicalQueue: vi.fn(),
+  recordMedicalResult: vi.fn(),
+  updateMedicalDate: vi.fn(),
+  updateMedicalSlip: vi.fn(),
 }))
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowSummary: vi.fn(async () => null),
@@ -136,18 +136,19 @@ describe('Medical → Unfit tab', () => {
     expect(tab.text()).toContain('Unfit')
   })
 
-  it('hides "Re-test" from data_entry', async () => {
-    await mountView(MedicalView, 'data_entry', '/medical?tab=unfit')
+  it.each(['data_entry', 'admin', 'super_admin'] as const)(
+    'is read-only for %s: no result actions (no Re-test, Fit or Unfit)',
+    async (role) => {
+      await mountView(MedicalView, role, '/medical?tab=unfit')
 
-    expect(wrapper.findAll('[data-row]').length).toBeGreaterThan(0)
-    expect(wrapper.find('[data-retest]').exists()).toBe(false)
-  })
-
-  it.each(['admin', 'super_admin'] as const)('shows "Re-test" to %s', async (role) => {
-    await mountView(MedicalView, role, '/medical?tab=unfit')
-
-    expect(wrapper.find('[data-retest]').exists()).toBe(true)
-  })
+      const row = wrapper.get('tr[data-row]')
+      expect(row.find('[data-retest]').exists()).toBe(false)
+      expect(row.find('button[data-result]').exists()).toBe(false)
+      expect(row.find('[data-enter-medical-date]').exists()).toBe(false)
+      const labels = row.findAll('button').map((b) => b.text())
+      expect(labels.some((t) => /Re-test|Repeat|Fit|Unfit|medical date/.test(t))).toBe(false)
+    },
+  )
 })
 
 describe('Medical history buttons', () => {
@@ -175,39 +176,57 @@ describe('Medical history buttons', () => {
 describe('Passport detail', () => {
   const action = () => wrapper.find('[data-medical-action]')
 
-  it('shows "Re-test" for an unfit passport to admins only', async () => {
-    await mountView(PassportDetailView, 'admin', '/passports/42')
-    expect(action().text()).toBe('Re-test')
-    wrapper.unmount()
+  it.each(['admin', 'data_entry'] as const)(
+    'has no result action for an unfit passport (%s); history stays read-only',
+    async (role) => {
+      await mountView(PassportDetailView, role, '/passports/42')
 
-    await mountView(PassportDetailView, 'data_entry', '/passports/42')
-    expect(action().exists()).toBe(false)
-    const history = wrapper.get('[aria-labelledby="history-heading"]')
-    expect(history.findAll('[data-record]').length).toBeGreaterThan(0)
-    expect(history.findAll('button').some((b) => b.text().startsWith('Delete'))).toBe(false)
-  })
+      expect(action().exists()).toBe(false)
+      const history = wrapper.get('[aria-labelledby="history-heading"]')
+      expect(history.findAll('[data-record]').length).toBeGreaterThan(0)
+      expect(history.findAll('button').some((b) => b.text().startsWith('Edit'))).toBe(false)
+    },
+  )
 
-  it.each([
-    ['pending', 'Record medical'],
-    ['expired', 'Repeat medical'],
-  ] as const)('a %s passport offers "%s" to data_entry', async (status, label) => {
-    vi.mocked(getPassport).mockResolvedValue(
-      makePassport({ medical_status: status, current_medical: null }),
-    )
+  it.each(['pending', 'expired', 'fit'] as const)(
+    'a %s passport offers no Record / Repeat medical button',
+    async (status) => {
+      vi.mocked(getPassport).mockResolvedValue(
+        makePassport({ medical_status: status, current_medical: null }),
+      )
+      vi.mocked(listMedicals).mockResolvedValue([])
+      await mountView(PassportDetailView, 'data_entry', '/passports/42')
+
+      expect(action().exists()).toBe(false)
+    },
+  )
+
+  it('a not-started passport still offers "Add medical slip"', async () => {
+    vi.mocked(getPassport).mockResolvedValue(makePassport(notStartedPassport()))
     vi.mocked(listMedicals).mockResolvedValue([])
     await mountView(PassportDetailView, 'data_entry', '/passports/42')
 
-    expect(action().text()).toBe(label)
+    expect(action().text()).toBe('Add medical slip')
   })
 })
 
 describe('Step bar placement', () => {
   it.each([
-    ['Medical page', MedicalView, '/medical'],
-    ['Unfit tab', MedicalView, '/medical?tab=unfit'],
-    ['passport detail', PassportDetailView, '/passports/42'],
-  ] as const)('the %s still shows the step bar', async (_name, view, path) => {
-    await mountView(view, 'data_entry', path)
+    ['Medical page', '/medical'],
+    ['Unfit tab', '/medical?tab=unfit'],
+  ] as const)(
+    'the %s shows the step bar, without "Completed" or per-row steppers',
+    async (_name, path) => {
+      await mountView(MedicalView, 'data_entry', path)
+
+      expect(wrapper.find('nav[aria-label="Workflow steps"]').exists()).toBe(true)
+      expect(wrapper.find('[data-step="completed"]').exists()).toBe(false)
+      expect(wrapper.find('[data-mode="compact"]').exists()).toBe(false)
+    },
+  )
+
+  it('the passport detail page still shows its step bar', async () => {
+    await mountView(PassportDetailView, 'data_entry', '/passports/42')
 
     expect(wrapper.find('nav[aria-label="Workflow steps"]').exists()).toBe(true)
   })

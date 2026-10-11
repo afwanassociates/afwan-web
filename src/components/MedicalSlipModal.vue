@@ -26,17 +26,13 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ saved: [passport: PassportEntry] }>()
 
-const SLIP_NO_MAX = 50
-
 const toast = useToast()
 const auth = useAuthStore()
 const workflow = useWorkflowStore()
 
 const dateId = useId()
-const noId = useId()
 
 const slipDate = ref('')
-const slipNo = ref('')
 const center = ref<MedicalCenterSummary | null>(null)
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
@@ -49,14 +45,12 @@ watch(open, (isOpen) => {
   if (!isOpen) return
   const slip = props.passport?.medical_slip
   slipDate.value = slip?.date ?? ''
-  slipNo.value = slip?.no ?? ''
   center.value = slip?.medical_center ?? null
   errors.value = {}
   banner.value = null
 })
 
 watch(slipDate, () => delete errors.value.medical_slip_date)
-watch(slipNo, () => delete errors.value.medical_slip_no)
 watch(center, () => delete errors.value.medical_center_id)
 
 /* ---------- Medical centre (admins may add a new one) ---------- */
@@ -84,8 +78,6 @@ function validate(): boolean {
   const e: Record<string, string> = {}
   if (!slipDate.value) e.medical_slip_date = 'Enter the medical slip date.'
   else if (!toApiDate(slipDate.value)) e.medical_slip_date = 'Enter a valid date.'
-  if (slipNo.value.trim().length > SLIP_NO_MAX)
-    e.medical_slip_no = `The medical slip no must be at most ${SLIP_NO_MAX} characters.`
   errors.value = e
   return Object.keys(e).length === 0
 }
@@ -99,7 +91,6 @@ async function save() {
   try {
     const updated = await updateMedicalSlip(passport.id, {
       medical_slip_date: toApiDate(slipDate.value),
-      medical_slip_no: slipNo.value.trim() || null,
       medical_center_id: center.value?.id ?? null,
     })
     toast.success(
@@ -170,25 +161,6 @@ const inputClass =
           class="mt-1 text-sm text-red-700"
         >
           {{ errors.medical_slip_date }}
-        </p>
-      </div>
-
-      <div data-field="medical_slip_no">
-        <label :for="noId" class="block text-sm font-medium text-slate-700">
-          Medical slip no <span class="font-normal text-muted">(optional)</span>
-        </label>
-        <input
-          :id="noId"
-          v-model="slipNo"
-          type="text"
-          autocomplete="off"
-          :maxlength="SLIP_NO_MAX"
-          :class="[inputClass, errors.medical_slip_no ? 'border-red-500' : 'border-slate-300']"
-          :aria-invalid="errors.medical_slip_no ? 'true' : undefined"
-          :aria-describedby="errors.medical_slip_no ? `${noId}-error` : undefined"
-        />
-        <p v-if="errors.medical_slip_no" :id="`${noId}-error`" class="mt-1 text-sm text-red-700">
-          {{ errors.medical_slip_no }}
         </p>
       </div>
 

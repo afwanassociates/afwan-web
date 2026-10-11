@@ -219,4 +219,12 @@ describe('CompanyView', () => {
 
     expect(wrapper.get('[data-not-found]').text()).toContain('This company does not exist.')
   })
+
+  it('shows no scan copy UI (lists only ever get has_scan)', async () => {
+    await mountAs('admin')
+
+    expect(wrapper.find('[data-scan-card]').exists()).toBe(false)
+    expect(wrapper.find('tbody img, tbody object').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/scan copy/i)
+  })
 })

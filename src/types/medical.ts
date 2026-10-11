@@ -89,13 +89,6 @@ export interface MedicalSaveResponse {
   warnings: MedicalWarning[]
 }
 
-export interface MedicalPayload {
-  /** YYYY-MM-DD */
-  medical_date: string
-  result: MedicalResult
-  remarks: string | null
-}
-
 /**
  * A passport's medical slip ("MYGRAM"). Entering its date moves the passport from
  * not_started into Medical → Pending; a result can only be recorded after that.
@@ -103,7 +96,6 @@ export interface MedicalPayload {
 export interface MedicalSlip {
   /** YYYY-MM-DD */
   date: string | null
-  no: string | null
   medical_center: MedicalCenterSummary | null
 }
 
@@ -111,16 +103,7 @@ export interface MedicalSlip {
 export interface MedicalSlipPayload {
   /** YYYY-MM-DD; required (null clears it, only while no result is recorded). */
   medical_slip_date: string | null
-  medical_slip_no: string | null
   medical_center_id: number | null
-}
-
-/** An item of GET /medical/queue (oldest received first). */
-export interface MedicalQueueItem {
-  id: number
-  passport_name: string
-  passport_number: string
-  passport_received_date: string
 }
 
 /** Counts of one stage: total plus per status (pending/unfit for medical; waiting/in_process/rejected after). */

@@ -9,10 +9,15 @@ import type { MedicalRecord } from '@/types/medical'
  * A passport's medical records, newest first. Edit follows the API (own records for data
  * entry); Delete is for admin and super admin only.
  */
-const props = defineProps<{
-  records: MedicalRecord[]
-  role: Role | undefined
-}>()
+const props = withDefaults(
+  defineProps<{
+    records: MedicalRecord[]
+    role: Role | undefined
+    /** Show "Edit" on records the user may change (off on the detail page). */
+    editable?: boolean
+  }>(),
+  { editable: true },
+)
 defineEmits<{ edit: [record: MedicalRecord]; delete: [record: MedicalRecord] }>()
 
 const canDelete = (record: MedicalRecord) => record.can.delete && isMedicalAdmin(props.role)
@@ -38,7 +43,7 @@ const actionClass =
         </p>
         <div class="mt-2 -ml-2 flex gap-1">
           <button
-            v-if="record.can.update"
+            v-if="editable && record.can.update"
             type="button"
             :class="[actionClass, 'text-primary-700']"
             @click="$emit('edit', record)"
@@ -88,7 +93,7 @@ const actionClass =
             <td class="py-3">
               <div class="flex justify-end gap-1">
                 <button
-                  v-if="record.can.update"
+                  v-if="editable && record.can.update"
                   type="button"
                   :class="[actionClass, 'text-primary-700']"
                   @click="$emit('edit', record)"

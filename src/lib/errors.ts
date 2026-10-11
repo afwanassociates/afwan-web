@@ -27,3 +27,9 @@ export function errorMessage(error: unknown, fallback = 'Something went wrong. P
   }
   return fallback
 }
+
+/** The first 422 message of one field (e.g. "scan", whose rules can repeat the same point). */
+export function firstFieldError(error: unknown, field: string): string | undefined {
+  if (!isAxiosError<ApiErrorBody>(error) || error.response?.status !== 422) return undefined
+  return error.response.data?.errors?.[field]?.[0]
+}

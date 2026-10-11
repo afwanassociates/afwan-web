@@ -57,7 +57,7 @@ export function makePassport(overrides: Partial<PassportEntry> = {}): PassportEn
     passport_expiry_date: '2031-09-29',
     reference: { id: 8, type: 'agency', type_label: 'Agency', name: 'Star' },
     company: { id: 3, name: 'Gulf Builders', country: { code: 'MY', name: 'Malaysia' } },
-    medical_slip: { date: '2026-09-30', no: 'MG-100', medical_center: null },
+    medical_slip: { date: '2026-09-30', medical_center: null },
     medical_status: 'pending',
     medical_status_label: 'Medical Pending',
     current_medical: null,
@@ -81,7 +81,7 @@ export function makePassport(overrides: Partial<PassportEntry> = {}): PassportEn
 /** Overrides for a just-created passport: no medical slip yet, so medical "not started". */
 export function notStartedPassport(): Partial<PassportEntry> {
   return {
-    medical_slip: { date: null, no: null, medical_center: null },
+    medical_slip: { date: null, medical_center: null },
     medical_status: 'not_started',
     medical_status_label: 'Medical Not Started',
     current_stage: 'passport',

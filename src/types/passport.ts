@@ -1,7 +1,13 @@
 /** Types matching the afwan-api data-entry endpoints (/api/data-entry/...). */
 
 import type { CountrySummary } from '@/types/country'
-import type { MedicalSlip, MedicalStatus, MedicalSummary, PassportWorkflow } from '@/types/medical'
+import type {
+  MedicalCenterSummary,
+  MedicalSlip,
+  MedicalStatus,
+  MedicalSummary,
+  PassportWorkflow,
+} from '@/types/medical'
 import type { WorkflowWarning } from '@/types/workflow'
 
 export type ReferenceType = 'person' | 'agency'
@@ -66,6 +72,22 @@ export interface PassportEntry {
   company: CompanySummary
   /** Missing from responses of older API versions. */
   medical_slip?: MedicalSlip
+  /** The date the passport goes (or went) for its medical; null until entered. */
+  medical_date?: string | null
+  /**
+   * Passport scan copy (details responses only; never a storage path). The file itself is
+   * fetched from GET /passports/{id}/scan. Missing on API versions without scans.
+   */
+  has_scan?: boolean
+  scan_original_name?: string | null
+  /** e.g. image/jpeg, image/png, application/pdf */
+  scan_mime?: string | null
+  /** Bytes */
+  scan_size?: number | null
+  /** ISO timestamp */
+  scan_uploaded_at?: string | null
+  /** Where the medical is done (same as medical_slip.medical_center). */
+  medical_center?: MedicalCenterSummary | null
   medical_status: MedicalStatus
   medical_status_label: string
   current_medical: MedicalSummary | null
@@ -106,6 +128,8 @@ export type PassportSort =
 /** Query of GET /passports. Dates are YYYY-MM-DD. */
 export interface PassportFilters {
   q?: string
+  /** Named list mode: 'medical' (one Medical tab, fixed order) or 'passport_entered'. */
+  mode?: 'medical' | 'passport_entered'
   /** Part of the reference's name, any case (combines with q). */
   reference?: string
   /** Part of the company's name, any case (combines with q and reference). */

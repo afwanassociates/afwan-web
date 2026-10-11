@@ -52,6 +52,12 @@ function makeEntry(overrides: Partial<PassportEntry> = {}): PassportEntry {
     reference: AGENCY,
     company: COMPANY,
     can: { update: true, delete: false, record_medical: true },
+    // Saved entries have a scan (required on create); edits may leave it as it is.
+    has_scan: true,
+    scan_original_name: 'passport.jpg',
+    scan_mime: 'image/jpeg',
+    scan_size: 200_000,
+    scan_uploaded_at: '2026-10-01T08:00:00Z',
     ...overrides,
   })
 }
@@ -109,6 +115,16 @@ const errorFor = (input: Field) => {
   return errorId ? wrapper.find(`[id="${errorId}"]`).text() : undefined
 }
 
+const SCAN = new File(['\xFF\xD8\xFF'], 'scan.jpg', { type: 'image/jpeg' })
+
+/** Picks `file` in the "Passport scan copy" field (as the browser file dialog would). */
+async function chooseScan(file: File) {
+  const input = wrapper.get<HTMLInputElement>('input[data-scan-file]')
+  Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+  await input.trigger('change')
+  await flushPromises()
+}
+
 async function fillValidForm(reference: ReferenceSummary = PERSON) {
   await field('Passport name').setValue('md rahim')
   await field('Passport number').setValue('ab 123 4567')
@@ -117,10 +133,18 @@ async function fillValidForm(reference: ReferenceSummary = PERSON) {
   select(`Reference ${reference.type}`).choose(reference)
   select('Company name').choose(COMPANY)
   await flushPromises()
+  if (
+    wrapper.find('input[data-scan-file]').exists() &&
+    !wrapper.find('[data-scan-current]').exists()
+  )
+    await chooseScan(SCAN)
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
+  // jsdom has no object URLs (the scan thumbnail uses one).
+  URL.createObjectURL = vi.fn(() => 'blob:thumb') as unknown as typeof URL.createObjectURL
+  URL.revokeObjectURL = vi.fn()
   // Not Malaysia, to prove nothing is hardcoded.
   defaults = { default_company_country_code: 'BD', default_passport_country_code: 'NP' }
   // Some tests make the settings request slow or fail; start every test from a normal one.
@@ -183,16 +207,20 @@ describe('PassportFormView', () => {
     await wrapper.get('button[data-action="save"]').trigger('click')
     await flushPromises()
 
-    expect(createPassport).toHaveBeenCalledWith({
-      passport_name: 'MD RAHIM',
-      passport_number: 'AB1234567',
-      country_code: 'NP',
-      date_of_birth: '1990-05-17',
-      reference_id: PERSON.id,
-      company_id: COMPANY.id,
-      passport_received_date: TODAY,
-      passport_expiry_date: '2031-10-04',
-    })
+    expect(createPassport).toHaveBeenCalledWith(
+      {
+        passport_name: 'MD RAHIM',
+        passport_number: 'AB1234567',
+        country_code: 'NP',
+        date_of_birth: '1990-05-17',
+        reference_id: PERSON.id,
+        company_id: COMPANY.id,
+        passport_received_date: TODAY,
+        passport_expiry_date: '2031-10-04',
+      },
+      SCAN,
+      expect.any(Function),
+    )
     expect(router.currentRoute.value.name).toBe('passports')
   })
 
@@ -280,6 +308,7 @@ describe('PassportFormView', () => {
         'Passport received date',
         'Country',
         'Company name',
+        'Passport scan copy',
       ])
     })
 
@@ -288,7 +317,7 @@ describe('PassportFormView', () => {
 
       const labels = fieldLabels()
       const required = labels.filter((t) => /\*$/.test(t))
-      expect(required).toHaveLength(8)
+      expect(required).toHaveLength(9) // every field, the scan copy included
       expect(labels[4]).toMatch(/^Reference\s*\*$/)
       const legendMarker = wrapper.get('[data-field="reference"] legend span[aria-hidden="true"]')
       expect(legendMarker.text()).toBe('*')
@@ -297,8 +326,8 @@ describe('PassportFormView', () => {
         .get('[data-fields]')
         .findAll('label span[aria-hidden="true"]')
         .filter((m) => m.text() === '*')
-      // 7 field labels plus the reference search's own label ("Reference person *").
-      expect(markers).toHaveLength(8)
+      // 8 field labels plus the reference search's own label ("Reference person *").
+      expect(markers).toHaveLength(9)
       expect(markers.every((m) => m.classes().includes('text-red-700'))).toBe(true)
     })
 
@@ -424,7 +453,11 @@ describe('PassportFormView', () => {
       await wrapper.get('button[data-action="save"]').trigger('click')
       await flushPromises()
 
-      expect(createPassport).toHaveBeenCalledWith(expect.objectContaining({ country_code: 'BD' }))
+      expect(createPassport).toHaveBeenCalledWith(
+        expect.objectContaining({ country_code: 'BD' }),
+        SCAN,
+        expect.any(Function),
+      )
     })
 
     it('is preselected again after "Save and add another"', async () => {
@@ -438,7 +471,11 @@ describe('PassportFormView', () => {
       await wrapper.get('button[data-action="another"]').trigger('click')
       await flushPromises()
 
-      expect(createPassport).toHaveBeenCalledWith(expect.objectContaining({ country_code: 'NP' }))
+      expect(createPassport).toHaveBeenCalledWith(
+        expect.objectContaining({ country_code: 'NP' }),
+        SCAN,
+        expect.any(Function),
+      )
       expect(select('Country').value()).toEqual(MALAYSIA)
     })
 
@@ -500,6 +537,8 @@ describe('PassportFormView', () => {
       await flushPromises()
       expect(createPassport).toHaveBeenCalledWith(
         expect.objectContaining({ reference_id: PERSON.id }),
+        SCAN,
+        expect.any(Function),
       )
     })
 
@@ -545,7 +584,11 @@ describe('PassportFormView', () => {
 
       await wrapper.get('button[data-action="save"]').trigger('click')
       await flushPromises()
-      expect(createPassport).toHaveBeenCalledWith(expect.objectContaining({ reference_id: 99 }))
+      expect(createPassport).toHaveBeenCalledWith(
+        expect.objectContaining({ reference_id: 99 }),
+        SCAN,
+        expect.any(Function),
+      )
     })
   })
 
@@ -570,6 +613,174 @@ describe('PassportFormView', () => {
     })
   })
 
+  describe('passport scan copy', () => {
+    const scanError = () => wrapper.find('[data-field="scan"] [data-scan-error]')
+
+    it('is the last field and required on create', async () => {
+      await mountForm()
+      await field('Passport name').setValue('md rahim')
+      await field('Passport number').setValue('ab1234567')
+      await field('Passport date of birth').setValue('1990-05-17')
+      await field('Passport expiry date').setValue('2031-10-04')
+      select('Reference person').choose(PERSON)
+      select('Company name').choose(COMPANY)
+      await flushPromises()
+
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+
+      expect(createPassport).not.toHaveBeenCalled()
+      expect(scanError().text()).toBe('Please upload the passport scan copy.')
+      const fields = wrapper.get('[data-fields]').findAll(':scope > *')
+      expect(fields[fields.length - 1]!.attributes('data-field')).toBe('scan')
+    })
+
+    it('shows the chosen file name, size, an image thumbnail and Remove', async () => {
+      await mountForm()
+      await chooseScan(new File([new Uint8Array(2048)], 'passport.png', { type: 'image/png' }))
+
+      const chosen = wrapper.get('[data-scan-chosen]')
+      expect(chosen.get('[data-scan-name]').text()).toBe('passport.png')
+      expect(chosen.get('[data-scan-size]').text()).toBe('2 KB')
+      expect(chosen.get('img[data-scan-thumbnail]').attributes('src')).toBe('blob:thumb')
+
+      await chosen.get('button[data-scan-remove]').trigger('click')
+      expect(wrapper.find('[data-scan-chosen]').exists()).toBe(false)
+    })
+
+    it.each([
+      [
+        'a file over 5 MB',
+        new File([new Uint8Array(6 * 1024 * 1024)], 'big.jpg', { type: 'image/jpeg' }),
+        'The scan may not be larger than 5 MB.',
+      ],
+      [
+        'a GIF',
+        new File(['GIF89a'], 'scan.gif', { type: 'image/gif' }),
+        'The scan must be a JPG, PNG or PDF file.',
+      ],
+      [
+        'an .exe',
+        new File(['MZ'], 'setup.exe', { type: 'application/x-msdownload' }),
+        'The scan must be a JPG, PNG or PDF file.',
+      ],
+    ])('rejects %s before uploading', async (_name, file, message) => {
+      await mountForm()
+      await chooseScan(file)
+
+      expect(scanError().text()).toBe(message)
+      expect(wrapper.find('[data-scan-chosen]').exists()).toBe(false)
+    })
+
+    it("shows the server's 422 message for the scan (e.g. a renamed file)", async () => {
+      vi.mocked(createPassport).mockRejectedValue(
+        httpError(422, {
+          message: 'The scan must be a JPG, PNG or PDF file.',
+          errors: { scan: ['The scan must be a JPG, PNG or PDF file.'] },
+        }),
+      )
+      await mountForm()
+      await fillValidForm()
+
+      await wrapper.get('button[data-action="save"]').trigger('click')
+      await flushPromises()
+
+      expect(scanError().text()).toBe('The scan must be a JPG, PNG or PDF file.')
+      expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    })
+
+    it('explains a 413 (the web server refused the file size) under the scan field', async () => {
+      vi.mocked(createPassport).mockRejectedValue(httpError(413))
+      await mountForm()
+      await fillValidForm()
+
+      await wrapper.get('button[data-action="save"]').trigger('click')
+      await flushPromises()
+
+      expect(scanError().text()).toContain('The server refused the file because it is too large.')
+    })
+
+    it('shows upload progress and disables the submit buttons while uploading', async () => {
+      let finish: (value: PassportEntry) => void = () => {}
+      vi.mocked(createPassport).mockImplementation((_payload, _file, onProgress) => {
+        onProgress?.(40)
+        return new Promise((resolve) => (finish = resolve))
+      })
+      await mountForm()
+      await fillValidForm()
+
+      await wrapper.get('button[data-action="save"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.get('[data-scan-progress]').attributes('aria-valuenow')).toBe('40')
+      expect(
+        wrapper
+          .findAll('button[data-action="save"], button[data-action="another"]')
+          .every((b) => b.attributes('disabled') !== undefined),
+      ).toBe(true)
+
+      finish(makeEntry())
+      await flushPromises()
+      expect(wrapper.find('[data-scan-progress]').exists()).toBe(false)
+    })
+
+    it('edit: shows the current file with Replace; optional, and sends JSON PATCH without a file', async () => {
+      vi.mocked(getPassport).mockResolvedValue(
+        makeEntry({ country: { code: 'BD', name: 'Bangladesh' } }),
+      )
+      vi.mocked(updatePassport).mockResolvedValue(makeEntry())
+      await mountForm('/data-entry/passports/42/edit')
+
+      const current = wrapper.get('[data-scan-current]')
+      expect(current.text()).toContain('passport.jpg')
+      expect(current.find('button[data-scan-replace]').exists()).toBe(true)
+      expect(wrapper.get('[data-field="scan"] label').text()).toContain('(optional)')
+
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(updatePassport).toHaveBeenCalledWith(
+        42,
+        expect.any(Object),
+        null,
+        expect.any(Function),
+      )
+    })
+
+    it('edit: a chosen file is sent with the update (POST + _method=PATCH in the API layer)', async () => {
+      vi.mocked(getPassport).mockResolvedValue(
+        makeEntry({ country: { code: 'BD', name: 'Bangladesh' } }),
+      )
+      vi.mocked(updatePassport).mockResolvedValue(makeEntry())
+      await mountForm('/data-entry/passports/42/edit')
+
+      const pdf = new File(['%PDF-1.4'], 'new.pdf', { type: 'application/pdf' })
+      await chooseScan(pdf)
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+
+      expect(updatePassport).toHaveBeenCalledWith(42, expect.any(Object), pdf, expect.any(Function))
+    })
+
+    it('edit: the scan is required while the passport has none', async () => {
+      vi.mocked(getPassport).mockResolvedValue(
+        makeEntry({
+          country: { code: 'BD', name: 'Bangladesh' },
+          has_scan: false,
+          scan_original_name: null,
+        }),
+      )
+      await mountForm('/data-entry/passports/42/edit')
+
+      expect(wrapper.find('[data-scan-current]').exists()).toBe(false)
+      expect(wrapper.get('[data-field="scan"] label').text()).toContain('*')
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+
+      expect(updatePassport).not.toHaveBeenCalled()
+      expect(scanError().text()).toBe('Please upload the passport scan copy.')
+    })
+  })
+
   describe('edit mode', () => {
     it('prefills the entry, including the reference type, and saves with PATCH', async () => {
       vi.mocked(getPassport).mockResolvedValue(
@@ -590,9 +801,12 @@ describe('PassportFormView', () => {
       await wrapper.get('form').trigger('submit')
       await flushPromises()
 
+      // No new file: a normal JSON PATCH (no scan argument).
       expect(updatePassport).toHaveBeenCalledWith(
         42,
         expect.objectContaining({ country_code: 'BD', reference_id: AGENCY.id }),
+        null,
+        expect.any(Function),
       )
     })
 

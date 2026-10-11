@@ -68,6 +68,8 @@ async function findRow(id: number, nameHint: string | null): Promise<CompanyRepo
   return null
 }
 
+let headerLoadedFor: number | null = null
+
 async function loadHeader(id: number, nameHint: string | null) {
   rowMissing.value = false
   try {
@@ -118,7 +120,12 @@ async function load() {
     const result = await fetchCompanyPassports(id, { page: page.value, per_page: PER_PAGE })
     if (request !== requestId) return
     list.value = result
-    if (!row.value || row.value.id !== id) loadHeader(id, result.data[0]?.company.name ?? null)
+    // Once per company (not per page): the header row and the agent's phone and email.
+    // A row cached from the Companies list still needs the contact lookup.
+    if (headerLoadedFor !== id) {
+      headerLoadedFor = id
+      loadHeader(id, result.data[0]?.company.name ?? null)
+    }
   } catch (error) {
     if (request !== requestId) return
     if (errorStatus(error) === 404) notFound.value = true

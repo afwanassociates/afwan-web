@@ -10,6 +10,8 @@ const props = defineProps<{
   title: string
   /** Blocks closing while a request is running. */
   busy?: boolean
+  /** A wide dialog (e.g. an image lightbox). */
+  wide?: boolean
 }>()
 
 const titleId = useId()
@@ -48,7 +50,8 @@ onBeforeUnmount(() => opener?.focus())
   <dialog
     ref="dialog"
     :aria-labelledby="titleId"
-    class="m-auto w-[calc(100%-2rem)] max-w-lg rounded-2xl bg-white p-0 text-slate-800 shadow-[0_24px_60px_-20px_rgb(21_42_80/0.55)] backdrop:bg-primary-950/50 backdrop:backdrop-blur-sm"
+    class="m-auto w-[calc(100%-2rem)] rounded-2xl bg-white p-0 text-slate-800 shadow-[0_24px_60px_-20px_rgb(21_42_80/0.55)] backdrop:bg-primary-950/50 backdrop:backdrop-blur-sm"
+    :class="wide ? 'max-w-5xl' : 'max-w-lg'"
     @cancel="onCancel"
   >
     <div class="p-6">

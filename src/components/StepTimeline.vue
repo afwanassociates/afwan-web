@@ -81,7 +81,6 @@ const medicalDetails = computed(() => {
   if (!slip) return []
   return [
     { label: 'Medical slip date', value: toDisplayDate(slip.date), mono: false },
-    { label: 'Medical slip no', value: slip.no, mono: true },
     { label: 'Medical center', value: slip.medical_center?.name, mono: false },
   ].filter((d) => d.value)
 })

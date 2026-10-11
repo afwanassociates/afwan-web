@@ -5,11 +5,13 @@ import SearchSelect from '@/components/SearchSelect.vue'
 import QuickAddModal, { type QuickAddValues } from '@/components/QuickAddModal.vue'
 import CountrySelect from '@/components/CountrySelect.vue'
 import ReferenceTypeToggle from '@/components/ReferenceTypeToggle.vue'
+import ScanFileInput from '@/components/ScanFileInput.vue'
+import { SCAN_TOO_LARGE_FOR_SERVER } from '@/api/passportScan'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
 import { createReference, searchReferences } from '@/api/references'
 import { createCompany, searchCompanies } from '@/api/companies'
 import { useToast } from '@/composables/useToast'
-import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
+import { errorMessage, errorStatus, fieldErrors, firstFieldError } from '@/lib/errors'
 import { addDays, toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
 import { useCountriesStore } from '@/stores/countries'
 import { useWorkflowStore } from '@/stores/workflow'
@@ -95,6 +97,13 @@ const expiryDate = ref('')
 const minExpiryDate = computed(() => addDays(receivedDate.value, 1) || undefined)
 
 const errors = ref<PassportFormErrors>({})
+/** The passport scan copy: required on create, and on edit while the passport has none. */
+const scanFile = ref<File | null>(null)
+const scanError = ref<string | undefined>(undefined)
+/** Upload progress while saving with a file (0–100), else null. */
+const uploadProgress = ref<number | null>(null)
+const scanRequired = computed(() => !isEdit.value || !entry.value?.has_scan)
+const scanInput = useTemplateRef<{ focus: () => void }>('scanInput')
 /** Form-level error: network, server, permission. */
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
@@ -127,6 +136,9 @@ function clearForm() {
   company.value = null
   errors.value = {}
   banner.value = null
+  scanFile.value = null
+  scanError.value = undefined
+  uploadProgress.value = null
 }
 
 /**
@@ -330,6 +342,8 @@ async function focusFirstError() {
     passport_received_date: () => dateInput.value?.focus(),
   }
   if (first) targets[first]?.()
+  // The scan is the last field: focus it when it is the only problem.
+  else if (scanError.value) scanInput.value?.focus()
 }
 
 /** Puts a 422 response's messages under their fields; anything else goes to the banner. */
@@ -338,13 +352,14 @@ function applyServerErrors(error: unknown) {
   const mapped: PassportFormErrors = {}
   const other: string[] = []
   for (const [field, message] of Object.entries(server)) {
-    if ((FIELD_ORDER as string[]).includes(field))
+    if (field === 'scan') scanError.value = firstFieldError(error, 'scan') ?? message
+    else if ((FIELD_ORDER as string[]).includes(field))
       mapped[field as keyof PassportFormErrors] = message
     else other.push(message)
   }
   errors.value = mapped
   if (other.length > 0) banner.value = other.join(' ')
-  else if (Object.keys(mapped).length === 0) banner.value = errorMessage(error)
+  else if (Object.keys(mapped).length === 0 && !server.scan) banner.value = errorMessage(error)
 }
 
 type SaveAction = 'save' | 'another'
@@ -361,7 +376,9 @@ async function save(action: SaveAction) {
 
   const values = formValues()
   errors.value = validatePassportForm(values, today)
-  if (Object.values(errors.value).some(Boolean)) {
+  scanError.value =
+    scanRequired.value && !scanFile.value ? 'Please upload the passport scan copy.' : undefined
+  if (Object.values(errors.value).some(Boolean) || scanError.value) {
     focusFirstError()
     return
   }
@@ -378,14 +395,18 @@ async function save(action: SaveAction) {
   }
 
   isSaving.value = true
+  const file = scanFile.value
+  uploadProgress.value = file ? 0 : null
+  const onProgress = (percent: number) => (uploadProgress.value = percent)
   try {
     if (entryId.value !== null) {
-      const saved = await updatePassport(entryId.value, payload)
+      // With a file: multipart POST + _method=PATCH; without: JSON PATCH (no scan field).
+      const saved = await updatePassport(entryId.value, payload, file, onProgress)
       toast.success(`Passport ${saved.passport_number} updated.`)
       workflow.refresh()
       router.push(backTarget.value)
     } else {
-      const saved = await createPassport(payload)
+      const saved = await createPassport(payload, file!, onProgress)
       toast.success(`Passport ${saved.passport_number} saved.`)
       workflow.refresh()
       if (action === 'save') {
@@ -402,6 +423,10 @@ async function save(action: SaveAction) {
     if (status === 422) {
       applyServerErrors(error)
       focusFirstError()
+    } else if (status === 413) {
+      // The web server refused the body (the scan) before the API saw it.
+      scanError.value = SCAN_TOO_LARGE_FOR_SERVER
+      focusFirstError()
     } else if (status === 403) {
       banner.value = isEdit.value
         ? 'You can only edit entries you created.'
@@ -412,6 +437,7 @@ async function save(action: SaveAction) {
     }
   } finally {
     isSaving.value = false
+    uploadProgress.value = null
   }
 }
 
@@ -681,6 +707,21 @@ const inputClass =
               :error="errors.company_id"
               required
               @add="openCompanyModal"
+            />
+
+            <!-- 9. Passport scan copy: the last field -->
+            <ScanFileInput
+              ref="scanInput"
+              v-model="scanFile"
+              class="sm:col-span-2"
+              :required="scanRequired"
+              :current-name="
+                isEdit && entry?.has_scan ? (entry.scan_original_name ?? 'scan') : null
+              "
+              :error="scanError"
+              :progress="uploadProgress"
+              :disabled="isSaving"
+              @clear-error="scanError = undefined"
             />
           </div>
 

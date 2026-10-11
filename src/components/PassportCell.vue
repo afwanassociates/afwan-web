@@ -19,10 +19,6 @@ const props = defineProps<{
 
 const medical = computed(() => props.entry.current_medical)
 
-const waitingDays = computed(() =>
-  Math.max(0, -(daysLeft(props.entry.passport_received_date, props.today) ?? 0)),
-)
-
 /** Days left of a fit result: from the API, or worked out from valid_until. */
 const left = computed(() => {
   const m = medical.value
@@ -66,12 +62,6 @@ const enteredBy = computed(() => {
     <span class="whitespace-nowrap">{{ toDisplayDate(entry.passport_received_date) }}</span>
   </template>
 
-  <template v-else-if="column === 'waiting'">
-    <span class="whitespace-nowrap tabular-nums">
-      {{ waitingDays }} {{ waitingDays === 1 ? 'day' : 'days' }}
-    </span>
-  </template>
-
   <template v-else-if="column === 'medical'">
     <span class="inline-flex flex-wrap items-center gap-2">
       <MedicalStatusBadge :status="entry.medical_status" :valid-until="medical?.valid_until" />
@@ -84,12 +74,19 @@ const enteredBy = computed(() => {
     <MedicalStatusBadge :status="entry.medical_status" :valid-until="medical?.valid_until" />
   </template>
 
+  <template v-else-if="column === 'medical_center'">
+    {{ entry.medical_center?.name ?? entry.medical_slip?.medical_center?.name ?? '-' }}
+  </template>
+
   <template v-else-if="column === 'slip_date'">
     <span class="whitespace-nowrap">{{ toDisplayDate(entry.medical_slip?.date) || '—' }}</span>
   </template>
 
+  <!-- The passport's medical date (entered before the result), else the result's. -->
   <template v-else-if="column === 'medical_date'">
-    <span class="whitespace-nowrap">{{ toDisplayDate(medical?.medical_date) || '—' }}</span>
+    <span class="whitespace-nowrap">{{
+      toDisplayDate(entry.medical_date ?? medical?.medical_date) || '-'
+    }}</span>
   </template>
 
   <template v-else-if="column === 'valid_until'">

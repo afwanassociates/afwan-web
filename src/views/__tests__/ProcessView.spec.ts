@@ -95,6 +95,13 @@ describe('Process page', () => {
     expect(tabs.map((t) => t.get('[data-tab-count]').text())).toEqual(['6', '4', '2', '1', '9'])
   })
 
+  it('keeps its Company, Company country and Sort by filters (unchanged by Medical)', async () => {
+    await mountProcess()
+
+    const labels = wrapper.findAll('label').map((l) => l.text().trim())
+    expect(labels).toEqual(expect.arrayContaining(['Company', 'Company country', 'Sort by']))
+  })
+
   it('lists the first step by default with all its statuses', async () => {
     await mountProcess()
 

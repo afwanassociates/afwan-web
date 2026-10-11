@@ -20,9 +20,8 @@ vi.mock('@/api/passports', () => ({
 }))
 vi.mock('@/api/medical', () => ({
   updateMedicalSlip: vi.fn(),
-  recordMedical: vi.fn(),
-  updateMedical: vi.fn(),
-  fetchMedicalQueue: vi.fn(),
+  recordMedicalResult: vi.fn(),
+  updateMedicalDate: vi.fn(),
 }))
 vi.mock('@/api/medicalCenters', () => ({
   searchMedicalCenters: vi.fn(async () => []),
@@ -66,7 +65,7 @@ const NEW_PASSPORT = makePassport({ id: 50, passport_number: 'NW5000001', ...not
 const WITH_SLIP = makePassport({
   id: 50,
   passport_number: 'NW5000001',
-  medical_slip: { date: '2026-10-05', no: 'MG-77', medical_center: null },
+  medical_slip: { date: '2026-10-05', medical_center: null },
   medical_status: 'pending',
   current_stage: 'medical',
   stage_status: 'pending',
@@ -103,12 +102,11 @@ beforeEach(() => vi.clearAllMocks())
 afterEach(() => wrapper.unmount())
 
 describe('a new passport', () => {
-  it('appears in the Passport list as "Passport entered" with "Add medical slip"', async () => {
+  it('appears in the Passport list (stage passport) with "Add medical slip"', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([NEW_PASSPORT]))
     await mountAt('/passports')
 
     expect(listPassports).toHaveBeenCalledWith(expect.objectContaining({ stage: 'passport' }))
-    expect(wrapper.get('tr[data-row] [data-stage-badge]').text()).toBe('Passport entered')
     expect(row(50)!.get('[data-slip-action="50"]').text()).toContain('Add medical slip')
   })
 
@@ -130,14 +128,15 @@ describe('a new passport', () => {
     expect(wrapper.get('[data-not-started-hint]').text()).toContain('1 not started')
   })
 
-  it('lists slip-entered passports in Medical → Pending with "Record medical result"', async () => {
+  it('lists slip-entered passports in Medical → Pending with the date and Fit / Unfit actions', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([WITH_SLIP]))
     await mountAt('/medical')
 
     const pending = wrapper.get('tr[data-row]')
     expect(pending.text()).toContain('NW5000001')
     expect(pending.text()).toContain('05-10-2026') // the slip date
-    expect(pending.text()).toContain('Record medical result')
+    expect(pending.text()).toContain('Enter medical date')
+    expect(pending.find('button[data-result="fit"]').exists()).toBe(true)
   })
 })
 
@@ -148,6 +147,15 @@ describe('"Add medical slip" in the Passport list', () => {
   }
   const slipForm = () =>
     wrapper.findAll('form').find((f) => f.find('[data-field="medical_slip_date"]').exists())!
+
+  it('has no Medical slip no field (only the date and the medical center)', async () => {
+    vi.mocked(listPassports).mockResolvedValue(page([NEW_PASSPORT]))
+    await mountAt('/passports')
+    await openSlipModal()
+
+    expect(slipForm().find('[data-field="medical_slip_no"]').exists()).toBe(false)
+    expect(slipForm().text()).not.toMatch(/slip no/i)
+  })
 
   it('requires the "Medical slip date (MYGRAM)"', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([NEW_PASSPORT]))
@@ -176,13 +184,11 @@ describe('"Add medical slip" in the Passport list', () => {
     await openSlipModal()
 
     await slipForm().get('[data-field="medical_slip_date"] input').setValue('2026-10-05')
-    await slipForm().get('[data-field="medical_slip_no"] input').setValue(' MG-77 ')
     await slipForm().trigger('submit')
     await flushPromises()
 
     expect(updateMedicalSlip).toHaveBeenCalledWith(50, {
       medical_slip_date: '2026-10-05',
-      medical_slip_no: 'MG-77',
       medical_center_id: null,
     })
     expect(listPassports).toHaveBeenCalledTimes(2)
@@ -210,20 +216,17 @@ describe('"Add medical slip" in the Passport list', () => {
   })
 })
 
-describe('other pages keep their filters (only All Passports lost them)', () => {
-  it('Medical keeps Company, Company country and Sort by', async () => {
+describe('the Medical page keeps its tabs', () => {
+  it('shows the five tabs', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([WITH_SLIP]))
     await mountAt('/medical')
 
-    const labels = wrapper.findAll('label').map((l) => l.text().trim())
-    expect(labels).toEqual(expect.arrayContaining(['Company', 'Company country', 'Sort by']))
-  })
-
-  it('Medical keeps its tabs and the Company dropdown search', async () => {
-    vi.mocked(listPassports).mockResolvedValue(page([WITH_SLIP]))
-    await mountAt('/medical')
-
-    expect(wrapper.find('[role="tablist"]').exists()).toBe(true)
-    expect(wrapper.find('input[role="combobox"]').exists()).toBe(true)
+    expect(wrapper.findAll('[role="tab"]').map((t) => t.text().replace(/\s*\S+$/, ''))).toEqual([
+      'Pending medical',
+      'Fit (valid)',
+      'Expiring soon',
+      'Expired',
+      'Unfit',
+    ])
   })
 })

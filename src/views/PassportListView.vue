@@ -460,7 +460,7 @@ const inputClass =
           <PassportTable
             :entries="list.data"
             :current-user-id="auth.user?.id ?? null"
-            :columns="['reference', 'company', 'received', 'passport_entered', 'entered_by']"
+            :columns="['reference', 'company', 'received', 'entered_by']"
             split-name-number
             @delete="askDelete"
           >

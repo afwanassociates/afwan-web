@@ -4,8 +4,8 @@ import { RouterLink, useRoute } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalHistoryTable from '@/components/MedicalHistoryTable.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
+import PassportScanCard from '@/components/PassportScanCard.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
-import RecordMedicalModal from '@/components/RecordMedicalModal.vue'
 import RecordStepModal from '@/components/RecordStepModal.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
@@ -15,7 +15,7 @@ import { getPassport } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { businessToday, daysLeft, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
-import { EXPIRING_SOON_DAYS, isMedicalAdmin } from '@/lib/medical'
+import { EXPIRING_SOON_DAYS } from '@/lib/medical'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { MedicalRecord } from '@/types/medical'
@@ -135,23 +135,14 @@ const medicalDaysLeft = computed(() => {
   return m.days_left ?? daysLeft(m.valid_until, today)
 })
 
-/** The main medical action, following the API's rules (re-test is for admins only). */
+/**
+ * The only medical action here: "Add medical slip" for a passport whose medical has not
+ * started. The medical date and the Fit / Unfit result are entered on the Medical page.
+ */
 const medicalAction = computed(() => {
   const p = passport.value
-  if (!p?.can.record_medical) return null
-  switch (p.medical_status) {
-    case 'not_started':
-      // The result needs the medical slip date first.
-      return { label: 'Add medical slip', class: 'btn-accent', slip: true }
-    case 'pending':
-      return { label: 'Record medical', class: 'btn-accent' }
-    case 'unfit':
-      return isMedicalAdmin(auth.user?.role) ? { label: 'Re-test', class: 'btn-primary' } : null
-    case 'expired':
-      return { label: 'Repeat medical', class: 'btn-accent' }
-    default:
-      return { label: 'Repeat medical', class: 'btn-white' }
-  }
+  if (!p?.can.record_medical || p.medical_status !== 'not_started') return null
+  return { label: 'Add medical slip', class: 'btn-accent' }
 })
 
 const backLink = computed(() =>
@@ -160,25 +151,12 @@ const backLink = computed(() =>
     : { to: { name: 'passports' }, label: 'Passport list' },
 )
 
-/* ---------- Record / edit / delete medical ---------- */
-
-const modalOpen = ref(false)
-const editing = ref<MedicalRecord | null>(null)
+/* ---------- Medical slip / delete medical ---------- */
 
 const slipModalOpen = ref(false)
 
 function openRecord() {
-  if (medicalAction.value && 'slip' in medicalAction.value) {
-    slipModalOpen.value = true
-    return
-  }
-  editing.value = null
-  modalOpen.value = true
-}
-
-function openEdit(record: MedicalRecord) {
-  editing.value = record
-  modalOpen.value = true
+  slipModalOpen.value = true
 }
 
 const deleteTarget = ref<MedicalRecord | null>(null)
@@ -358,8 +336,6 @@ const dd = 'font-medium text-ink'
           >
             <dt :class="dt">Medical slip date</dt>
             <dd :class="dd">{{ toDisplayDate(passport.medical_slip.date) }}</dd>
-            <dt :class="dt">Medical slip no</dt>
-            <dd :class="[dd, 'font-mono']">{{ passport.medical_slip.no || '—' }}</dd>
             <dt :class="dt">Medical center</dt>
             <dd :class="dd">{{ passport.medical_slip.medical_center?.name ?? '—' }}</dd>
           </dl>
@@ -402,6 +378,11 @@ const dd = 'font-medium text-ink'
         </section>
       </div>
 
+      <!-- Passport scan copy (shared card; loads the file through the API) -->
+      <div class="mt-6">
+        <PassportScanCard :passport="passport" @updated="afterChange" />
+      </div>
+
       <!-- History -->
       <section class="glass-card mt-6 p-5 sm:p-6" aria-labelledby="history-heading">
         <h2 id="history-heading" class="text-lg font-semibold text-ink">Medical history</h2>
@@ -409,20 +390,13 @@ const dd = 'font-medium text-ink'
           <MedicalHistoryTable
             :records="history"
             :role="auth.user?.role"
-            @edit="openEdit"
+            :editable="false"
             @delete="askDelete"
           />
         </div>
       </section>
     </template>
 
-    <RecordMedicalModal
-      v-model:open="modalOpen"
-      :passport="passport"
-      :record="editing"
-      @saved="afterChange"
-      @slip-saved="afterChange"
-    />
     <MedicalSlipModal v-model:open="slipModalOpen" :passport="passport" @saved="afterChange" />
 
     <RecordStepModal

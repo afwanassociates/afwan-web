@@ -64,7 +64,7 @@ const HISTORY: Record<string, StepRecord[]> = {
 const passport = makePassport({
   medical_slip: {
     date: '2026-07-28',
-    no: 'SLIP-77',
+
     medical_center: { id: 2, name: 'Gulf Medical Center' },
   },
   current_medical: {
@@ -120,7 +120,7 @@ describe('StepTimeline', () => {
 
     const details = stepEl(wrapper, 'medical').get('[data-medical-details]').text()
     expect(details).toContain('Gulf Medical Center')
-    expect(details).toContain('SLIP-77')
+    expect(details).not.toContain('slip no')
     expect(details).toContain('Medical slip date')
     expect(details).toContain('28-07-2026')
   })

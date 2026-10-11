@@ -99,6 +99,14 @@ beforeEach(() => {
 afterEach(() => wrapper.unmount())
 
 describe('All Passports (read-only overview)', () => {
+  it('shows no scan copy UI (lists only ever get has_scan)', async () => {
+    await mountPage()
+
+    expect(wrapper.find('[data-scan-card]').exists()).toBe(false)
+    expect(wrapper.find('tbody img, tbody object').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/scan copy/i)
+  })
+
   it.each(['admin', 'super_admin', 'data_entry'] as const)(
     'has no chips, medical or stage filters, or action buttons (%s)',
     async (role) => {
