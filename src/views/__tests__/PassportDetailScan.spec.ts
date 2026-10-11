@@ -67,6 +67,7 @@ async function mountDetail(scan: Partial<PassportEntry>, role: Role = 'data_entr
       { path: '/data-entry/passports', name: 'passports', component: Empty },
       { path: '/medical', name: 'medical', component: Empty },
       { path: '/process', name: 'process', component: Empty },
+      { path: '/:step', name: 'step-page', component: { template: '<div />' } },
     ],
   })
   await router.push('/data-entry/passports/20')

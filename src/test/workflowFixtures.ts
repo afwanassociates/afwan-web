@@ -1,7 +1,7 @@
 import type { WorkflowConfig } from '@/types/workflow'
 
 /** The afwan-api /workflow/config response (steps 1–6), for tests. */
-export const WORKFLOW_CONFIG: WorkflowConfig = {
+const BASE_CONFIG: WorkflowConfig = {
   steps: [
     {
       key: 'passport',
@@ -212,6 +212,21 @@ export const WORKFLOW_CONFIG: WorkflowConfig = {
 }
 
 /** A /workflow/summary response with six steps. */
+
+/** Fields entered when the result is recorded; every other field is a "start" field. */
+const RESULT_FIELDS = ['reference_no', 'valid_until']
+
+/** The steps as the API sends them, each field with its phase. */
+export const WORKFLOW_CONFIG: WorkflowConfig = {
+  steps: BASE_CONFIG.steps.map((step) => ({
+    ...step,
+    fields: step.fields.map((field) => ({
+      ...field,
+      phase: RESULT_FIELDS.includes(field.name) ? ('result' as const) : ('start' as const),
+    })),
+  })),
+}
+
 export const WORKFLOW_SUMMARY = {
   steps: WORKFLOW_CONFIG.steps.map(({ key, label, short_label, order, enabled }) => ({
     key,

@@ -20,6 +20,11 @@ export interface StepFieldConfig {
   not_future_for?: string[]
   /** Optional: a JavaScript regular expression source the value must match. */
   pattern?: string
+  /**
+   * When it is entered on the step pages: "start" (with the step date, when the step is
+   * started) or "result" (when Approved / Rejected … is recorded). Defaults to "start".
+   */
+  phase?: 'start' | 'result'
 }
 
 export interface StepConfig {
@@ -81,4 +86,47 @@ export interface StepPayload {
 export interface WorkflowWarning {
   code: string
   message: string
+}
+
+/** The step pages' tabs (GET /steps/{step}/passports?tab=). */
+export type StepListTab = 'pending' | 'in_process' | 'completed' | 'rejected'
+
+/** A row of a step page (lean: no permissions; actions follow the role). */
+export interface StepListRow {
+  id: number
+  passport_name: string
+  passport_number: string
+  reference: { id: number; name: string } | null
+  company: { id: number; name: string }
+  /** The latest record of this step, if any. */
+  record: {
+    id: number
+    status: StepStatus
+    status_label: string
+    /** YYYY-MM-DD */
+    step_date: string
+    reference_no: string | null
+    valid_until: string | null
+    details: Record<string, string | null> | null
+  } | null
+  /** YYYY-MM-DD: when the step before was completed (the medical date for the first step). */
+  previous_step_completed_on: string | null
+}
+
+/** Filters of a step page. */
+export interface StepListParams {
+  tab: StepListTab
+  search?: string
+  company?: string
+  reference?: string
+  page?: number
+  per_page?: number
+}
+
+/** Body of POST /passports/{id}/steps/{step}/result. */
+export interface StepResultPayload {
+  result: 'completed' | 'rejected'
+  /** YYYY-MM-DD; today (Dhaka) when left out */
+  result_date: string
+  [field: string]: unknown
 }

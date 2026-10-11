@@ -1,12 +1,17 @@
 import { addMonthsNoOverflow, toApiDate } from '@/lib/dates'
-import type { StepConfig, StepFieldConfig, StepRecordSummary } from '@/types/workflow'
+import type {
+  StepConfig,
+  StepFieldConfig,
+  StepRecordSummary,
+  StepResultPayload,
+} from '@/types/workflow'
 
 /** Max remarks length (all steps). */
 export const STEP_REMARKS_MAX = 1000
 /** Mirrors afwan-api config workflow.passport_expiry_warning_months. */
 export const PASSPORT_EXPIRY_WARNING_MONTHS = 6
 
-/** Steps that are recorded on the Process page (they have statuses and fields). */
+/** Steps recorded on their own step pages (they have statuses and fields). */
 export const isRecordStep = (step: StepConfig) =>
   step.enabled && step.fields.length > 0 && step.statuses.length > 0
 
@@ -181,3 +186,48 @@ export function stepSoftWarnings(input: StepWarningInput): string[] {
 
 /** Field the form shows per config field, exported for the views. */
 export type { StepFieldConfig }
+
+/* ---------- Step pages: start and result phases ---------- */
+
+/** The step with only the fields entered in `phase` (a field without a phase is "start"). */
+export function stepWithPhase(step: StepConfig, phase: 'start' | 'result'): StepConfig {
+  return { ...step, fields: step.fields.filter((f) => (f.phase ?? 'start') === phase) }
+}
+
+/** Status values that end a step (e.g. Approved / Rejected), in config order. */
+export function finalStatuses(
+  step: StepConfig,
+): { value: 'completed' | 'rejected'; label: string }[] {
+  return step.statuses.filter(
+    (s): s is { value: 'completed' | 'rejected'; label: string } =>
+      s.value === 'completed' || s.value === 'rejected',
+  )
+}
+
+/** A status's label from the config, e.g. in_process → "Applied". */
+export function statusLabel(step: StepConfig, status: string): string {
+  return step.statuses.find((s) => s.value === status)?.label ?? humanize(status)
+}
+
+/**
+ * The result's payload: result, result date and the "result" fields (columns, or inside
+ * `details`). Empty values are left out so they do not clear what the step already has.
+ */
+export function stepResultPayload(
+  step: StepConfig,
+  result: 'completed' | 'rejected',
+  resultDate: string,
+  values: StepFormValues,
+): StepResultPayload {
+  const payload: StepResultPayload = { result, result_date: toApiDate(resultDate) }
+  const details: Record<string, string> = {}
+  for (const field of stepWithPhase(step, 'result').fields) {
+    const raw = (values[field.name] ?? '').trim()
+    if (!raw) continue
+    const value = field.type === 'date' ? toApiDate(raw) : raw
+    if (field.in_details) details[field.name] = value
+    else payload[field.name] = value
+  }
+  if (Object.keys(details).length > 0) payload.details = details
+  return payload
+}

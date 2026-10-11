@@ -88,6 +88,7 @@ async function mountAt(path: string, role: Role = 'data_entry') {
       { path: '/passports/:id/edit', name: 'passport-edit', component: Empty },
       { path: '/all-passports', name: 'all-passports', component: Empty },
       { path: '/process', name: 'process', component: Empty },
+      { path: '/:step', name: 'step-page', component: { template: '<div />' } },
     ],
   })
   await router.push(path)

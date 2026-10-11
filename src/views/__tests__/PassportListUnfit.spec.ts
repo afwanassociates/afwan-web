@@ -61,6 +61,7 @@ async function mountList(path: string) {
       { path: '/all-passports', name: 'all-passports', component: Empty },
       { path: '/medical', name: 'medical', component: Empty },
       { path: '/process', name: 'process', component: { template: '<div />' } },
+      { path: '/:step', name: 'step-page', component: { template: '<div />' } },
     ],
   })
   await router.push(path)

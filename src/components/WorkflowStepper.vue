@@ -54,11 +54,11 @@ interface SummaryStep {
   chips: Chip[]
 }
 
-/** Where each step leads: the first two have their own pages, later ones a Process tab. */
+/** Where each step leads: Passport → Passport List, Medical → Medical, others their own page. */
 function linkFor(key: string, index: number): RouteLocationRaw {
   if (index === 0) return { name: 'passports' }
   if (index === 1) return { name: 'medical' }
-  return { name: 'process', query: { tab: key } }
+  return { name: 'step-page', params: { step: key } }
 }
 
 const CHIP_TONE: Record<string, StepTone> = {
@@ -68,6 +68,13 @@ const CHIP_TONE: Record<string, StepTone> = {
   rejected: 'danger',
   unfit: 'danger',
 }
+
+/** The "Completed (N)" card opens the final step's completed tab. */
+const completedLink = computed<RouteLocationRaw>(() => {
+  const steps = [...(workflow.summary?.steps ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  const last = steps[steps.length - 1]?.key ?? 'flight'
+  return { name: 'step-page', params: { step: last }, query: { tab: 'completed' } }
+})
 
 const summarySteps = computed<SummaryStep[]>(() => {
   const s = workflow.summary
@@ -330,7 +337,7 @@ const passportSummary = computed(() =>
       </li>
       <li v-if="!hideCompleted" class="w-28 shrink-0 snap-start" data-step="completed">
         <RouterLink
-          :to="{ name: 'process', query: { tab: 'completed' } }"
+          :to="completedLink"
           class="flex h-full flex-col justify-center gap-1 rounded-xl border px-2.5 py-2"
           :class="
             activeStep === 'completed'

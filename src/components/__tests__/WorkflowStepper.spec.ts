@@ -43,6 +43,7 @@ async function mountStepper(props: Record<string, unknown> = {}) {
       { path: '/passports', name: 'passports', component: Empty },
       { path: '/medical', name: 'medical', component: Empty },
       { path: '/process', name: 'process', component: Empty },
+      { path: '/:step', name: 'step-page', component: { template: '<div />' } },
     ],
   })
   wrapper = mount(WorkflowStepper, { props, global: { plugins: [pinia, router] } })
@@ -92,13 +93,14 @@ describe('WorkflowStepper (summary bar)', () => {
     expect(wrapper.findAll('[data-step]')).toHaveLength(6)
   })
 
-  it('links step 1 to the Passport List, step 2 to Medical and later steps to Process tabs', async () => {
+  it('links step 1 to the Passport List, step 2 to Medical and later steps to their own pages', async () => {
     await mountStepper()
 
     expect(step('alpha').get('a').attributes('href')).toBe('/passports')
     expect(step('beta').get('a').attributes('href')).toBe('/medical')
-    expect(step('delta').get('a').attributes('href')).toBe('/process?tab=delta')
-    expect(step('completed').get('a').attributes('href')).toBe('/process?tab=completed')
+    expect(step('delta').get('a').attributes('href')).toBe('/delta')
+    // "Completed" (where it is shown) opens the final step's completed tab.
+    expect(step('completed').get('a').attributes('href')).toBe('/zeta?tab=completed')
   })
 
   it('overview mode highlights no step; activeStep highlights one', async () => {

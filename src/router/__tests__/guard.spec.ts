@@ -110,6 +110,56 @@ describe('router guard (real routes)', () => {
     )
   })
 
+  describe('step pages (/calling, /visa, /bmet, /flight)', () => {
+    it.each(['calling', 'visa', 'bmet', 'flight'])(
+      '/data-entry/%s opens the shared step page with that key',
+      async (key) => {
+        setSession('data_entry')
+        await router.push(`/data-entry/${key}`)
+
+        const current = router.currentRoute.value
+        expect(current.name).toBe('step-page')
+        expect(current.params.step).toBe(key)
+        expect(current.fullPath).not.toContain('process')
+        const component = (path: string) => {
+          const matched = router.resolve(path).matched
+          return matched[matched.length - 1]!.components!.default
+        }
+        expect(component(current.fullPath)).toBe(component('/data-entry/calling'))
+      },
+    )
+
+    it('fixed pages still win over the step route', () => {
+      expect(router.resolve('/data-entry/medical').name).toBe('medical')
+      expect(router.resolve('/data-entry/passports').name).toBe('passports')
+      expect(router.resolve('/data-entry/all-passports').name).toBe('all-passports')
+    })
+
+    it.each([
+      ['/data-entry/process', '/data-entry/calling'],
+      ['/data-entry/process?tab=visa', '/data-entry/visa'],
+      ['/data-entry/process?tab=completed', '/data-entry/flight?tab=completed'],
+      ['/data-entry/process/calling', '/data-entry/calling'],
+      ['/data-entry/process/visa', '/data-entry/visa'],
+      ['/data-entry/process/bmet?tab=rejected', '/data-entry/bmet?tab=rejected'],
+      ['/data-entry/process/flight', '/data-entry/flight'],
+    ])('the old %s redirects to %s', async (from, to) => {
+      setSession('admin')
+      await router.push(from)
+
+      expect(router.currentRoute.value.fullPath).toBe(to)
+    })
+
+    it('follow the Medical route guard: accounts gets the 403 page', async () => {
+      setSession('accounts')
+      await router.push('/data-entry/visa')
+
+      expect(router.currentRoute.value.name).toBe('forbidden')
+      await router.push('/data-entry/medical')
+      expect(router.currentRoute.value.name).toBe('forbidden')
+    })
+  })
+
   describe('wrong role', () => {
     it.each([
       ['admin', '/staff/super-admin'],

@@ -79,6 +79,7 @@ async function mountPage(role: Role = 'admin', path = '/all-passports') {
       { path: '/passports/:id', name: 'passport-detail', component: Empty },
       { path: '/medical', name: 'medical', component: Empty },
       { path: '/process', name: 'process', component: { template: '<div />' } },
+      { path: '/:step', name: 'step-page', component: { template: '<div />' } },
     ],
   })
   await router.push(path)

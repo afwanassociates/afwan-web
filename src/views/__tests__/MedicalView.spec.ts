@@ -78,6 +78,7 @@ async function mountMedical(path = '/medical') {
       { path: '/passports/:id', name: 'passport-detail', component: Empty },
       { path: '/passports/:id/edit', name: 'passport-edit', component: Empty },
       { path: '/process', name: 'process', component: Empty },
+      { path: '/:step', name: 'step-page', component: { template: '<div />' } },
     ],
   })
   await router.push(path)

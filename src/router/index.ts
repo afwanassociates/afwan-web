@@ -6,6 +6,7 @@ import { REPORT_ROLES } from '@/lib/companyReport'
 import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
 import { useAuthStore } from '@/stores/auth'
 import { authGuard } from '@/router/guard'
+import { SITE_NAME, staffTitle } from '@/lib/pageTitle'
 import type { Role } from '@/types/auth'
 
 declare module 'vue-router' {
@@ -23,8 +24,7 @@ declare module 'vue-router' {
   }
 }
 
-const siteName = 'Afwan Associates Ltd'
-const staffTitle = (page: string) => `${page} | Staff portal | ${siteName}`
+const siteName = SITE_NAME
 
 const AreaDashboardView = () => import('@/views/staff/AreaDashboardView.vue')
 
@@ -127,10 +127,35 @@ const router = createRouter({
           meta: { title: staffTitle('Passport') },
         },
         {
+          // Old links: /process[?tab=<step>|completed] and /process/<step> open the step pages.
           path: 'process',
-          name: 'process',
-          component: () => import('@/views/ProcessView.vue'),
-          meta: { title: staffTitle('Process') },
+          redirect: (to) => {
+            const tab = typeof to.query.tab === 'string' ? to.query.tab : ''
+            if (tab === 'completed')
+              return { name: 'step-page', params: { step: 'flight' }, query: { tab } }
+            // `query: {}`: the old ?tab= is not carried over to the step page.
+            return {
+              name: 'step-page',
+              params: { step: /^[a-z_]+$/.test(tab) ? tab : 'calling' },
+              query: {},
+            }
+          },
+        },
+        {
+          path: 'process/:step([a-z_]+)',
+          redirect: (to) => ({
+            name: 'step-page',
+            params: { step: to.params.step },
+            query: to.query,
+          }),
+        },
+        {
+          // One page per workflow step (/calling, /visa, …), like /medical. The step key comes
+          // from the config; fixed paths (passports, medical, …) always win over this one.
+          // The page sets its own title from the step's label.
+          path: ':step([a-z_]+)',
+          name: 'step-page',
+          component: () => import('@/views/StepListPage.vue'),
         },
         {
           path: 'medical',

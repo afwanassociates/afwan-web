@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import { ADMIN_ROLES, canAccessArea, homeRouteFor } from '@/lib/roles'
 import { settingsPagesFor } from '@/lib/settingsPages'
+import { isRecordStep } from '@/lib/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 
 const auth = useAuthStore()
@@ -28,13 +29,18 @@ interface NavItem {
   section?: string
   /** Count shown next to the label, with words for screen readers. */
   badge?: { count: number; label: string }
+  /** Route params (e.g. the step of a step page: { step: 'visa' }). */
+  params?: Record<string, string>
 }
 
 const workflow = useWorkflowStore()
 watch(
   () => auth.user?.role,
   (role) => {
-    if (role && canAccessArea(role, 'data_entry')) workflow.load()
+    if (role && canAccessArea(role, 'data_entry')) {
+      workflow.load()
+      workflow.loadConfig()
+    }
   },
   { immediate: true },
 )
@@ -53,17 +59,21 @@ const navItems = computed(() => {
       label: 'Medical',
       badge: step2 ? { count: step2.pending, label: 'pending' } : undefined,
     })
+    // One item per recorded step (Calling, Visa, BMET, Flight, …) in workflow order, right
+    // after Medical and just like it: label from the config, the Pending count as its badge.
     const stages = workflow.summary?.stages
-    const waiting = stages
-      ? Object.entries(stages)
-          .filter(([key]) => key !== 'medical')
-          .reduce((sum, [, counts]) => sum + (counts.waiting ?? 0), 0)
-      : null
-    items.push({
-      name: 'process',
-      label: 'Process',
-      badge: waiting === null ? undefined : { count: waiting, label: 'waiting' },
-    })
+    const steps = [...(workflow.config?.steps ?? [])]
+      .filter((s) => s.enabled && isRecordStep(s))
+      .sort((a, b) => a.order - b.order)
+    for (const s of steps) {
+      const waiting = stages?.[s.key]?.waiting
+      items.push({
+        name: 'step-page',
+        params: { step: s.key },
+        label: s.label,
+        badge: waiting === undefined ? undefined : { count: waiting, label: 'pending' },
+      })
+    }
   }
   if (canAccessArea(role, 'admin')) {
     items.push({ name: 'staff-users', label: 'Users' })
@@ -84,6 +94,11 @@ const topItems = computed(() => {
 })
 
 function isActive(item: NavItem) {
+  if (item.params)
+    return (
+      route.name === item.name &&
+      Object.entries(item.params).every(([key, value]) => route.params[key] === value)
+    )
   if (item.section) return route.path === item.section || route.path.startsWith(`${item.section}/`)
   return route.name === item.name
 }
@@ -135,9 +150,9 @@ async function logout() {
 
       <nav aria-label="Staff portal" class="flex-1 overflow-y-auto p-3">
         <ul class="space-y-1">
-          <li v-for="item in navItems" :key="item.name">
+          <li v-for="item in navItems" :key="`${item.name}-${item.params?.step ?? ''}`">
             <RouterLink
-              :to="{ name: item.name }"
+              :to="{ name: item.name, params: item.params }"
               class="block rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-white/10 hover:text-white"
               :class="{
                 'bg-white/15 text-white shadow-[inset_3px_0_0_var(--color-accent-400)]':

@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import StaffLayout from '../StaffLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { makeUser } from '@/test/helpers'
+import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { Role } from '@/types/auth'
 
 vi.mock('@/api/workflow', () => ({
@@ -13,7 +14,9 @@ vi.mock('@/api/workflow', () => ({
     step1: { total_all: 24, total_active: 20, incomplete: 3 },
     step2: { pending: 7, fit: 5, expiring_soon: 1, expired: 2, unfit: 4 },
     step3: { enabled: false, ready: 0 },
+    stages: { calling: { total: 5, waiting: 3, in_process: 1, rejected: 1 } },
   })),
+  fetchWorkflowConfig: vi.fn(async () => WORKFLOW_CONFIG),
 }))
 
 let wrapper: VueWrapper
@@ -48,6 +51,7 @@ async function mountAs(role: Role, path = '/home') {
     history: createMemoryHistory(),
     routes: [
       ...ROUTE_NAMES.map((name) => ({ path: `/${name}`, name, component: Empty })),
+      { path: '/:step', name: 'step-page', component: Empty },
       { path: '/admin/settings', name: 'settings', component: Empty },
       { path: '/admin/settings/countries', name: 'settings-page', component: Empty },
     ],
@@ -94,7 +98,10 @@ describe('StaffLayout menu', () => {
         'Add Passport',
         'Passport List',
         'Medical',
-        'Process',
+        'Calling / Work Permit',
+        'Visa',
+        'BMET Clearance',
+        'Flight',
         'Users',
         'Companies',
         'Settings',
@@ -108,7 +115,10 @@ describe('StaffLayout menu', () => {
         'Add Passport',
         'Passport List',
         'Medical',
-        'Process',
+        'Calling / Work Permit',
+        'Visa',
+        'BMET Clearance',
+        'Flight',
         'Users',
         'Companies',
         'Settings',
@@ -116,7 +126,17 @@ describe('StaffLayout menu', () => {
     ],
     [
       'data_entry',
-      ['Dashboard', 'All Passports', 'Add Passport', 'Passport List', 'Medical', 'Process'],
+      [
+        'Dashboard',
+        'All Passports',
+        'Add Passport',
+        'Passport List',
+        'Medical',
+        'Calling / Work Permit',
+        'Visa',
+        'BMET Clearance',
+        'Flight',
+      ],
     ],
     // Accounts: the Company report is in the top menu.
     ['accounts', ['Dashboard']],
@@ -149,6 +169,45 @@ describe('StaffLayout menu', () => {
       .findAll('nav[aria-label="Staff portal"] a')
       .find((a) => a.attributes('href') === '/admin-companies')
     expect(Boolean(link)).toBe(shown)
+  })
+
+  it('shows the four steps as top-level items right after Medical, with no "Process" heading', async () => {
+    await mountAs('data_entry')
+    await flushPromises()
+
+    const nav = wrapper.get('nav[aria-label="Staff portal"]')
+    expect(nav.text()).not.toMatch(/process/i)
+    expect(nav.find('[data-group]').exists()).toBe(false)
+    // Every item is a direct child of the one list, like Medical.
+    const items = nav.findAll(':scope > ul > li > a')
+    const labels = items.map((a) => a.get('[data-label]').text())
+    const medical = labels.indexOf('Medical')
+    expect(labels.slice(medical, medical + 5)).toEqual([
+      'Medical',
+      'Calling / Work Permit',
+      'Visa',
+      'BMET Clearance',
+      'Flight',
+    ])
+    const hrefs = items.map((a) => a.attributes('href'))
+    expect(hrefs.slice(medical + 1, medical + 5)).toEqual(['/calling', '/visa', '/bmet', '/flight'])
+    // Same link classes and badge as Medical.
+    const medicalLink = items[medical]!
+    const calling = items[medical + 1]!
+    expect(calling.classes()).toEqual(medicalLink.classes())
+    expect(calling.get('[data-badge]').text()).toBe('3 pending')
+    expect(calling.get('[data-badge]').classes()).toEqual(medicalLink.get('[data-badge]').classes())
+  })
+
+  it('highlights the open step page only', async () => {
+    await mountAs('data_entry', '/visa')
+    await flushPromises()
+
+    const link = (href: string) => wrapper.get(`nav[aria-label="Staff portal"] a[href="${href}"]`)
+    expect(link('/visa').attributes('aria-current')).toBe('page')
+    expect(link('/visa').classes()).toContain('bg-white/15')
+    expect(link('/calling').attributes('aria-current')).toBeUndefined()
+    expect(link('/medical').attributes('aria-current')).toBeUndefined()
   })
 
   it.each([

@@ -1,6 +1,14 @@
 import api from '@/lib/api'
 import type { PassportWorkflow } from '@/types/medical'
-import type { StepPayload, StepRecord, WorkflowWarning } from '@/types/workflow'
+import type { Paginated } from '@/types/auth'
+import type {
+  StepListParams,
+  StepListRow,
+  StepPayload,
+  StepRecord,
+  StepResultPayload,
+  WorkflowWarning,
+} from '@/types/workflow'
 
 const BASE = '/api/data-entry'
 
@@ -53,4 +61,47 @@ export async function updateStepRecord(
 /** Admin only: removes a record (undo). */
 export async function deleteStepRecord(id: number): Promise<void> {
   await api.delete(`${BASE}/step-records/${id}`)
+}
+
+/* ---------- Step pages (one page per step) ---------- */
+
+/** One step's work list for a tab, in the API's fixed order for that tab. */
+export async function listStepPassports(
+  stepKey: string,
+  params: StepListParams,
+): Promise<Paginated<StepListRow>> {
+  const { data } = await api.get<Paginated<StepListRow>>(
+    `${BASE}/steps/${encodeURIComponent(stepKey)}/passports`,
+    { params },
+  )
+  return data
+}
+
+/**
+ * Starts the step with its "start" fields (the step date and e.g. the flight details):
+ * creates the in-process record. Also used for "Apply again" after a rejection.
+ */
+export async function startStep(
+  passportId: number,
+  stepKey: string,
+  payload: Partial<StepPayload>,
+): Promise<StepSaveResponse> {
+  const { data } = await api.post<StepSaveResponse>(
+    `${BASE}/passports/${passportId}/steps/${encodeURIComponent(stepKey)}/start`,
+    payload,
+  )
+  return data
+}
+
+/** Records the step's result (completed or rejected) with its "result" fields. */
+export async function recordStepResult(
+  passportId: number,
+  stepKey: string,
+  payload: StepResultPayload,
+): Promise<StepSaveResponse> {
+  const { data } = await api.post<StepSaveResponse>(
+    `${BASE}/passports/${passportId}/steps/${encodeURIComponent(stepKey)}/result`,
+    payload,
+  )
+  return data
 }

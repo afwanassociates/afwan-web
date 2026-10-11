@@ -102,6 +102,7 @@ async function mountView(component: object, role: Role, path: string) {
     routes: [
       { path: '/medical', name: 'medical', component },
       { path: '/process', name: 'process', component: { template: '<div />' } },
+      { path: '/:step', name: 'step-page', component: { template: '<div />' } },
       { path: '/passports/:id', name: 'passport-detail', component },
       { path: '/passports/:id/edit', name: 'passport-edit', component: Empty },
       { path: '/passports', name: 'passports', component: Empty },

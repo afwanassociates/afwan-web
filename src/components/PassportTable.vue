@@ -3,6 +3,7 @@ import { RouterLink } from 'vue-router'
 import PassportCell from '@/components/PassportCell.vue'
 import { COLUMN_LABELS, type PassportColumn } from '@/lib/passportColumns'
 import { businessToday } from '@/lib/dates'
+import { STICKY_ACTIONS, TABLE_HEAD } from '@/lib/tableClasses'
 import type { PassportEntry } from '@/types/passport'
 
 /**
@@ -47,7 +48,7 @@ defineSlots<{
 const today = businessToday()
 
 /** Right-pinned actions column: white background and a soft edge over scrolled cells. */
-const STICKY = 'sticky right-0 z-10 bg-white pl-3 shadow-[-12px_0_12px_-12px_rgb(15_23_42/0.25)]'
+const STICKY = STICKY_ACTIONS
 
 const actionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-primary-50 focus-visible:bg-primary-50'
@@ -116,7 +117,7 @@ const actionClass =
   <!-- Tablets and up: table -->
   <div class="hidden overflow-x-auto md:block">
     <table class="w-full text-left text-sm">
-      <thead class="border-b border-stroke text-xs tracking-wider text-muted uppercase">
+      <thead :class="TABLE_HEAD">
         <tr>
           <template v-if="splitNameNumber">
             <th scope="col" class="py-3 pr-4 font-semibold whitespace-nowrap">Passport name</th>
