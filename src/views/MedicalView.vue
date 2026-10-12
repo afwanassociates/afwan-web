@@ -5,20 +5,21 @@ import PassportListBody from '@/components/PassportListBody.vue'
 import PassportTable from '@/components/PassportTable.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalDateCell from '@/components/MedicalDateCell.vue'
+import MedicalFitDialog from '@/components/MedicalFitDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import type { PassportColumn } from '@/lib/passportColumns'
 import { recordMedicalResult } from '@/api/medical'
-import { listPassports } from '@/api/passports'
+import { listPassports, updateEntryMode } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { useDebounce } from '@/composables/useDebounce'
-import { errorMessage, errorStatus } from '@/lib/errors'
+import { errorMessage, errorStatus, firstFieldError } from '@/lib/errors'
 import { canAccessArea } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { MedicalResult, MedicalStatus } from '@/types/medical'
-import type { Paginated } from '@/types/auth'
-import type { PassportEntry } from '@/types/passport'
+import type { PassportPage } from '@/api/passports'
+import type { EntryMode, PassportEntry } from '@/types/passport'
 
 /**
  * Step 2: Medical. One tab per medical status. The tab and three searches (name / passport
@@ -36,6 +37,23 @@ interface Tab {
 }
 
 /** Read-only result tabs: the result's dates, no actions. */
+/**
+ * Fit and Expiring soon list only passports not marked yet: the result's dates and the medical
+ * slip date. Marking one Online (the row's only button) sends it to Calling / Work
+ * Permit, so it leaves these tabs.
+ */
+const MARK_COLUMNS: PassportColumn[] = [
+  'reference',
+  'company',
+  'medical_center',
+  'medical_date',
+  'slip_date',
+  'issue_date',
+  'expiry_date',
+]
+/** Tabs whose rows are marked Online. */
+const MARK_TABS: TabKey[] = ['fit', 'expiring_soon']
+
 const MEDICAL_COLUMNS: PassportColumn[] = [
   'reference',
   'company',
@@ -57,14 +75,14 @@ const TABS: Tab[] = [
     key: 'fit',
     label: 'Fit (valid)',
     status: 'fit',
-    columns: MEDICAL_COLUMNS,
-    emptyTitle: 'No passports with a valid fit result.',
+    columns: MARK_COLUMNS,
+    emptyTitle: 'No fit passports waiting to be marked.',
   },
   {
     key: 'expiring_soon',
     label: 'Expiring soon',
     status: 'expiring_soon',
-    columns: MEDICAL_COLUMNS,
+    columns: MARK_COLUMNS,
     emptyTitle: 'No fit results expire in the next 14 days.',
   },
   {
@@ -207,10 +225,12 @@ watch(filters, (f) => {
 
 /* ---------- Loading ---------- */
 
-const list = shallowRef<Paginated<PassportEntry> | null>(null)
+const list = shallowRef<PassportPage | null>(null)
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
 let requestId = 0
+
+const showMarks = computed(() => MARK_TABS.includes(tab.value.key))
 
 async function load() {
   const id = ++requestId
@@ -331,14 +351,32 @@ const confirmBusy = ref(false)
 const confirmError = ref<string | null>(null)
 const confirmTarget = ref<{ entry: PassportEntry; result: MedicalResult } | null>(null)
 
+const fitOpen = ref(false)
+const fitPassport = ref<PassportEntry | null>(null)
+
+/** Fit: issue and expiry dates first; the passport then waits on the Fit tab for its mark. */
+function onFitSaved() {
+  const entry = fitPassport.value
+  toast.success(
+    `${entry?.passport_number ?? 'Passport'}: Moved to Fit - mark Online to send it to Calling`,
+  )
+  load()
+  workflow.refresh()
+}
+
 function askResult(entry: PassportEntry, result: MedicalResult) {
   if (!entry.medical_date) return
+  if (result === 'fit') {
+    fitPassport.value = entry
+    fitOpen.value = true
+    return
+  }
   confirmTarget.value = { entry, result }
   confirmError.value = null
   confirmOpen.value = true
 }
 
-/** Fit moves the row to the Fit tab; Unfit to the Unfit tab (out of the main lists). */
+/** Unfit (a simple confirm) moves the row to the Unfit tab, out of the main lists. */
 async function confirmResult() {
   const target = confirmTarget.value
   if (!target) return
@@ -347,11 +385,7 @@ async function confirmResult() {
   try {
     await recordMedicalResult(target.entry.id, target.result)
     confirmOpen.value = false
-    toast.success(
-      target.result === 'fit'
-        ? `${target.entry.passport_number} marked FIT. It is now in the Fit tab.`
-        : `${target.entry.passport_number} marked UNFIT. It is now in the Unfit tab.`,
-    )
+    toast.success(`${target.entry.passport_number} marked UNFIT. It is now in the Unfit tab.`)
     load()
     workflow.refresh()
   } catch (error) {
@@ -363,6 +397,79 @@ async function confirmResult() {
       confirmError.value = errorMessage(error, 'Could not save the result. Please try again.')
   } finally {
     confirmBusy.value = false
+  }
+}
+
+/* ---------- Fit / Expiring soon: mark Online ---------- */
+
+/**
+ * The only mark. The API sends no label before a passport is marked, so the button uses the
+ * API's wording; the toast uses the label the API returns once it is marked.
+ */
+const ONLINE: { value: EntryMode; label: string } = { value: 'online', label: 'Online' }
+/** How long the "Undo" toast stays. */
+const UNDO_MS = 6000
+
+/** Passports with a mark request running (no double clicks). */
+const marking = ref(new Set<number>())
+
+function setMarking(id: number, on: boolean) {
+  const next = new Set(marking.value)
+  if (on) next.add(id)
+  else next.delete(id)
+  marking.value = next
+}
+
+/** After a mark or its undo: the list, the tab counts and the step bar / sidebar counts. */
+function afterMarkChange() {
+  load()
+  workflow.refresh()
+}
+
+/**
+ * Marks the passport: the row leaves the tab at once (optimistic) and the passport moves to
+ * Calling / Work Permit. On an error the row comes back. The toast offers Undo for a while.
+ */
+async function mark(entry: PassportEntry, mode: EntryMode) {
+  if (marking.value.has(entry.id) || !list.value) return
+  setMarking(entry.id, true)
+  const before = list.value
+  list.value = { ...before, data: before.data.filter((e) => e.id !== entry.id) }
+  try {
+    const updated = await updateEntryMode(entry.id, mode)
+    const label = updated.entry_mode?.label ?? ONLINE.label
+    toast.success(`${entry.passport_number}: Moved to Calling / Work Permit (${label})`, {
+      duration: UNDO_MS,
+      action: { label: 'Undo', run: () => undoMark(entry) },
+    })
+    afterMarkChange()
+  } catch (error) {
+    // Roll back: the row returns where it was.
+    if (list.value && !list.value.data.some((e) => e.id === entry.id)) list.value = before
+    const status = errorStatus(error)
+    if (status === 403) toast.error('You are not allowed to mark passports Online.')
+    else if (status !== 401)
+      toast.error(
+        firstFieldError(error, 'entry_mode') ??
+          errorMessage(error, 'Could not save the mark. Please try again.'),
+      )
+  } finally {
+    setMarking(entry.id, false)
+  }
+}
+
+/** Undo: clears the mark (entry_mode null), which puts the passport back on the Fit tab. */
+async function undoMark(entry: PassportEntry) {
+  try {
+    await updateEntryMode(entry.id, null)
+    toast.success(`${entry.passport_number}: back on the Fit tab.`)
+  } catch (error) {
+    toast.error(
+      firstFieldError(error, 'entry_mode') ??
+        errorMessage(error, 'Could not undo the mark. Please try again.'),
+    )
+  } finally {
+    afterMarkChange()
   }
 }
 
@@ -535,12 +642,17 @@ const actionClass =
               :columns="tab.columns"
               :custom-columns="tab.key === 'pending' ? ['medical_date'] : []"
               split-name-number
-              :default-actions="canAct"
+              :default-actions="canAct && !showMarks"
               sticky-actions
             >
               <!-- Pending: the medical date can be entered inline. -->
-              <template #cell="{ entry }">
-                <MedicalDateCell :entry="entry" :can-edit="canAct" @saved="onDateSaved" />
+              <template #cell="{ entry, column }">
+                <MedicalDateCell
+                  v-if="column === 'medical_date'"
+                  :entry="entry"
+                  :can-edit="canAct"
+                  @saved="onDateSaved"
+                />
               </template>
               <template #actions="{ entry }">
                 <template v-if="tab.key === 'pending' && canAct">
@@ -581,12 +693,30 @@ const actionClass =
                     Edit slip<span class="sr-only"> {{ entry.passport_number }}</span>
                   </button>
                 </template>
+                <!-- Fit / Expiring soon: the only action is the Online mark. -->
+                <template v-else-if="showMarks && canAct">
+                  <button
+                    type="button"
+                    :class="[
+                      actionClass,
+                      'bg-primary-900 text-white hover:bg-primary-700',
+                      'disabled:cursor-not-allowed disabled:opacity-50',
+                    ]"
+                    :disabled="marking.has(entry.id)"
+                    :data-mark="ONLINE.value"
+                    @click="mark(entry, ONLINE.value)"
+                  >
+                    {{ ONLINE.label }}<span class="sr-only">{{ ` ${entry.passport_number}` }}</span>
+                  </button>
+                </template>
               </template>
             </PassportTable>
           </PassportListBody>
         </div>
       </div>
     </section>
+
+    <MedicalFitDialog v-model:open="fitOpen" :passport="fitPassport" @saved="onFitSaved" />
 
     <ConfirmDialog
       v-model:open="confirmOpen"

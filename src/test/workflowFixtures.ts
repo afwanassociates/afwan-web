@@ -32,38 +32,46 @@ const BASE_CONFIG: WorkflowConfig = {
       short_label: 'Calling',
       order: 3,
       enabled: true,
+      // No rejected path and no calling date: the permit dates, all in one save.
       statuses: [
-        { value: 'in_process', label: 'Applied' },
-        { value: 'completed', label: 'Approved' },
-        { value: 'rejected', label: 'Rejected' },
+        { value: 'in_process', label: 'Calling date entered' },
+        { value: 'completed', label: 'Permitted' },
       ],
       fields: [
         {
-          name: 'reference_no',
-          label: 'Permit / calling number',
-          type: 'text',
-          max: 100,
-          in_details: false,
-          required_for: ['completed'],
-        },
-        {
-          name: 'step_date',
-          label: 'Date',
+          name: 'receive_date',
+          label: 'Calling receive date',
           type: 'date',
           max: null,
-          in_details: false,
-          required_for: ['in_process', 'completed', 'rejected'],
+          in_details: true,
+          required_for: ['completed'],
+          phase: 'result',
+        },
+        {
+          name: 'issue_date',
+          label: 'Issued date',
+          type: 'date',
+          max: null,
+          in_details: true,
+          required_for: ['completed'],
+          phase: 'result',
         },
         {
           name: 'valid_until',
-          label: 'Valid until',
+          label: 'Expiry date',
           type: 'date',
           max: null,
           in_details: false,
-          required_for: [],
+          required_for: ['completed'],
+          phase: 'result',
+          after: 'details.issue_date',
         },
       ],
       warning_days: 30,
+      tabs: [
+        { key: 'pending', label: 'Pending' },
+        { key: 'permitted', label: 'Permitted' },
+      ],
     },
     {
       key: 'visa',
@@ -87,11 +95,12 @@ const BASE_CONFIG: WorkflowConfig = {
         },
         {
           name: 'step_date',
-          label: 'Date',
+          label: 'Visa submitted date',
           type: 'date',
           max: null,
           in_details: false,
           required_for: ['in_process', 'completed', 'rejected'],
+          phase: 'start',
         },
         {
           name: 'valid_until',
@@ -103,6 +112,12 @@ const BASE_CONFIG: WorkflowConfig = {
         },
       ],
       warning_days: 30,
+      // Submitted from the Calling Permitted tab: no "not started" tab.
+      tabs: [
+        { key: 'pending', label: 'Pending' },
+        { key: 'issued', label: 'Visa issued' },
+        { key: 'rejected', label: 'Rejected' },
+      ],
     },
     {
       key: 'bmet',
@@ -222,8 +237,19 @@ export const WORKFLOW_CONFIG: WorkflowConfig = {
     ...step,
     fields: step.fields.map((field) => ({
       ...field,
-      phase: RESULT_FIELDS.includes(field.name) ? ('result' as const) : ('start' as const),
+      phase:
+        field.phase ??
+        (RESULT_FIELDS.includes(field.name) ? ('result' as const) : ('start' as const)),
     })),
+    // As the API sends them: the step's own tabs, else Pending then one per status.
+    tabs:
+      step.tabs ??
+      (step.statuses.length && step.fields.length
+        ? [
+            { key: 'pending', label: 'Pending' },
+            ...step.statuses.map((st) => ({ key: st.value, label: st.label })),
+          ]
+        : []),
   })),
 }
 
@@ -246,4 +272,11 @@ export const WORKFLOW_SUMMARY = {
     flight: { total: 1, waiting: 0, in_process: 1, rejected: 0 },
   },
   completed: 9,
+  // The step pages' tab counts: the step bar and the sidebar show `pending`.
+  step_tabs: {
+    calling: { pending: 3, permitted: 4 },
+    visa: { pending: 1, issued: 2, rejected: 0 },
+    bmet: { pending: 2, in_process: 0, completed: 0, rejected: 0 },
+    flight: { pending: 0, in_process: 1, completed: 0, rejected: 0 },
+  },
 }

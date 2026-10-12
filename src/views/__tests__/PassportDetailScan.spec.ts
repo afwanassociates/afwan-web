@@ -101,15 +101,23 @@ describe('Passport scan copy on /data-entry/passports/:id', () => {
   it('downloads through the API with ?download=1, saving it under its original name', async () => {
     await mountDetail(IMAGE_SCAN)
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    // The download link is released after a moment: fake that timer so it cannot fire
+    // during a later test.
+    vi.useFakeTimers({ toFake: ['setTimeout'] })
+    try {
+      await card().get('button[data-scan-download]').trigger('click')
+      await flushPromises()
 
-    await card().get('button[data-scan-download]').trigger('click')
-    await flushPromises()
-
-    expect(fetchPassportScan).toHaveBeenLastCalledWith(20, true)
-    const link = click.mock.contexts[0] as HTMLAnchorElement
-    expect(link.download).toBe('passport-20.jpg')
-    expect(link.href).toBe('blob:scan-1')
-    click.mockRestore()
+      expect(fetchPassportScan).toHaveBeenLastCalledWith(20, true)
+      const link = click.mock.contexts[0] as HTMLAnchorElement
+      expect(link.download).toBe('passport-20.jpg')
+      expect(link.href).toBe('blob:scan-1')
+      vi.runAllTimers()
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:scan-1') // the download link
+    } finally {
+      vi.useRealTimers()
+      click.mockRestore()
+    }
   })
 
   it('treats a 404 ("no scan copy yet") as no scan', async () => {

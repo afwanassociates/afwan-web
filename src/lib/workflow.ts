@@ -1,4 +1,5 @@
 import { addMonthsNoOverflow, toApiDate } from '@/lib/dates'
+import type { WorkflowSummary } from '@/types/medical'
 import type {
   StepConfig,
   StepFieldConfig,
@@ -65,7 +66,29 @@ const FIELD_RULES: Record<string, { notFutureFor?: string[]; pattern?: RegExp; m
   {
     departure_date: { notFutureFor: ['completed'] },
     flight_no: { pattern: /^[A-Za-z0-9]+$/, message: 'may only contain letters and digits' },
+    // Calling's permit: neither the receive nor the issued date in the future.
+    receive_date: { notFutureFor: ['completed'] },
+    issue_date: { notFutureFor: ['completed'] },
   }
+
+/**
+ * A step's Pending count from /workflow/summary (`step_tabs`): the number the step bar and the
+ * sidebar badge show, the same as the step page's Pending tab. Undefined until known.
+ */
+export function stepPendingCount(
+  summary: WorkflowSummary | null | undefined,
+  stepKey: string,
+): number | undefined {
+  return summary?.step_tabs?.[stepKey]?.pending
+}
+
+/** Statuses for which a date field may not be in the future (the config's, else the rules'). */
+export const notFutureFor = (field: StepFieldConfig): string[] =>
+  field.not_future_for ?? FIELD_RULES[field.name]?.notFutureFor ?? []
+
+/** A field's label by name, lower case, for messages ("the issued date"). */
+const labelOf = (fields: StepFieldConfig[], name: string) =>
+  (fields.find((f) => f.name === name)?.label ?? humanize(name)).toLowerCase()
 
 export type StepFormValues = Record<string, string>
 
@@ -76,6 +99,8 @@ export function validateStepForm(
   values: StepFormValues,
   remarks: string,
   today: string,
+  /** All of the step's fields, for labels in messages (when `step` holds only some). */
+  allFields: StepFieldConfig[] = step.fields,
 ): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!status) errors.status = 'Choose a status.'
@@ -96,15 +121,20 @@ export function validateStepForm(
         errors[field.name] = `Enter a valid ${label}.`
         continue
       }
-      const notFutureFor = field.not_future_for ?? FIELD_RULES[field.name]?.notFutureFor ?? []
       if (field.name === 'step_date' && date > today)
         errors[field.name] = 'The date cannot be in the future.'
-      else if (status && notFutureFor.includes(status) && date > today)
+      else if (status && notFutureFor(field).includes(status) && date > today)
         errors[field.name] =
           field.name === 'departure_date'
             ? 'A flight can only be marked departed on or after its departure date.'
             : `The ${label} cannot be in the future.`
-      else if (field.name === 'valid_until') {
+      else if (field.after) {
+        // The config's "after" (e.g. the expiry after the issued date).
+        const other = field.after.replace(/^details\./, '')
+        const otherDate = toApiDate(values[other] ?? '')
+        if (otherDate && date <= otherDate)
+          errors[field.name] = `The ${label} must be after the ${labelOf(allFields, other)}.`
+      } else if (field.name === 'valid_until') {
         const stepDate = toApiDate(values.step_date ?? '')
         if (stepDate && date <= stepDate)
           errors[field.name] = 'The valid until date must be after the date.'

@@ -15,6 +15,8 @@ const text = computed(() => {
   // Same words as the latest status: grey "Passport entered", amber "Medical pending".
   if (props.stage === 'passport' || props.status === 'not_started') return 'Passport entered'
   if (props.stage === 'medical' && props.status === 'pending') return 'Medical pending'
+  // Fit, waiting for the Online mark before Calling / Work Permit.
+  if (props.stage === 'medical' && props.status === 'fit') return 'Medical fit - mark Online'
   const step = workflow.stepConfig(props.stage)
   const stage = step?.short_label ?? step?.label ?? humanize(props.stage)
   return props.status ? `${stage}, ${humanize(props.status)}` : stage

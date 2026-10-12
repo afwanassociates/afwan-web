@@ -1,37 +1,64 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, useTemplateRef } from 'vue'
+import {
+  Teleport,
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  useTemplateRef,
+} from 'vue'
 import StepFields from '@/components/StepFields.vue'
-import { startStep, type StepSaveResponse } from '@/api/steps'
-import { businessToday } from '@/lib/dates'
+import TopModal from '@/components/TopModal.vue'
+import { startStep, updateCalling, type StepSaveResponse } from '@/api/steps'
+import { businessToday, toApiDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { stepPayload, stepWithPhase, validateStepForm } from '@/lib/workflow'
 import type { StepConfig, StepListRow, WorkflowWarning } from '@/types/workflow'
 
 /**
- * "Enter <step> date" / "Apply again": a small popover (not a modal) under its button with
- * the step date (required, not in the future) and the step's other "start" fields. Saving
- * creates the in-process record. Warnings from the API are shown without blocking: the
- * step is saved, and "OK" closes the popover.
+ * One step action as a small popover under its button, or (`modal`) a top-aligned TopModal:
+ * - start / again: the step date (required, not in the future) and the other "start" fields;
+ *   saving creates the in-process record ("again" after a rejection keeps the old one);
+ * - update (calling): the "result" fields (the permit dates), all required, in one request;
+ *   saving completes the step.
+ * With `optimistic`, it only checks the values and emits `submitted` (the page saves and can
+ * undo); otherwise it saves itself and shows API warnings without blocking.
  */
 const props = defineProps<{
   step: StepConfig
   row: StepListRow
   /** The button that opened it (the popover is placed under it). */
   anchor: HTMLElement | null
-  /** "again" after a rejection: a new record; the old one stays in the history. */
-  mode: 'start' | 'again'
+  mode: 'start' | 'again' | 'update'
+  /** Popover title (e.g. "Update calling"); defaults by mode. */
+  heading?: string
+  /** Emit the checked values (`submitted`) instead of saving. */
+  optimistic?: boolean
+  /** A top-aligned modal instead of the popover under the button. */
+  modal?: boolean
 }>()
-const emit = defineEmits<{ close: []; saved: [response: StepSaveResponse] }>()
+const emit = defineEmits<{
+  close: []
+  saved: [response: StepSaveResponse]
+  submitted: [payload: Record<string, unknown>]
+}>()
 
 const panel = useTemplateRef<HTMLFormElement>('panel')
 const today = businessToday()
 
-/** The step date first, then the other start fields in config order. */
+const isUpdate = computed(() => props.mode === 'update')
+
+/** Start: the step date first, then the other start fields. Update: the result fields. */
 const startStepConfig = computed(() => {
-  const step = stepWithPhase(props.step, 'start')
-  const date = step.fields.filter((f) => f.name === 'step_date')
-  return { ...step, fields: [...date, ...step.fields.filter((f) => f.name !== 'step_date')] }
+  if (isUpdate.value) return stepWithPhase(props.step, 'result')
+  const start = stepWithPhase(props.step, 'start')
+  const date = start.fields.filter((f) => f.name === 'step_date')
+  return { ...start, fields: [...date, ...start.fields.filter((f) => f.name !== 'step_date')] }
 })
+/** The status the values are checked for: update completes the step (all required). */
+const checkStatus = computed(() => (isUpdate.value ? 'completed' : 'in_process'))
 
 const values = reactive<Record<string, string>>(
   Object.fromEntries(startStepConfig.value.fields.map((f) => [f.name, ''])),
@@ -41,10 +68,12 @@ const banner = ref<string | null>(null)
 const warnings = ref<WorkflowWarning[]>([])
 const isSaving = ref(false)
 
-const title = computed(() =>
-  props.mode === 'again'
-    ? `Apply again: ${props.step.label}`
-    : `${props.step.label}: ${props.row.passport_number}`,
+const title = computed(
+  () =>
+    props.heading ??
+    (props.mode === 'again'
+      ? `Apply again: ${props.step.label}`
+      : `${props.step.label}: ${props.row.passport_number}`),
 )
 
 /* ---------- Placement (teleported, so the scrolling table cannot clip it) ---------- */
@@ -53,6 +82,7 @@ const WIDTH = 300
 const style = ref<Record<string, string>>({})
 
 function place() {
+  if (props.modal) return
   const rect = props.anchor?.getBoundingClientRect()
   if (!rect) return
   const left = Math.max(8, Math.min(rect.right - WIDTH, window.innerWidth - WIDTH - 8))
@@ -64,7 +94,9 @@ function onPointerDown(event: PointerEvent) {
   if (!panel.value?.contains(target) && !props.anchor?.contains(target)) close()
 }
 
+// The modal handles its own focus, Esc and outside clicks.
 onMounted(async () => {
+  if (props.modal) return
   place()
   window.addEventListener('resize', place)
   window.addEventListener('scroll', place, true)
@@ -73,6 +105,7 @@ onMounted(async () => {
   panel.value?.querySelector<HTMLInputElement>('input')?.focus()
 })
 onBeforeUnmount(() => {
+  if (props.modal) return
   window.removeEventListener('resize', place)
   window.removeEventListener('scroll', place, true)
   document.removeEventListener('pointerdown', onPointerDown)
@@ -81,20 +114,49 @@ onBeforeUnmount(() => {
 function close() {
   if (isSaving.value) return
   emit('close')
-  props.anchor?.focus()
+  if (!props.modal) props.anchor?.focus()
 }
 
 /* ---------- Saving ---------- */
 
+function check(): boolean {
+  const e = validateStepForm(
+    startStepConfig.value,
+    checkStatus.value,
+    values,
+    '',
+    today,
+    props.step.fields,
+  )
+  errors.value = e
+  return Object.keys(e).length === 0
+}
+
+/** Update: the permit dates, flat, as the API takes them. */
+const updatePayload = () => ({
+  receive_date: toApiDate(values.receive_date ?? ''),
+  issue_date: toApiDate(values.issue_date ?? ''),
+  valid_until: toApiDate(values.valid_until ?? ''),
+})
+
 async function save() {
   if (isSaving.value) return
   banner.value = null
-  errors.value = validateStepForm(startStepConfig.value, 'in_process', values, '', today)
-  if (Object.keys(errors.value).length > 0) return
+  if (!check()) return
+  if (props.optimistic) {
+    emit('submitted', stepPayload(startStepConfig.value, 'in_process', values, ''))
+    emit('close')
+    return
+  }
   isSaving.value = true
   try {
-    const payload = stepPayload(startStepConfig.value, 'in_process', values, '')
-    const response = await startStep(props.row.id, props.step.key, payload)
+    const response = isUpdate.value
+      ? await updateCalling(props.row.id, props.step.key, updatePayload())
+      : await startStep(
+          props.row.id,
+          props.step.key,
+          stepPayload(startStepConfig.value, 'in_process', values, ''),
+        )
     emit('saved', response)
     if (response.warnings.length > 0) warnings.value = response.warnings
     else emit('close')
@@ -118,20 +180,32 @@ async function save() {
 </script>
 
 <template>
-  <Teleport to="body">
+  <component
+    :is="modal ? TopModal : Teleport"
+    v-bind="
+      modal
+        ? { title, subtitle: row.passport_name, busy: isSaving, returnFocus: anchor }
+        : { to: 'body' }
+    "
+    @close="close"
+  >
     <form
       ref="panel"
-      class="fixed z-50 rounded-xl border border-stroke bg-white p-4 text-left shadow-xl"
-      :style="style"
-      role="group"
-      :aria-label="title"
+      :class="
+        modal ? '' : 'fixed z-50 rounded-xl border border-stroke bg-white p-4 text-left shadow-xl'
+      "
+      :style="modal ? undefined : style"
+      :role="modal ? undefined : 'group'"
+      :aria-label="modal ? undefined : title"
       novalidate
       data-step-start-popover
       @submit.prevent="save"
       @keydown.esc.stop="close"
     >
-      <p class="text-sm font-semibold text-ink">{{ title }}</p>
-      <p class="text-xs text-muted">{{ row.passport_name }}</p>
+      <template v-if="!modal">
+        <p class="text-sm font-semibold text-ink">{{ title }}</p>
+        <p class="text-xs text-muted">{{ row.passport_name }}</p>
+      </template>
 
       <!-- Saved, with warnings: shown, never blocking -->
       <template v-if="warnings.length">
@@ -166,12 +240,12 @@ async function save() {
         >
           {{ banner }}
         </p>
-        <div class="mt-3">
+        <div :class="modal ? '' : 'mt-3'">
           <StepFields
             :fields="startStepConfig.fields"
             :values="values"
             :errors="errors"
-            status="in_process"
+            :status="checkStatus"
             :today="today"
             @update="(name, value) => (values[name] = value)"
           />
@@ -196,5 +270,5 @@ async function save() {
         </div>
       </template>
     </form>
-  </Teleport>
+  </component>
 </template>

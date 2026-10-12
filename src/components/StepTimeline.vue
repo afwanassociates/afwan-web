@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import EntryModeBadge from '@/components/EntryModeBadge.vue'
+import LatestStatusText from '@/components/LatestStatusText.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import ValidityBadge from '@/components/ValidityBadge.vue'
 import { toDisplayDate } from '@/lib/dates'
@@ -64,6 +66,16 @@ function currentAction(stepKey: string): { label: string; update: boolean } | nu
   }
 }
 
+/** A field's label from the step config (e.g. visa: "Visa submitted date", "Expiry date"). */
+const fieldLabel = (stepKey: string, name: string, fallback: string) =>
+  workflow.stepConfig(stepKey)?.fields.find((f) => f.name === name)?.label ?? fallback
+
+/** The record's own date: from the config, else "<Step> date" (calling's older records). */
+const dateLabel = (stepKey: string) => {
+  const short = workflow.stepConfig(stepKey)?.short_label
+  return fieldLabel(stepKey, 'step_date', short ? `${short} date` : 'Date')
+}
+
 /** Labelled extra fields of a record (e.g. the flight's airline), from the step config. */
 function detailsOf(stepKey: string, record: StepRecordSummary) {
   const fields = workflow.stepConfig(stepKey)?.fields.filter((f) => f.in_details) ?? []
@@ -84,6 +96,11 @@ const medicalDetails = computed(() => {
     { label: 'Medical center', value: slip.medical_center?.name, mono: false },
   ].filter((d) => d.value)
 })
+
+/** The first step after Passport and Medical (Calling / Work Permit). */
+const firstRecordStep = computed(
+  () => props.passport.workflow.steps.find((s) => s.key !== 'passport' && s.key !== 'medical')?.key,
+)
 
 const markerClass = (state: StepState) =>
   ({
@@ -113,6 +130,11 @@ const smallButton =
       />
       <div class="flex flex-wrap items-center gap-2">
         <h3 class="font-semibold text-ink">{{ i + 1 }}. {{ step.label }}</h3>
+        <!-- Calling / Work Permit (the first recorded step): the Online mark -->
+        <EntryModeBadge
+          v-if="step.key === firstRecordStep && passport.entry_mode"
+          :mode="passport.entry_mode"
+        />
         <span
           class="rounded-full px-2 py-0.5 text-xs font-semibold ring-1"
           :class="TONE_BADGE[stepTone(step.state)]"
@@ -137,6 +159,15 @@ const smallButton =
           {{ currentAction(step.key)!.label }}
         </button>
       </div>
+
+      <!-- The step the passport is at: the API's status text with its date -->
+      <p
+        v-if="passport.latest_status && passport.latest_status.stage === step.key && i > 1"
+        class="mt-1 text-sm"
+        data-timeline-status
+      >
+        <LatestStatusText :latest-status="passport.latest_status" />
+      </p>
 
       <!-- Step 1: the passport itself -->
       <p v-if="i === 0" class="mt-1 text-sm text-muted">
@@ -182,10 +213,12 @@ const smallButton =
                 <dt class="text-muted">Reference</dt>
                 <dd class="font-mono text-ink">{{ record.reference_no }}</dd>
               </template>
-              <dt class="text-muted">Date</dt>
-              <dd class="text-ink">{{ toDisplayDate(record.step_date) }}</dd>
+              <template v-if="record.step_date">
+                <dt class="text-muted">{{ dateLabel(step.key) }}</dt>
+                <dd class="text-ink">{{ toDisplayDate(record.step_date) }}</dd>
+              </template>
               <template v-if="record.valid_until">
-                <dt class="text-muted">Valid until</dt>
+                <dt class="text-muted">{{ fieldLabel(step.key, 'valid_until', 'Valid until') }}</dt>
                 <dd class="flex flex-wrap items-center gap-2 text-ink">
                   {{ toDisplayDate(record.valid_until) }}
                   <ValidityBadge :status="record.validity_status" :days-left="record.days_left" />
@@ -240,7 +273,7 @@ const smallButton =
               class="rounded-lg bg-surface p-2.5"
             >
               <span class="font-semibold text-ink">{{ record.status_label }}</span>
-              · {{ toDisplayDate(record.step_date) }}
+              <template v-if="record.step_date">· {{ toDisplayDate(record.step_date) }}</template>
               <span v-if="record.reference_no" class="font-mono">· {{ record.reference_no }}</span>
               <span class="text-muted"> · {{ record.recorded_by?.name ?? '—' }}</span>
               <p v-if="record.remarks" class="mt-1 break-words text-muted">{{ record.remarks }}</p>

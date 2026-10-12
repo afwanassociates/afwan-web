@@ -68,4 +68,25 @@ describe('LatestStatusText', () => {
     expect(wrapper.get('[data-status-text]').text()).toBe(text)
     expect(wrapper.attributes('data-tone')).toBe(tone)
   })
+
+  it.each([
+    // Fit but not marked yet (the API's text and tone).
+    [{ stage: 'medical', status: 'fit', tone: 'amber' }, 'Medical fit - mark Online', 'amber'],
+    // Marked: waiting for Calling.
+    [{ stage: 'calling', status: 'waiting', tone: 'blue' }, 'Ready for Calling (Online)', 'blue'],
+    [{ stage: 'calling', status: 'in_process', tone: 'blue' }, 'Calling date entered', 'blue'],
+    [
+      { stage: 'visa', status: 'waiting', tone: 'amber' },
+      'Permitted - enter visa submitted date',
+      'amber',
+    ],
+    [{ stage: 'visa', status: 'in_process', tone: 'blue' }, 'Visa submitted', 'blue'],
+  ] as const)('shows the API text for %o', (overrides, text, tone) => {
+    const wrapper = mount(LatestStatusText, {
+      props: { latestStatus: { ...status(overrides.tone, text), ...overrides } },
+    })
+
+    expect(wrapper.get('[data-status-text]').text()).toBe(text)
+    expect(wrapper.attributes('data-tone')).toBe(tone)
+  })
 })

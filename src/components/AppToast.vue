@@ -1,7 +1,14 @@
 <script setup lang="ts">
 import { useToast } from '@/composables/useToast'
 
+import type { Toast } from '@/composables/useToast'
+
 const { toasts, dismiss } = useToast()
+
+function runAction(toast: Toast) {
+  dismiss(toast.id)
+  toast.action?.run()
+}
 </script>
 
 <template>
@@ -24,6 +31,15 @@ const { toasts, dismiss } = useToast()
       "
     >
       <p class="flex-1 font-medium">{{ toast.message }}</p>
+      <button
+        v-if="toast.action"
+        type="button"
+        class="-my-1 rounded-full bg-white/80 px-3 py-1 font-semibold underline-offset-2 ring-1 ring-current/30 hover:bg-white"
+        data-toast-action
+        @click="runAction(toast)"
+      >
+        {{ toast.action.label }}
+      </button>
       <button
         type="button"
         class="-m-1 rounded-md p-1 opacity-70 hover:opacity-100"

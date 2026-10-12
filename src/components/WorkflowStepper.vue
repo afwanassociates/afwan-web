@@ -2,7 +2,7 @@
 import { computed, onMounted } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { STEP_STATE_TEXT, stepTone, type StepTone } from '@/lib/medical'
-import { humanize } from '@/lib/workflow'
+import { humanize, stepPendingCount } from '@/lib/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { StepState, WorkflowStep } from '@/types/medical'
 
@@ -61,7 +61,11 @@ function linkFor(key: string, index: number): RouteLocationRaw {
   return { name: 'step-page', params: { step: key } }
 }
 
+/** Chip words that read better than the status key ("fit" waits for its Online mark). */
+const CHIP_LABEL: Record<string, string> = { fit: 'fit, not marked' }
+
 const CHIP_TONE: Record<string, StepTone> = {
+  fit: 'warning',
   pending: 'warning',
   waiting: 'warning',
   in_process: 'info',
@@ -82,14 +86,20 @@ const summarySteps = computed<SummaryStep[]>(() => {
   const ordered = [...s.steps].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
   return ordered.map((step, i) => {
     const stage = s.stages?.[step.key]
-    // The first step has no stage count: show the passports in the list.
-    const count = i === 0 ? s.step1.total_active : (stage?.total ?? null)
+    // The first step: the passports in the list. A step page (calling, visa, …): its Pending
+    // tab's count from `step_tabs`, as on the page and the sidebar. Medical: its stage total.
+    const count =
+      i === 0
+        ? s.step1.total_active
+        : s.step_tabs?.[step.key]
+          ? (stepPendingCount(s, step.key) ?? null)
+          : (stage?.total ?? null)
     const chips: Chip[] = stage
       ? Object.entries(stage)
           .filter(([key]) => key !== 'total')
           .map(([key, value]) => ({
             key,
-            label: humanize(key).toLowerCase(),
+            label: CHIP_LABEL[key] ?? humanize(key).toLowerCase(),
             value,
             tone: CHIP_TONE[key] ?? 'muted',
           }))

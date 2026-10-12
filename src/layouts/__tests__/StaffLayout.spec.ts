@@ -14,7 +14,9 @@ vi.mock('@/api/workflow', () => ({
     step1: { total_all: 24, total_active: 20, incomplete: 3 },
     step2: { pending: 7, fit: 5, expiring_soon: 1, expired: 2, unfit: 4 },
     step3: { enabled: false, ready: 0 },
-    stages: { calling: { total: 5, waiting: 3, in_process: 1, rejected: 1 } },
+    // The badge is the Pending tab's count (step_tabs), not the stage's.
+    stages: { calling: { total: 5, waiting: 9, in_process: 1, rejected: 1 } },
+    step_tabs: { calling: { pending: 3, permitted: 2 } },
   })),
   fetchWorkflowConfig: vi.fn(async () => WORKFLOW_CONFIG),
 }))

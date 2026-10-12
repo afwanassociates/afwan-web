@@ -32,14 +32,19 @@ export async function updateMedicalDate(
   return data.data
 }
 
-/** Records fit or unfit for the passport's medical date (422 without a medical date). */
+/**
+ * Records the result for the passport's medical date (422 without a medical date). Fit needs
+ * the issue and expiry dates printed on it (expiry after issue, issue not in the future);
+ * unfit needs none.
+ */
 export async function recordMedicalResult(
   passportId: number,
   result: MedicalResult,
+  dates?: { issue_date: string; expiry_date: string },
 ): Promise<MedicalSaveResponse> {
   const { data } = await api.post<MedicalSaveResponse>(
     `${BASE}/passports/${passportId}/medical-result`,
-    { result },
+    result === 'fit' ? { result, ...dates } : { result },
   )
   return data
 }

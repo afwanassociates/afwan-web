@@ -79,7 +79,19 @@ const enteredBy = computed(() => {
   </template>
 
   <template v-else-if="column === 'slip_date'">
-    <span class="whitespace-nowrap">{{ toDisplayDate(entry.medical_slip?.date) || '—' }}</span>
+    <span class="whitespace-nowrap">{{
+      toDisplayDate(entry.medical_slip_date ?? entry.medical_slip?.date) || '—'
+    }}</span>
+  </template>
+
+  <!-- The fit result's dates (the list sends them flat). -->
+  <template v-else-if="column === 'issue_date'">
+    <span class="whitespace-nowrap">{{ toDisplayDate(entry.issue_date) || '-' }}</span>
+  </template>
+  <template v-else-if="column === 'expiry_date'">
+    <span class="whitespace-nowrap">{{
+      toDisplayDate(entry.valid_until ?? medical?.valid_until) || '-'
+    }}</span>
   </template>
 
   <!-- The passport's medical date (entered before the result), else the result's. -->

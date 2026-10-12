@@ -1,9 +1,8 @@
 import api from '@/lib/api'
 import type { PassportWorkflow } from '@/types/medical'
-import type { Paginated } from '@/types/auth'
 import type {
   StepListParams,
-  StepListRow,
+  StepListResponse,
   StepPayload,
   StepRecord,
   StepResultPayload,
@@ -69,8 +68,8 @@ export async function deleteStepRecord(id: number): Promise<void> {
 export async function listStepPassports(
   stepKey: string,
   params: StepListParams,
-): Promise<Paginated<StepListRow>> {
-  const { data } = await api.get<Paginated<StepListRow>>(
+): Promise<StepListResponse> {
+  const { data } = await api.get<StepListResponse>(
     `${BASE}/steps/${encodeURIComponent(stepKey)}/passports`,
     { params },
   )
@@ -101,6 +100,26 @@ export async function recordStepResult(
 ): Promise<StepSaveResponse> {
   const { data } = await api.post<StepSaveResponse>(
     `${BASE}/passports/${passportId}/steps/${encodeURIComponent(stepKey)}/result`,
+    payload,
+  )
+  return data
+}
+
+/** Body of POST /passports/{id}/steps/calling/update. Dates are YYYY-MM-DD. */
+export interface CallingUpdatePayload {
+  receive_date: string
+  issue_date: string
+  valid_until: string
+}
+
+/** Calling in one save: the three permit dates (all required); the passport becomes Permitted. */
+export async function updateCalling(
+  passportId: number,
+  stepKey: string,
+  payload: CallingUpdatePayload,
+): Promise<StepSaveResponse> {
+  const { data } = await api.post<StepSaveResponse>(
+    `${BASE}/passports/${passportId}/steps/${encodeURIComponent(stepKey)}/update`,
     payload,
   )
   return data

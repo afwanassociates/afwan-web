@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useId } from 'vue'
 import { toApiDate, toDisplayDate } from '@/lib/dates'
+import { notFutureFor } from '@/lib/workflow'
 import type { StepFieldConfig } from '@/types/workflow'
 
 /**
@@ -20,10 +21,9 @@ const emit = defineEmits<{ update: [name: string, value: string] }>()
 
 const idPrefix = useId()
 
-/** The step date never lies in the future; other dates follow their not_future_for. */
+/** The step date never lies in the future; other dates follow their not-future rule. */
 const maxFor = (field: StepFieldConfig, status: string, today: string) =>
-  field.type === 'date' &&
-  (field.name === 'step_date' || (field.not_future_for ?? []).includes(status))
+  field.type === 'date' && (field.name === 'step_date' || notFutureFor(field).includes(status))
     ? today
     : undefined
 

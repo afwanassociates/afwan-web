@@ -1,5 +1,7 @@
 /** Steps 3–6 (calling, visa, BMET, flight) and the config-driven workflow. */
 
+import type { Paginated } from '@/types/auth'
+
 /** A step key from the API's config ('passport', 'medical', 'calling', …). */
 export type StageKey = string
 
@@ -25,6 +27,8 @@ export interface StepFieldConfig {
    * started) or "result" (when Approved / Rejected … is recorded). Defaults to "start".
    */
   phase?: 'start' | 'result'
+  /** Optional: the date must be after this field's (e.g. "details.issue_date"). */
+  after?: string | null
 }
 
 export interface StepConfig {
@@ -37,6 +41,11 @@ export interface StepConfig {
   fields: StepFieldConfig[]
   /** A valid-until date within this many days counts as expiring soon. */
   warning_days: number | null
+  /**
+   * The step page's tabs, in order (calling: Pending, Permitted; the others Pending, then one
+   * per status). Older APIs leave it out.
+   */
+  tabs?: { key: string; label: string }[]
 }
 
 export interface WorkflowConfig {
@@ -89,7 +98,24 @@ export interface WorkflowWarning {
 }
 
 /** The step pages' tabs (GET /steps/{step}/passports?tab=). */
-export type StepListTab = 'pending' | 'in_process' | 'completed' | 'rejected'
+export type StepListTab = string
+
+/** A step record as the step pages show it. Dates are YYYY-MM-DD. */
+export interface StepListRecord {
+  id: number
+  step_key?: string
+  status: StepStatus
+  status_label: string
+  step_date: string
+  /** When the step was started (e.g. the visa submitted date). */
+  submitted_date?: string
+  reference_no: string | null
+  /** Calling's permit (null on old records). */
+  receive_date?: string | null
+  issue_date?: string | null
+  valid_until: string | null
+  details: Record<string, string | null> | null
+}
 
 /** A row of a step page (lean: no permissions; actions follow the role). */
 export interface StepListRow {
@@ -99,21 +125,23 @@ export interface StepListRow {
   reference: { id: number; name: string } | null
   company: { id: number; name: string }
   /** The latest record of this step, if any. */
-  record: {
-    id: number
-    status: StepStatus
-    status_label: string
-    /** YYYY-MM-DD */
-    step_date: string
-    reference_no: string | null
-    valid_until: string | null
-    details: Record<string, string | null> | null
-  } | null
+  record: StepListRecord | null
+  /** The step before's record (e.g. the calling permit on a visa row), when there is one. */
+  previous_record?: StepListRecord | null
+  /** The next step's record (e.g. the visa on a calling row), when there is one. */
+  next_record?: StepListRecord | null
   /** YYYY-MM-DD: when the step before was completed (the medical date for the first step). */
   previous_step_completed_on: string | null
+  /** The Online mark (set on the Medical Fit tab). */
+  entry_mode?: { value: 'online'; label: string } | null
 }
 
 /** Filters of a step page. */
+/** GET /steps/{step}/passports: a page of rows plus every tab's count (same searches). */
+export type StepListResponse = Paginated<StepListRow> & {
+  tab_counts?: Record<StepListTab, number>
+}
+
 export interface StepListParams {
   tab: StepListTab
   search?: string

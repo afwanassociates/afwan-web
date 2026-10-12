@@ -3,12 +3,19 @@ import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-uti
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import StepListPage from '../StepListPage.vue'
-import { listStepPassports, recordStepResult, startStep } from '@/api/steps'
+import {
+  deleteStepRecord,
+  listStepPassports,
+  recordStepResult,
+  startStep,
+  updateCalling,
+} from '@/api/steps'
 import { useToast } from '@/composables/useToast'
 import { addDays, businessToday } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth'
 import { makeUser } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
+import { fetchWorkflowSummary } from '@/api/workflow'
 import type { Role } from '@/types/auth'
 import type { StepListParams, StepListRow, StepListTab } from '@/types/workflow'
 
@@ -16,6 +23,8 @@ vi.mock('@/api/steps', () => ({
   listStepPassports: vi.fn(),
   startStep: vi.fn(),
   recordStepResult: vi.fn(),
+  updateCalling: vi.fn(),
+  deleteStepRecord: vi.fn(),
 }))
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowConfig: vi.fn(async () => WORKFLOW_CONFIG),
@@ -67,20 +76,104 @@ const REJECTED = row({
   record: { ...IN_PROCESS.record!, status: 'rejected', status_label: 'Rejected' },
 })
 
-const page = (data: StepListRow[], total = data.length) => ({
-  data,
-  links: { first: null, last: null, prev: null, next: null },
-  meta: { current_page: 1, last_page: 1, per_page: 15, total, from: 1, to: data.length },
+/** Calling: the calling date entered, the permit not yet (still in Pending). */
+const CALLING_STARTED = row({
+  id: 53,
+  passport_number: 'CL0000053',
+  entry_mode: { value: 'online', label: 'Online' },
+  record: {
+    id: 19,
+    status: 'in_process',
+    status_label: 'Calling date entered',
+    step_date: '2026-10-05',
+    reference_no: null,
+    valid_until: null,
+    details: null,
+  },
 })
 
-/** The list per tab; counts per tab (per_page=1 requests). */
+/** Calling: permitted, with the permit's dates (expiry relative to today, Dhaka). */
+const permitted = (id: number, validUntil: string | null) =>
+  row({
+    id,
+    entry_mode: { value: 'online', label: 'Online' },
+    record: {
+      id: id + 100,
+      status: 'completed',
+      status_label: 'Permitted',
+      step_date: '2026-09-01',
+      reference_no: null,
+      valid_until: validUntil,
+      details: validUntil ? { receive_date: '2026-09-03', issue_date: '2026-09-02' } : null,
+    },
+  })
+
+/** Visa Pending: submitted from the Calling Permitted tab, waiting for the result. */
+const visaPending = (id: number, permitExpiry: string | null) =>
+  row({
+    id,
+    passport_number: `VS00000${id}`,
+    entry_mode: { value: 'online', label: 'Online' },
+    previous_record: {
+      id: id + 200,
+      status: 'completed',
+      status_label: 'Permitted',
+      step_date: '2026-09-01',
+      reference_no: null,
+      valid_until: permitExpiry,
+      details: null,
+    },
+    record: {
+      id: id + 300,
+      status: 'in_process',
+      status_label: 'Submitted',
+      step_date: '2026-10-02',
+      reference_no: null,
+      valid_until: null,
+      details: null,
+    },
+  })
+const VISA_PENDING = visaPending(51, addDays(TODAY, 200))
+
+/** One list response: the rows plus every tab's count of that step (as the API sends). */
+const page = (data: StepListRow[], step = 'calling') => ({
+  data,
+  links: { first: null, last: null, prev: null, next: null },
+  meta: {
+    current_page: 1,
+    last_page: 1,
+    per_page: 15,
+    total: data.length,
+    from: 1,
+    to: data.length,
+  },
+  tab_counts: Object.fromEntries(
+    (WORKFLOW_CONFIG.steps.find((st) => st.key === step)?.tabs ?? []).map((t) => [
+      t.key,
+      COUNTS[t.key] ?? 0,
+    ]),
+  ),
+})
+
+/** The list per tab; the API's count per tab. */
 const ROWS: Record<StepListTab, StepListRow[]> = {
   pending: [row()],
   in_process: [IN_PROCESS],
   completed: [],
   rejected: [REJECTED],
+  permitted: [],
+  issued: [],
 }
-const COUNTS: Record<StepListTab, number> = { pending: 2, in_process: 1, completed: 4, rejected: 1 }
+const COUNTS: Record<StepListTab, number> = {
+  pending: 2,
+  in_process: 1,
+  completed: 4,
+  rejected: 1,
+  permitted: 3,
+  issued: 4,
+}
+/** Visa Pending (the API only lists submitted passports there). */
+let visaPendingRows: StepListRow[] = [VISA_PENDING]
 
 const saved = { data: {}, passport: {}, warnings: [] }
 
@@ -112,12 +205,17 @@ async function mountStep(path = '/calling', role: Role = 'data_entry') {
   await flushPromises()
 }
 
-/** The last list request (not a per_page=1 count request). */
 const lastListCall = () => {
-  const calls = vi.mocked(listStepPassports).mock.calls.filter(([, p]) => p.per_page !== 1)
+  const calls = vi.mocked(listStepPassports).mock.calls
   return calls[calls.length - 1]!
 }
+const toDisplay = (iso: string) => iso.split('-').reverse().join('-')
 const headers = () => wrapper.findAll('thead th').map((th) => th.text().trim())
+const toastMessages = () => useToast().toasts.value.map((t) => t.message)
+const modal = () => {
+  const el = document.body.querySelector<HTMLElement>('[data-top-modal]')
+  return el ? new DOMWrapper(el) : null
+}
 const popover = () => {
   const el = document.body.querySelector<HTMLElement>('[data-step-start-popover]')
   return el ? new DOMWrapper(el) : null
@@ -126,11 +224,17 @@ const popover = () => {
 beforeEach(() => {
   vi.clearAllMocks()
   useToast().toasts.value = []
-  vi.mocked(listStepPassports).mockImplementation(async (_step: string, params: StepListParams) =>
-    params.per_page === 1 ? page([], COUNTS[params.tab]) : page(ROWS[params.tab]),
+  visaPendingRows = [VISA_PENDING]
+  vi.mocked(listStepPassports).mockImplementation(async (step: string, params: StepListParams) =>
+    page(
+      step === 'visa' && params.tab === 'pending' ? visaPendingRows : (ROWS[params.tab] ?? []),
+      step,
+    ),
   )
   vi.mocked(startStep).mockResolvedValue(saved as never)
   vi.mocked(recordStepResult).mockResolvedValue(saved as never)
+  vi.mocked(updateCalling).mockResolvedValue(saved as never)
+  vi.mocked(deleteStepRecord).mockResolvedValue(undefined as never)
 })
 afterEach(() => wrapper.unmount())
 
@@ -179,20 +283,24 @@ describe('Step pages (one per step)', () => {
 
   describe('tabs and columns from the config', () => {
     it.each([
-      ['calling', ['Pending', 'Applied', 'Approved', 'Rejected']],
-      ['visa', ['Pending', 'Submitted', 'Visa issued', 'Rejected']],
+      ['calling', ['Pending', 'Permitted']],
+      ['visa', ['Pending', 'Visa issued', 'Rejected']],
       ['bmet', ['Pending', 'Submitted', 'Cleared', 'Rejected']],
       ['flight', ['Pending', 'Ticket booked', 'Departed', 'Cancelled']],
-    ])('%s tabs: %j, each with its count', async (key, labels) => {
+    ])('%s tabs: %j, each with the count from the list response', async (key, labels) => {
       await mountStep(`/${key}`)
 
+      // One request: the rows and the tab counts together (nothing counted in the browser).
+      expect(listStepPassports).toHaveBeenCalledTimes(1)
       const tabs = wrapper.findAll('[role="tab"]')
       expect(tabs.map((t) => t.text().replace(/\s*\S+$/, ''))).toEqual(labels)
-      expect(tabs.map((t) => t.get('[data-tab-count]').text())).toEqual(['2', '1', '4', '1'])
+      expect(tabs.map((t) => t.get('[data-tab-count]').text())).toEqual(
+        key === 'calling' ? ['2', '3'] : key === 'visa' ? ['2', '4', '1'] : ['2', '1', '4', '1'],
+      )
     })
 
     it('Pending lists passports whose previous step is done (the API tab), oldest first', async () => {
-      await mountStep()
+      await mountStep('/bmet')
 
       expect(lastListCall()[1]).toEqual(expect.objectContaining({ tab: 'pending', page: 1 }))
       expect(lastListCall()[1]).not.toHaveProperty('sort')
@@ -201,25 +309,25 @@ describe('Step pages (one per step)', () => {
         'Passport number',
         'Reference',
         'Company',
-        'Medical done',
+        'Visa done',
         'Actions',
       ])
       expect(wrapper.get('[data-cell="previous_done"]').text()).toBe('20-09-2026')
     })
 
     it('status tabs show the step fields as columns; name and number are separate', async () => {
-      await mountStep('/calling?tab=in_process')
+      await mountStep('/bmet?tab=in_process')
 
-      expect(headers()).toEqual([
-        'Passport name',
-        'Passport number',
-        'Reference',
-        'Company',
-        'Date',
-        'Permit / calling number',
-        'Valid until',
-        'Actions',
-      ])
+      expect(headers()).toEqual(
+        expect.arrayContaining([
+          'Passport name',
+          'Passport number',
+          'Reference',
+          'Company',
+          'Clearance number',
+          'Actions',
+        ]),
+      )
       expect(headers()).not.toContain('Country')
       expect(headers()).not.toContain('Waiting')
       const r = wrapper.get('tr[data-row="51"]')
@@ -234,6 +342,507 @@ describe('Step pages (one per step)', () => {
 
       expect(headers()).toEqual(
         expect.arrayContaining(['Airline', 'Flight number', 'Departure date', 'Ticket PNR']),
+      )
+    })
+  })
+
+  describe('the Online mode', () => {
+    it.each(['pending', 'permitted'])('Calling has no Mode column on %s', async (tab) => {
+      ROWS[tab as StepListTab] = [row({ id: 60, entry_mode: { value: 'online', label: 'Online' } })]
+      try {
+        await mountStep(`/calling${tab === 'pending' ? '' : `?tab=${tab}`}`)
+
+        expect(headers()).not.toContain('Mode')
+        expect(wrapper.find('[data-cell="mode"], [data-entry-mode]').exists()).toBe(false)
+      } finally {
+        ROWS[tab as StepListTab] = tab === 'pending' ? [row()] : []
+      }
+    })
+
+    it('BMET and Flight have no Mode column', async () => {
+      await mountStep('/bmet')
+
+      expect(headers()).not.toContain('Mode')
+    })
+
+    it('Pending empty text points to the Medical Fit tab', async () => {
+      vi.mocked(listStepPassports).mockResolvedValue(page([]))
+      await mountStep('/calling')
+
+      expect(wrapper.get('[data-empty]').text()).toContain(
+        'Mark passports Online on the Medical Fit tab to see them here.',
+      )
+    })
+  })
+
+  describe('Calling: Pending and Permitted', () => {
+    const CALLING_DATE = /calling date/i
+    beforeEach(() => {
+      ROWS.pending = [row({ entry_mode: { value: 'online', label: 'Online' } }), CALLING_STARTED]
+    })
+    afterEach(() => {
+      ROWS.pending = [row()]
+      ROWS.permitted = []
+    })
+
+    it('has only two tabs; the other step pages keep theirs', async () => {
+      await mountStep('/calling')
+      expect(wrapper.findAll('[role="tab"]').map((t) => t.attributes('data-tab'))).toEqual([
+        'pending',
+        'permitted',
+      ])
+      expect(wrapper.text()).not.toMatch(/Applied|Approved|Rejected|Apply again/)
+      wrapper.unmount()
+
+      await mountStep('/bmet')
+      expect(wrapper.findAll('[role="tab"]')).toHaveLength(4)
+      wrapper.unmount()
+      await mountStep('/flight')
+      expect(wrapper.findAll('[role="tab"]').map((t) => t.attributes('data-tab'))).toEqual([
+        'pending',
+        'in_process',
+        'completed',
+        'rejected',
+      ])
+    })
+
+    it('Pending columns: name, number, reference, company, actions (no Mode, no Calling date)', async () => {
+      await mountStep('/calling')
+
+      expect(headers()).toEqual([
+        'Passport name',
+        'Passport number',
+        'Reference',
+        'Company',
+        'Actions',
+      ])
+      expect(wrapper.find('[data-cell="step_date"]').exists()).toBe(false)
+      expect(wrapper.find('table').text()).not.toMatch(CALLING_DATE)
+    })
+
+    it('every Pending row has one button, "Update calling" (no "Permit details", no edit icon)', async () => {
+      await mountStep('/calling')
+
+      for (const id of [50, 53]) {
+        const buttons = wrapper.findAll(`tr[data-row="${id}"] button`)
+        expect(buttons).toHaveLength(1)
+        expect(buttons[0]!.attributes()).toHaveProperty('data-step-update')
+        expect(buttons[0]!.text()).toContain('Update calling')
+      }
+      expect(wrapper.text()).not.toContain('Permit details')
+      expect(wrapper.find('[data-step-edit-date], [data-step-details]').exists()).toBe(false)
+    })
+
+    describe('Update calling', () => {
+      async function openUpdate(id = 53) {
+        await mountStep('/calling')
+        await wrapper.get(`tr[data-row="${id}"] button[data-step-update]`).trigger('click')
+        await flushPromises()
+        return popover()!
+      }
+      const field = (p: DOMWrapper<Element>, name: string) =>
+        p.get<HTMLInputElement>(`[data-step-field="${name}"] input`)
+      const fill = async (p: DOMWrapper<Element>, values: Record<string, string>) => {
+        for (const [name, value] of Object.entries(values)) await field(p, name).setValue(value)
+      }
+      const PERMIT = {
+        receive_date: '2026-10-07',
+        issue_date: '2026-10-06',
+        valid_until: '2027-10-06',
+      }
+
+      it('has exactly three required fields (no Calling date) and a single Save', async () => {
+        const p = await openUpdate()
+
+        expect(modal()!.text()).toContain('Update calling')
+        expect(p.findAll('[data-step-field]').map((f) => f.attributes('data-step-field'))).toEqual([
+          'receive_date',
+          'issue_date',
+          'valid_until',
+        ])
+        // Each label carries the required asterisk.
+        expect(p.findAll('label').map((l) => l.text())).toEqual([
+          'Calling receive date *',
+          'Issued date *',
+          'Expiry date *',
+        ])
+        expect(p.text()).not.toMatch(CALLING_DATE)
+        expect(p.findAll('button[type="submit"]').map((b) => b.text())).toEqual(['Save'])
+        expect(field(p, 'receive_date').attributes('max')).toBe(TODAY)
+        expect(field(p, 'issue_date').attributes('max')).toBe(TODAY)
+      })
+
+      it('all three are required, each with its own inline error', async () => {
+        const p = await openUpdate()
+        await p.trigger('submit')
+
+        expect(p.get('[data-step-field="receive_date"]').text()).toContain(
+          'Enter the calling receive date.',
+        )
+        expect(p.get('[data-step-field="issue_date"]').text()).toContain('Enter the issued date.')
+        expect(p.get('[data-step-field="valid_until"]').text()).toContain('Enter the expiry date.')
+        expect(updateCalling).not.toHaveBeenCalled()
+
+        // No partial save any more.
+        await fill(p, { receive_date: '2026-10-07' })
+        await p.trigger('submit')
+        expect(p.text()).not.toContain('together')
+        expect(p.get('[data-step-field="issue_date"]').text()).toContain('Enter the issued date.')
+        expect(updateCalling).not.toHaveBeenCalled()
+      })
+
+      it('checks the dates: receive and issued not in the future; expiry after issued', async () => {
+        const p = await openUpdate()
+
+        await fill(p, {
+          receive_date: addDays(TODAY, 1),
+          issue_date: addDays(TODAY, 1),
+          valid_until: addDays(TODAY, 400),
+        })
+        await p.trigger('submit')
+        expect(p.get('[data-step-field="receive_date"]').text()).toContain(
+          'The calling receive date cannot be in the future.',
+        )
+        expect(p.get('[data-step-field="issue_date"]').text()).toContain(
+          'The issued date cannot be in the future.',
+        )
+
+        await fill(p, {
+          receive_date: '2026-10-01',
+          issue_date: '2026-10-02',
+          valid_until: '2026-10-02',
+        })
+        await p.trigger('submit')
+        expect(p.get('[data-step-field="valid_until"]').text()).toContain(
+          'The expiry date must be after the issued date.',
+        )
+        expect(p.text()).not.toContain('cannot be in the future')
+        expect(updateCalling).not.toHaveBeenCalled()
+      })
+
+      it('one Save sends the three dates in one request; the row moves to Permitted and the counts refresh', async () => {
+        vi.mocked(updateCalling).mockResolvedValue({
+          ...saved,
+          data: { status: 'completed' },
+        } as never)
+        const p = await openUpdate()
+        const listBefore = vi.mocked(listStepPassports).mock.calls.length
+        const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
+        // After the save the API lists it under Permitted, with the new counts.
+        ROWS.pending = [row()]
+        COUNTS.pending = 1
+        COUNTS.permitted = 4
+        try {
+          await fill(p, PERMIT)
+          await p.get('button[data-step-start-save]').trigger('click')
+          await flushPromises()
+
+          expect(updateCalling).toHaveBeenCalledTimes(1)
+          expect(updateCalling).toHaveBeenCalledWith(53, 'calling', PERMIT)
+          expect(startStep).not.toHaveBeenCalled()
+          expect(modal()).toBeNull()
+          expect(toastMessages()).toContain('CL0000053: Moved to Permitted')
+          expect(wrapper.find('tr[data-row="53"]').exists()).toBe(false)
+          // The list (with its tab counts) and the summary (step bar, sidebar) again.
+          expect(vi.mocked(listStepPassports).mock.calls.length - listBefore).toBe(1)
+          expect(vi.mocked(fetchWorkflowSummary).mock.calls.length - summaryBefore).toBe(1)
+          expect(wrapper.findAll('[data-tab-count]').map((c) => c.text())).toEqual(['1', '4'])
+        } finally {
+          COUNTS.pending = 2
+          COUNTS.permitted = 3
+        }
+      })
+
+      it('shows API warnings without blocking', async () => {
+        vi.mocked(updateCalling).mockResolvedValue({
+          ...saved,
+          warnings: [{ code: 'permit_expires', message: 'The permit expires soon.' }],
+        } as never)
+        const p = await openUpdate()
+        await fill(p, PERMIT)
+        await p.trigger('submit')
+        await flushPromises()
+
+        expect(popover()!.get('[data-step-warnings]').text()).toContain('The permit expires soon.')
+      })
+    })
+
+    describe('the dialogs are top-aligned modals', () => {
+      const TOP_CLASSES = [
+        'fixed',
+        'top-[8vh]',
+        'left-1/2',
+        '-translate-x-1/2',
+        'w-[calc(100%-2rem)]',
+        'max-w-[480px]',
+        'max-h-[84vh]',
+        'overflow-y-auto',
+      ]
+
+      async function open(which: 'update' | 'next') {
+        if (which === 'next') ROWS.permitted = [permitted(60, addDays(TODAY, 100))]
+        await mountStep(which === 'next' ? '/calling?tab=permitted' : '/calling')
+        const button = wrapper.get(
+          which === 'next'
+            ? 'tr[data-row="60"] button[data-step-next]'
+            : 'tr[data-row="53"] button[data-step-update]',
+        )
+        // Not focused by the click (as in Safari): the modal still returns the focus to it.
+        await button.trigger('click')
+        await flushPromises()
+        return button
+      }
+
+      it.each(['update', 'next'] as const)(
+        '%s: fixed near the top, centred, max 480px, scrolls inside, dim backdrop; focus on the first field',
+        async (which) => {
+          await open(which)
+
+          const m = modal()!
+          const panel = m.get('[data-modal-panel]')
+          expect(panel.classes()).toEqual(expect.arrayContaining(TOP_CLASSES))
+          expect(panel.attributes('role')).toBe('dialog')
+          expect(panel.attributes('aria-modal')).toBe('true')
+          expect(panel.get('h2').text()).toBe(
+            which === 'update' ? 'Update calling' : 'Enter visa submitted date',
+          )
+          expect(m.get('[data-modal-backdrop]').classes()).toEqual(
+            expect.arrayContaining(['fixed', 'inset-0']),
+          )
+          // Not placed under its button any more (no inline position).
+          expect(m.get('[data-step-start-popover]').attributes('style')).toBeUndefined()
+          expect(document.activeElement).toBe(m.get('[data-step-field] input').element)
+        },
+      )
+
+      it('closes on Esc and gives the focus back to the button', async () => {
+        const button = await open('update')
+        modal()!
+          .get('input')
+          .element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+        await flushPromises()
+
+        expect(modal()).toBeNull()
+        expect(document.activeElement).toBe(button.element)
+      })
+
+      it.each(['[data-modal-backdrop]', '[data-modal-close]'])('closes on %s', async (target) => {
+        await open('next')
+        ;(modal()!.get(target).element as HTMLElement).click()
+        await flushPromises()
+
+        expect(modal()).toBeNull()
+        expect(startStep).not.toHaveBeenCalled()
+      })
+
+      it('BMET and Flight keep the small popover under the button', async () => {
+        await mountStep('/bmet')
+        await wrapper.get('tr[data-row="50"] button[data-step-start]').trigger('click')
+        await flushPromises()
+
+        expect(modal()).toBeNull()
+        expect(popover()!.attributes('style')).toContain('top:')
+      })
+    })
+
+    describe('Permitted', () => {
+      it('columns with the permit dates; "-" for missing; expiry in amber or red', async () => {
+        ROWS.permitted = [
+          permitted(60, addDays(TODAY, 100)),
+          permitted(61, addDays(TODAY, 10)), // within 30 days
+          permitted(62, addDays(TODAY, -1)), // expired
+          permitted(63, null), // an old record without the permit dates
+        ]
+        await mountStep('/calling?tab=permitted')
+
+        expect(headers()).toEqual([
+          'Passport name',
+          'Passport number',
+          'Reference',
+          'Company',
+          'Calling receive date',
+          'Issued date',
+          'Expiry date',
+          'Actions',
+        ])
+        const cell = (id: number, name: string) =>
+          wrapper.get(`tr[data-row="${id}"] [data-cell="${name}"]`)
+        expect(cell(60, 'receive_date').text()).toBe('03-09-2026')
+        expect(cell(60, 'issue_date').text()).toBe('02-09-2026')
+        expect(cell(60, 'valid_until').classes()).not.toContain('text-amber-700')
+        expect(cell(61, 'valid_until').classes()).toContain('text-amber-700')
+        expect(cell(62, 'valid_until').classes()).toContain('text-red-700')
+        expect(cell(63, 'receive_date').text()).toBe('-')
+        expect(cell(63, 'valid_until').text()).toBe('-')
+      })
+
+      async function openVisa(role: Role = 'data_entry') {
+        ROWS.permitted = [permitted(60, addDays(TODAY, 100)), permitted(61, addDays(TODAY, 10))]
+        await mountStep('/calling?tab=permitted', role)
+        const buttons = wrapper.findAll('tr[data-row="60"] button')
+        expect(buttons.map((b) => b.text().replace(/\s+for \S+$/, ''))).toEqual([
+          'Enter visa submitted date',
+        ])
+        await buttons[0]!.trigger('click')
+        await flushPromises()
+        return popover()!
+      }
+
+      it('"Enter visa submitted date": one required date, not in the future', async () => {
+        const p = await openVisa()
+
+        expect(modal()!.get('h2').text()).toBe('Enter visa submitted date')
+        expect(p.findAll('[data-step-field]').map((f) => f.attributes('data-step-field'))).toEqual([
+          'step_date',
+        ])
+        expect(p.get('label').text()).toContain('Visa submitted date')
+        expect(p.get('input[type="date"]').attributes('max')).toBe(TODAY)
+        await p.trigger('submit')
+        expect(p.text()).toContain('Enter the visa submitted date.')
+        await p.get('input').setValue(addDays(TODAY, 1))
+        await p.trigger('submit')
+        expect(p.text()).toContain('The date cannot be in the future.')
+        expect(startStep).not.toHaveBeenCalled()
+      })
+
+      it('saving removes the row at once, starts the visa and toasts "Moved to Visa (Pending)"', async () => {
+        let resolve!: (value: unknown) => void
+        vi.mocked(startStep).mockReturnValue(new Promise((r) => (resolve = r)) as never)
+        const p = await openVisa()
+        await p.get('input').setValue('2026-10-08')
+        await p.trigger('submit')
+        await flushPromises()
+
+        // Optimistic: gone before the API answers.
+        expect(popover()).toBeNull()
+        expect(wrapper.find('tr[data-row="60"]').exists()).toBe(false)
+        expect(wrapper.find('tr[data-row="61"]').exists()).toBe(true)
+        expect(startStep).toHaveBeenCalledWith(
+          60,
+          'visa',
+          expect.objectContaining({ status: 'in_process', step_date: '2026-10-08' }),
+        )
+
+        ROWS.permitted = [permitted(61, addDays(TODAY, 10))] // the API no longer lists it
+        const callsBefore = vi.mocked(listStepPassports).mock.calls.length
+        resolve({ ...saved, data: { id: 900, status: 'in_process' } })
+        await flushPromises()
+
+        const toast = useToast().toasts.value.find((t) => t.message.includes('Moved to Visa'))!
+        expect(toast.message).toBe('NW5000001: Moved to Visa (Pending)')
+        expect(toast.action).toBeUndefined() // data entry cannot clear a record
+        expect(wrapper.find('tr[data-row="60"]').exists()).toBe(false)
+        // The list again, its tab counts included.
+        expect(vi.mocked(listStepPassports).mock.calls.length - callsBefore).toBe(1)
+      })
+
+      it('admins get Undo, which deletes the new visa record', async () => {
+        vi.mocked(startStep).mockResolvedValue({
+          ...saved,
+          data: { id: 900, status: 'in_process' },
+        } as never)
+        const p = await openVisa('admin')
+        await p.get('input').setValue('2026-10-08')
+        await p.trigger('submit')
+        await flushPromises()
+
+        const toast = useToast().toasts.value.find((t) => t.message.includes('Moved to Visa'))!
+        expect(toast.action?.label).toBe('Undo')
+        toast.action!.run()
+        await flushPromises()
+        expect(deleteStepRecord).toHaveBeenCalledWith(900)
+      })
+
+      it('puts the row back and shows the error when saving fails', async () => {
+        vi.mocked(startStep).mockRejectedValue(new Error('Network down'))
+        const p = await openVisa()
+        await p.get('input').setValue('2026-10-08')
+        await p.trigger('submit')
+        await flushPromises()
+
+        expect(wrapper.find('tr[data-row="60"]').exists()).toBe(true)
+        expect(useToast().toasts.value.some((t) => t.type === 'error')).toBe(true)
+        expect(toastMessages().some((m) => m.includes('Moved to Visa'))).toBe(false)
+      })
+
+      it('shows API warnings (non-blocking) as toasts', async () => {
+        vi.mocked(startStep).mockResolvedValue({
+          ...saved,
+          data: { id: 900, status: 'in_process' },
+          warnings: [
+            {
+              code: 'before_receive',
+              message: 'The visa date is before the calling receive date.',
+            },
+            { code: 'permit_expired', message: 'The calling permit has expired.' },
+          ],
+        } as never)
+        const p = await openVisa()
+        await p.get('input').setValue('2026-10-08')
+        await p.trigger('submit')
+        await flushPromises()
+
+        const warnings = useToast()
+          .toasts.value.filter((t) => t.type === 'warning')
+          .map((t) => t.message)
+        expect(warnings).toEqual([
+          'The visa date is before the calling receive date.',
+          'The calling permit has expired.',
+        ])
+        expect(toastMessages()).toContain('NW5000001: Moved to Visa (Pending)')
+      })
+    })
+  })
+
+  describe('Visa', () => {
+    it('has exactly three tabs: Pending, Visa issued, Rejected', async () => {
+      await mountStep('/visa')
+
+      expect(wrapper.findAll('[role="tab"]').map((t) => t.attributes('data-tab'))).toEqual([
+        'pending',
+        'issued',
+        'rejected',
+      ])
+      expect(wrapper.text()).not.toMatch(/not started/i)
+    })
+
+    it('Pending: the submitted passports with the calling permit expiry and the visa submitted date', async () => {
+      visaPendingRows = [
+        VISA_PENDING,
+        visaPending(54, addDays(TODAY, 10)), // within 30 days
+        visaPending(55, addDays(TODAY, -2)), // expired
+      ]
+      await mountStep('/visa')
+
+      expect(headers()).toEqual([
+        'Passport name',
+        'Passport number',
+        'Reference',
+        'Company',
+        'Mode',
+        'Calling permit expiry',
+        'Visa submitted date',
+        'Actions',
+      ])
+      const cell = (id: number, name: string) =>
+        wrapper.get(`tr[data-row="${id}"] [data-cell="${name}"]`)
+      expect(cell(51, 'mode').text()).toBe('Online')
+      expect(cell(51, 'previous_expiry').text()).toBe(toDisplay(addDays(TODAY, 200)))
+      expect(cell(51, 'previous_expiry').classes()).not.toContain('text-amber-700')
+      expect(cell(54, 'previous_expiry').classes()).toContain('text-amber-700')
+      expect(cell(55, 'previous_expiry').classes()).toContain('text-red-700')
+      expect(cell(51, 'step_date').text()).toBe('02-10-2026')
+    })
+
+    it('Pending has no action to enter the submitted date; the empty text points to Calling', async () => {
+      await mountStep('/visa')
+      expect(wrapper.find('button[data-step-start], button[data-step-update]').exists()).toBe(false)
+      wrapper.unmount()
+
+      visaPendingRows = []
+      await mountStep('/visa')
+      expect(wrapper.get('[data-empty]').text()).toContain(
+        'Enter the visa submitted date on the Calling / Work Permit page (Permitted tab) to see passports here.',
       )
     })
   })
@@ -284,51 +893,48 @@ describe('Step pages (one per step)', () => {
     })
   })
 
-  describe('Action 1: Enter <step> date', () => {
+  describe('Action 1: Enter <step> date (BMET, Flight)', () => {
     it('opens a small popover with the step date (required, not in the future)', async () => {
-      await mountStep()
+      await mountStep('/flight')
 
       const button = wrapper.get('tr[data-row="50"] button[data-step-start]')
-      expect(button.text()).toContain('Enter calling date')
+      expect(button.text()).toContain('Enter flight date')
       await button.trigger('click')
       await flushPromises()
 
       const p = popover()!
       expect(p.element.tagName).toBe('FORM')
       expect(document.body.querySelector('dialog[open]')).toBeNull() // not a modal
-      // Calling's only start field is its date; the permit number comes with the result.
-      expect(p.findAll('[data-step-field]').map((f) => f.attributes('data-step-field'))).toEqual([
-        'step_date',
-      ])
-      expect(p.get('input[type="date"]').attributes('max')).toBe(TODAY)
+      const date = p.get('[data-step-field="step_date"] input')
+      expect(date.attributes('max')).toBe(TODAY)
 
       await p.trigger('submit')
-      expect(p.text()).toContain('Enter the date.')
-      await p.get('input').setValue(addDays(TODAY, 1))
+      expect(p.text()).toContain('Enter the booking date.')
+      await date.setValue(addDays(TODAY, 1))
       await p.trigger('submit')
       expect(p.text()).toContain('The date cannot be in the future.')
       expect(startStep).not.toHaveBeenCalled()
     })
 
     it('saves: creates the in-process record, refreshes the list and counts, toasts', async () => {
-      await mountStep()
+      await mountStep('/bmet')
       await wrapper.get('tr[data-row="50"] button[data-step-start]').trigger('click')
       await flushPromises()
       const callsBefore = vi.mocked(listStepPassports).mock.calls.length
 
-      await popover()!.get('input').setValue('2026-10-02')
+      await popover()!.get('[data-step-field="step_date"] input').setValue('2026-10-02')
       await popover()!.trigger('submit')
       await flushPromises()
 
       expect(startStep).toHaveBeenCalledWith(
         50,
-        'calling',
+        'bmet',
         expect.objectContaining({ status: 'in_process', step_date: '2026-10-02' }),
       )
       expect(popover()).toBeNull()
-      // The list and all four counts were loaded again.
-      expect(vi.mocked(listStepPassports).mock.calls.length - callsBefore).toBe(5)
-      expect(useToast().toasts.value.map((t) => t.message)).toContain('NW5000001: Calling applied.')
+      // The list again, its tab counts included.
+      expect(vi.mocked(listStepPassports).mock.calls.length - callsBefore).toBe(1)
+      expect(toastMessages()).toContain('NW5000001: BMET submitted.')
     })
 
     it('BMET: the popover also has the training certificate and finger dates (start fields)', async () => {
@@ -363,19 +969,19 @@ describe('Step pages (one per step)', () => {
       vi.mocked(startStep).mockResolvedValue({
         ...saved,
         warnings: [
-          { code: 'medical_expires', message: 'The medical expires before the visa date.' },
+          { code: 'medical_expires', message: 'The medical expires before the BMET date.' },
         ],
       } as never)
-      await mountStep()
+      await mountStep('/bmet')
       await wrapper.get('tr[data-row="50"] button[data-step-start]').trigger('click')
       await flushPromises()
-      await popover()!.get('input').setValue('2026-10-02')
+      await popover()!.get('[data-step-field="step_date"] input').setValue('2026-10-02')
       await popover()!.trigger('submit')
       await flushPromises()
 
       const p = popover()!
       expect(p.get('[data-step-warnings]').text()).toContain(
-        'The medical expires before the visa date.',
+        'The medical expires before the BMET date.',
       )
       expect(p.text()).toContain('Saved. You can continue.')
       await p.get('button[data-warnings-ok]').trigger('click')
@@ -384,23 +990,32 @@ describe('Step pages (one per step)', () => {
   })
 
   describe('Action 2: the result', () => {
-    it('offers one button per final status from the config', async () => {
-      await mountStep('/visa?tab=in_process')
+    it('Visa Pending: one button per final status from the config', async () => {
+      await mountStep('/visa')
 
       const buttons = wrapper.findAll('tr[data-row="51"] button[data-step-result]')
-      expect(buttons.map((b) => b.text().replace(/\s+NW\d+$/, ''))).toEqual([
+      expect(buttons.map((b) => b.text().replace(/\s+[A-Z]{2}\d+$/, ''))).toEqual([
         'Visa issued',
         'Rejected',
       ])
     })
 
-    it('Approved: result date (today by default) plus the result fields; the permit number is required', async () => {
-      await mountStep('/calling?tab=in_process')
+    it('BMET in process: the result buttons from the config', async () => {
+      await mountStep('/bmet?tab=in_process')
+      expect(
+        wrapper
+          .findAll('tr[data-row="51"] button[data-step-result]')
+          .map((b) => b.attributes('data-step-result')),
+      ).toEqual(['completed', 'rejected'])
+    })
+
+    it('Visa issued: result date (today by default) plus the result fields; the visa number is required', async () => {
+      await mountStep('/visa')
       await wrapper.get('tr[data-row="51"] button[data-step-result="completed"]').trigger('click')
       await flushPromises()
 
       const dialog = wrapper.get('[data-step-result-dialog]')
-      expect(wrapper.get('dialog').text()).toContain('Mark KARIM UDDIN as Approved?')
+      expect(wrapper.get('dialog').text()).toContain('Mark KARIM UDDIN as Visa issued?')
       expect(
         dialog.findAll('[data-step-field]').map((f) => f.attributes('data-step-field')),
       ).toEqual(['result_date', 'reference_no', 'valid_until'])
@@ -409,25 +1024,23 @@ describe('Step pages (one per step)', () => {
       ).toBe(TODAY)
 
       await dialog.get('form').trigger('submit')
-      expect(dialog.text()).toContain('Enter the permit / calling number.')
+      expect(dialog.text()).toContain('Enter the visa number.')
       expect(recordStepResult).not.toHaveBeenCalled()
 
       await dialog.get('[data-step-field="reference_no"] input').setValue('WP-123')
       await dialog.get('form').trigger('submit')
       await flushPromises()
 
-      expect(recordStepResult).toHaveBeenCalledWith(51, 'calling', {
+      expect(recordStepResult).toHaveBeenCalledWith(51, 'visa', {
         result: 'completed',
         result_date: TODAY,
         reference_no: 'WP-123',
       })
-      expect(useToast().toasts.value.map((t) => t.message)).toContain(
-        'NW5000001: Calling: Approved.',
-      )
+      expect(toastMessages()).toContain('VS0000051: Visa: Visa issued.')
     })
 
     it('Rejected: only the result date; it may not be in the future', async () => {
-      await mountStep('/calling?tab=in_process')
+      await mountStep('/visa')
       await wrapper.get('tr[data-row="51"] button[data-step-result="rejected"]').trigger('click')
       await flushPromises()
 
@@ -442,7 +1055,7 @@ describe('Step pages (one per step)', () => {
       await dialog.get('[data-step-field="result_date"] input').setValue('2026-10-05')
       await dialog.get('form').trigger('submit')
       await flushPromises()
-      expect(recordStepResult).toHaveBeenCalledWith(51, 'calling', {
+      expect(recordStepResult).toHaveBeenCalledWith(51, 'visa', {
         result: 'rejected',
         result_date: '2026-10-05',
       })
@@ -450,7 +1063,7 @@ describe('Step pages (one per step)', () => {
   })
 
   it('Rejected tab: "Apply again" opens the start popover and starts a new record', async () => {
-    await mountStep('/calling?tab=rejected')
+    await mountStep('/visa?tab=rejected')
 
     await wrapper.get('tr[data-row="52"] button[data-step-again]').trigger('click')
     await flushPromises()
@@ -462,16 +1075,34 @@ describe('Step pages (one per step)', () => {
 
     expect(startStep).toHaveBeenCalledWith(
       52,
-      'calling',
+      'visa',
       expect.objectContaining({ status: 'in_process', step_date: '2026-10-06' }),
     )
   })
 
   it('accounts is read-only: no action buttons', async () => {
-    await mountStep('/calling', 'accounts')
-
+    ROWS.pending = [row(), CALLING_STARTED]
+    try {
+      await mountStep('/calling', 'accounts')
+      expect(wrapper.findAll('tbody button')).toHaveLength(0)
+      expect(headers()).not.toContain('Actions')
+    } finally {
+      ROWS.pending = [row()]
+    }
+    wrapper.unmount()
+    ROWS.permitted = [permitted(60, addDays(TODAY, 100))]
+    try {
+      await mountStep('/calling?tab=permitted', 'accounts')
+      expect(wrapper.findAll('tbody tr')).toHaveLength(1)
+      expect(wrapper.findAll('tbody button')).toHaveLength(0)
+    } finally {
+      ROWS.permitted = []
+    }
+    wrapper.unmount()
+    await mountStep('/visa', 'accounts')
+    expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.findAll('tbody button')).toHaveLength(0)
-    await router.push('/calling?tab=in_process')
+    await router.push('/visa?tab=rejected')
     await flushPromises()
     expect(wrapper.findAll('tbody button')).toHaveLength(0)
   })

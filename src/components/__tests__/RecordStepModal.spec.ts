@@ -59,7 +59,17 @@ afterEach(() => wrapper.unmount())
 
 describe('RecordStepModal', () => {
   it.each([
-    ['calling', ['reference_no', 'step_date', 'valid_until'], ['Applied', 'Approved', 'Rejected']],
+    // Calling: the permit dates only (no calling date, no rejected path).
+    [
+      'calling',
+      ['receive_date', 'issue_date', 'valid_until'],
+      ['Calling date entered', 'Permitted'],
+    ],
+    [
+      'visa',
+      ['reference_no', 'step_date', 'valid_until'],
+      ['Submitted', 'Visa issued', 'Rejected'],
+    ],
     [
       'bmet',
       ['reference_no', 'step_date', 'training_certificate_date', 'finger_date'],
@@ -123,18 +133,18 @@ describe('RecordStepModal', () => {
     expect(wrapper.text()).toContain('Choose a status.')
   })
 
-  it('requires fields by status: the permit number only when approved', async () => {
+  it('requires fields by status: the visa number only when issued', async () => {
     vi.mocked(recordStep).mockResolvedValue(saved as never)
-    await openFor('calling')
+    await openFor('visa')
 
     await chooseStatus('completed')
     await save()
-    expect(errorOf('reference_no').text()).toBe('Enter the permit / calling number.')
+    expect(errorOf('reference_no').text()).toBe('Enter the visa number.')
     expect(recordStep).not.toHaveBeenCalled()
 
     await chooseStatus('in_process')
     await save()
-    expect(recordStep).toHaveBeenCalledWith(42, 'calling', {
+    expect(recordStep).toHaveBeenCalledWith(42, 'visa', {
       status: 'in_process',
       remarks: null,
       reference_no: null,
@@ -190,7 +200,7 @@ describe('RecordStepModal', () => {
 
   it('asks before saving a rejected (or cancelled) status', async () => {
     vi.mocked(recordStep).mockResolvedValue(saved as never)
-    await openFor('calling')
+    await openFor('visa')
     await chooseStatus('rejected')
 
     await save()
@@ -201,7 +211,7 @@ describe('RecordStepModal', () => {
     await flushPromises()
     expect(recordStep).toHaveBeenCalledWith(
       42,
-      'calling',
+      'visa',
       expect.objectContaining({ status: 'rejected' }),
     )
   })

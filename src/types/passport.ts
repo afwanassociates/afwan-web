@@ -12,6 +12,13 @@ import type { WorkflowWarning } from '@/types/workflow'
 
 export type ReferenceType = 'person' | 'agency'
 
+/** How the passport goes to Calling / Work Permit: only "online" (label from the API). */
+export type EntryMode = 'online'
+export interface EntryModeValue {
+  value: EntryMode
+  label: string
+}
+
 export interface Reference {
   id: number
   type: ReferenceType
@@ -72,6 +79,17 @@ export interface PassportEntry {
   company: CompanySummary
   /** Missing from responses of older API versions. */
   medical_slip?: MedicalSlip
+  /** YYYY-MM-DD; the medical slip date (lists send it flat; details in medical_slip). */
+  medical_slip_date?: string | null
+  /** YYYY-MM-DD: the current fit result's issue and expiry dates (null until fit). */
+  issue_date?: string | null
+  valid_until?: string | null
+  /** The Online mark: a fit passport needs it before Calling / Work Permit. */
+  entry_mode?: EntryModeValue | null
+  /** Ready-to-show latest status ("Permitted - enter visa submitted date"), when sent. */
+  latest_status?: LatestStatus
+  /** Calling has started: the mark can no longer change. */
+  has_calling_record?: boolean
   /** The date the passport goes (or went) for its medical; null until entered. */
   medical_date?: string | null
   /**

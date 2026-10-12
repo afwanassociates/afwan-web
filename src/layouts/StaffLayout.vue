@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import { ADMIN_ROLES, canAccessArea, homeRouteFor } from '@/lib/roles'
 import { settingsPagesFor } from '@/lib/settingsPages'
-import { isRecordStep } from '@/lib/workflow'
+import { isRecordStep, stepPendingCount } from '@/lib/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 
 const auth = useAuthStore()
@@ -61,17 +61,17 @@ const navItems = computed(() => {
     })
     // One item per recorded step (Calling, Visa, BMET, Flight, …) in workflow order, right
     // after Medical and just like it: label from the config, the Pending count as its badge.
-    const stages = workflow.summary?.stages
     const steps = [...(workflow.config?.steps ?? [])]
       .filter((s) => s.enabled && isRecordStep(s))
       .sort((a, b) => a.order - b.order)
     for (const s of steps) {
-      const waiting = stages?.[s.key]?.waiting
+      // The step page's Pending tab count, the same number as the tab and the step bar.
+      const pending = stepPendingCount(workflow.summary, s.key)
       items.push({
         name: 'step-page',
         params: { step: s.key },
         label: s.label,
-        badge: waiting === undefined ? undefined : { count: waiting, label: 'pending' },
+        badge: pending === undefined ? undefined : { count: pending, label: 'pending' },
       })
     }
   }

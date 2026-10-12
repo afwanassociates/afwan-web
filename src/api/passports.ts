@@ -1,6 +1,7 @@
 import api from '@/lib/api'
 import type { Paginated } from '@/types/auth'
 import type {
+  EntryMode,
   PassportEntry,
   PassportFilters,
   PassportOverview,
@@ -9,9 +10,24 @@ import type {
 
 const BASE = '/api/data-entry/passports'
 
-export async function listPassports(filters: PassportFilters): Promise<Paginated<PassportEntry>> {
-  const { data } = await api.get<Paginated<PassportEntry>>(BASE, { params: filters })
+/** A page of passports. */
+export type PassportPage = Paginated<PassportEntry>
+
+export async function listPassports(filters: PassportFilters): Promise<PassportPage> {
+  const { data } = await api.get<PassportPage>(BASE, { params: filters })
   return data
+}
+
+/**
+ * Marks a fit passport Online: it leaves the Medical Fit tab for Calling / Work
+ * Permit. null clears the mark (back to Fit). 422 once Calling has started or without a valid
+ * fit medical; 403 for accounts.
+ */
+export async function updateEntryMode(id: number, mode: EntryMode | null): Promise<PassportEntry> {
+  const { data } = await api.patch<{ data: PassportEntry }>(`${BASE}/${id}/entry-mode`, {
+    entry_mode: mode,
+  })
+  return data.data
 }
 
 /** Lean overview items with a latest status (view=overview), for the All Passports screen. */

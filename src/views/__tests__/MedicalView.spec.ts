@@ -3,13 +3,30 @@ import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-uti
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import MedicalView from '../MedicalView.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { useToast } from '@/composables/useToast'
+import { addMonthsNoOverflow } from '@/lib/dates'
 import { listPassports } from '@/api/passports'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { PassportEntry, PassportFilters } from '@/types/passport'
 
-vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), getPassport: vi.fn() }))
+vi.mock('@/api/passports', () => ({
+  listPassports: vi.fn(),
+  getPassport: vi.fn(),
+  updateEntryMode: vi.fn(),
+}))
+// The standard validity comes from the settings (4 months here, to prove it is not hardcoded).
+vi.mock('@/api/countries', () => ({
+  fetchCountries: vi.fn(async () => []),
+  fetchDefaults: vi.fn(async () => ({
+    default_company_country_code: 'MY',
+    default_passport_country_code: 'MY',
+    medical_validity_months: 4,
+    medical_expiring_soon_days: 14,
+  })),
+}))
 vi.mock('@/api/medical', () => ({
   recordMedicalResult: vi.fn(),
   updateMedicalDate: vi.fn(),
@@ -370,63 +387,47 @@ describe('Medical page', () => {
       expect(unfitButton().element.disabled).toBe(false)
     })
 
-    it.each([
-      ['fit', 'FIT', 'Fit'],
-      ['unfit', 'UNFIT', 'Unfit'],
-    ] as const)(
-      '%s: a tiny confirm dialog, then the row moves to the %s tab',
-      async (result, word, tabLabel) => {
-        const { recordMedicalResult } = await import('@/api/medical')
-        const dated = { ...PENDING, medical_date: '2026-10-05' }
-        const moved = { ...dated, medical_status: result }
-        vi.mocked(listPassports).mockImplementation(async (f: PassportFilters) =>
-          // Before: pending; after the result it is listed under its new tab only.
-          vi.mocked(recordMedicalResult).mock.calls.length === 0
-            ? f.medical_status === 'pending'
-              ? page([dated])
-              : page([])
-            : f.medical_status === result
-              ? page([moved])
-              : page([]),
-        )
-        vi.mocked(recordMedicalResult).mockResolvedValue({} as never)
-        await mountMedical()
+    it('unfit: a tiny confirm dialog (no fields), then the row moves to the Unfit tab', async () => {
+      const { recordMedicalResult } = await import('@/api/medical')
+      const dated = { ...PENDING, medical_date: '2026-10-05' }
+      const moved = { ...dated, medical_status: 'unfit' as const }
+      vi.mocked(listPassports).mockImplementation(async (f: PassportFilters) =>
+        vi.mocked(recordMedicalResult).mock.calls.length === 0
+          ? f.medical_status === 'pending'
+            ? page([dated])
+            : page([])
+          : f.medical_status === 'unfit'
+            ? page([moved])
+            : page([]),
+      )
+      vi.mocked(recordMedicalResult).mockResolvedValue({} as never)
+      await mountMedical()
 
-        await wrapper.get(`tr[data-row] button[data-result="${result}"]`).trigger('click')
-        const dialog = wrapper.get('dialog')
-        expect(dialog.text()).toContain(`Mark MD RAHIM as ${word}?`)
-        // Confirm and Cancel only, no other fields.
-        expect(dialog.findAll('input, textarea, select')).toHaveLength(0)
-        const buttons = dialog.findAll('button').map((b) => b.text())
-        expect(buttons).toEqual(expect.arrayContaining(['Cancel', 'Confirm']))
+      await wrapper.get('tr[data-row] button[data-result="unfit"]').trigger('click')
+      const dialog = wrapper.findComponent(ConfirmDialog)
+      expect(dialog.text()).toContain('Mark MD RAHIM as UNFIT?')
+      expect(dialog.findAll('input, textarea, select')).toHaveLength(0)
+      await dialog
+        .findAll('button')
+        .find((b) => b.text() === 'Confirm')!
+        .trigger('click')
+      await flushPromises()
 
-        await dialog
-          .findAll('button')
-          .find((b) => b.text() === 'Confirm')!
-          .trigger('click')
-        await flushPromises()
-
-        expect(recordMedicalResult).toHaveBeenCalledWith(60, result)
-        // Gone from Pending…
-        expect(wrapper.findAll('tr[data-row]')).toHaveLength(0)
-        // …and listed in its new tab.
-        await wrapper
-          .findAll('[role="tab"]')
-          .find((t) => t.text().startsWith(tabLabel))!
-          .trigger('click')
-        await flushPromises()
-        expect(wrapper.findAll('tr[data-row]')).toHaveLength(1)
-      },
-    )
+      expect(recordMedicalResult).toHaveBeenCalledWith(60, 'unfit')
+      expect(wrapper.findAll('tr[data-row]')).toHaveLength(0)
+      await wrapper.get('#medical-tab-unfit').trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('tr[data-row]')).toHaveLength(1)
+    })
 
     it('Cancel closes the confirm dialog without saving', async () => {
       const { recordMedicalResult } = await import('@/api/medical')
       vi.mocked(listPassports).mockResolvedValue(page([{ ...PENDING, medical_date: '2026-10-05' }]))
       await mountMedical()
 
-      await fitButton().trigger('click')
+      await unfitButton().trigger('click')
       await wrapper
-        .get('dialog')
+        .findComponent(ConfirmDialog)
         .findAll('button')
         .find((b) => b.text() === 'Cancel')!
         .trigger('click')
@@ -456,5 +457,294 @@ describe('Medical page', () => {
     const components = import.meta.glob('../../components/*.vue')
     expect(Object.keys(components).some((path) => path.includes('RecordMedicalModal'))).toBe(false)
     expect(Object.keys(components).some((path) => path.includes('MedicalDateCell'))).toBe(true)
+  })
+
+  describe('Fit: issue and expiry dates', () => {
+    const DATED = { ...PENDING, medical_date: '2026-10-05' }
+    const fitForm = () => wrapper.get('[data-fit-dialog]')
+    const issue = () => fitForm().get<HTMLInputElement>('[data-fit-field="issue_date"] input')
+    const expiry = () => fitForm().get<HTMLInputElement>('[data-fit-field="expiry_date"] input')
+
+    async function openFit() {
+      vi.mocked(listPassports).mockResolvedValue(page([DATED]))
+      await mountMedical()
+      await wrapper.get('tr[data-row] button[data-result="fit"]').trigger('click')
+      await flushPromises()
+    }
+
+    it('asks for both dates, prefilled: issue = medical date, expiry = + the settings months', async () => {
+      await openFit()
+
+      expect(wrapper.text()).toContain('Mark MD RAHIM as FIT?')
+      expect(fitForm().text()).toContain('Medical issue date')
+      expect(fitForm().text()).toContain('Expiry date')
+      expect(issue().element.value).toBe('2026-10-05')
+      expect(expiry().element.value).toBe(addMonthsNoOverflow('2026-10-05', 4))
+      expect(fitForm().text()).toContain('standard 4 months')
+      // Moving the issue date moves the prefilled expiry with it.
+      await issue().setValue('2026-10-01')
+      expect(expiry().element.value).toBe('2027-02-01')
+    })
+
+    it('requires both dates and an expiry after the issue date', async () => {
+      const { recordMedicalResult } = await import('@/api/medical')
+      await openFit()
+
+      await issue().setValue('')
+      await expiry().setValue('')
+      await fitForm().trigger('submit')
+      expect(fitForm().text()).toContain('Enter the medical issue date.')
+      expect(fitForm().text()).toContain('Enter the expiry date.')
+
+      await issue().setValue('2026-10-05')
+      await expiry().setValue('2026-10-05')
+      await fitForm().trigger('submit')
+      expect(fitForm().text()).toContain('The expiry date must be after the issue date.')
+      expect(recordMedicalResult).not.toHaveBeenCalled()
+    })
+
+    it('shows a hint when the validity differs from the standard', async () => {
+      await openFit()
+      expect(fitForm().find('[data-validity-hint]').exists()).toBe(false)
+
+      await expiry().setValue('2027-04-05')
+      expect(fitForm().get('[data-validity-hint]').text()).toContain(
+        'standard validity is 4 months',
+      )
+    })
+
+    it('saves the dates; the row moves to the Fit tab (not Calling) with a toast to mark it', async () => {
+      const { recordMedicalResult } = await import('@/api/medical')
+      vi.mocked(recordMedicalResult).mockResolvedValue({} as never)
+      await openFit()
+      const fitted = { ...DATED, medical_status: 'fit' as const, issue_date: '2026-10-05' }
+      vi.mocked(listPassports).mockImplementation(async (f: PassportFilters) =>
+        f.medical_status === 'fit' ? page([fitted]) : page([]),
+      )
+
+      await fitForm().trigger('submit')
+      await flushPromises()
+
+      expect(recordMedicalResult).toHaveBeenCalledWith(60, 'fit', {
+        issue_date: '2026-10-05',
+        expiry_date: addMonthsNoOverflow('2026-10-05', 4),
+      })
+      expect(useToast().toasts.value.map((t) => t.message)).toContain(
+        'AB1234567: Moved to Fit - mark Online to send it to Calling',
+      )
+      expect(wrapper.findAll('tr[data-row]')).toHaveLength(0) // gone from Pending
+      await wrapper.get('#medical-tab-fit').trigger('click')
+      await flushPromises()
+      // On Fit, unmarked: it waits for the Online mark (it is not in Calling yet).
+      expect(wrapper.find('tr[data-row] button[data-mark="online"]').exists()).toBe(true)
+    })
+
+    it("shows the API's 422 messages under the fields", async () => {
+      const { recordMedicalResult } = await import('@/api/medical')
+      const { httpError } = await import('@/test/helpers')
+      vi.mocked(recordMedicalResult).mockRejectedValue(
+        httpError(422, { errors: { issue_date: ['The issue date cannot be in the future.'] } }),
+      )
+      await openFit()
+
+      await fitForm().trigger('submit')
+      await flushPromises()
+      expect(fitForm().text()).toContain('The issue date cannot be in the future.')
+    })
+  })
+
+  describe('Fit tab: mark Online', () => {
+    const FIT_BASE = {
+      medical_status: 'fit' as const,
+      medical_date: '2026-09-01',
+      medical_slip_date: '2026-08-25',
+      issue_date: '2026-09-02',
+      valid_until: '2026-12-02',
+      entry_mode: null,
+      has_calling_record: false,
+      can: { update: true, delete: true, record_medical: true },
+    }
+    const A = makePassport({ id: 70, passport_number: 'FT0000070', ...FIT_BASE })
+    const B = makePassport({ id: 71, passport_number: 'FT0000071', ...FIT_BASE })
+    const rows = () => wrapper.findAll('tr[data-row]')
+    const rowOf = (number: string) => rows().find((r) => r.text().includes(number))
+    const toasts = () => useToast().toasts.value
+    const lastFilters = (): PassportFilters => {
+      const calls = vi.mocked(listPassports).mock.calls
+      return calls[calls.length - 1]![0]
+    }
+
+    beforeEach(() => {
+      useToast().toasts.value = []
+      vi.mocked(listPassports).mockResolvedValue(page([A, B]))
+    })
+
+    it.each(['fit', 'expiring_soon'])(
+      '%s: the columns, and a single Online button as the only action (no Edit, Delete or chips)',
+      async (tab) => {
+        await mountMedical(`/medical?tab=${tab}`)
+
+        expect(headers()).toEqual([
+          'Passport name',
+          'Passport number',
+          'Reference',
+          'Company',
+          'Medical center',
+          'Medical date',
+          'Medical slip date',
+          'Issue date',
+          'Expiry date',
+          'Actions',
+        ])
+        const actions = rowOf('FT0000070')!.get('[data-actions]')
+        expect(actions.findAll('a, button').map((b) => b.text().replace(/\s+FT\d+$/, ''))).toEqual([
+          'Online',
+        ])
+        expect(wrapper.text()).not.toMatch(/key-?in/i)
+        expect(wrapper.find('[role="group"] button[data-mark]').exists()).toBe(false) // no segmented control
+        expect(wrapper.find('[data-mark-chips], [data-mark-chip]').exists()).toBe(false)
+        expect(wrapper.text()).not.toMatch(/Not marked|Change|Clear mark/)
+        expect(lastFilters()).not.toHaveProperty('mark')
+        const cells = rowOf('FT0000070')!
+          .findAll('td')
+          .map((td) => td.text())
+        expect(cells[headers().indexOf('Medical slip date')]).toBe('25-08-2026')
+        expect(cells[headers().indexOf('Expiry date')]).toBe('02-12-2026')
+      },
+    )
+
+    it('ignores an old ?mark= in links: the param is never sent', async () => {
+      await mountMedical('/medical?tab=fit&mark=online')
+
+      expect(lastFilters()).not.toHaveProperty('mark')
+    })
+
+    it('marking removes the row at once, refreshes the counts and offers Undo for ~6 s', async () => {
+      const { updateEntryMode } = await import('@/api/passports')
+      const { fetchWorkflowSummary } = await import('@/api/workflow')
+      let finish: (value: PassportEntry) => void = () => {}
+      vi.mocked(updateEntryMode).mockImplementation(
+        () => new Promise((resolve) => (finish = resolve)),
+      )
+      await mountMedical('/medical?tab=fit')
+      const summaryCalls = vi.mocked(fetchWorkflowSummary).mock.calls.length
+
+      await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
+      // Optimistic: gone before the API answers.
+      expect(rowOf('FT0000070')).toBeUndefined()
+      expect(updateEntryMode).toHaveBeenCalledWith(70, 'online')
+
+      vi.mocked(listPassports).mockResolvedValue(page([B]))
+      finish({ ...A, entry_mode: { value: 'online', label: 'Online' } })
+      await flushPromises()
+
+      expect(rowOf('FT0000070')).toBeUndefined()
+      expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryCalls)
+      const toast = toasts().find((t) => t.message.includes('Moved to Calling'))!
+      expect(toast.message).toBe('FT0000070: Moved to Calling / Work Permit (Online)')
+      expect(toast.action?.label).toBe('Undo')
+    })
+
+    it('only ever sends "online" or null as the mark', async () => {
+      const { updateEntryMode } = await import('@/api/passports')
+      vi.mocked(updateEntryMode).mockResolvedValue({
+        ...A,
+        entry_mode: { value: 'online', label: 'Online' },
+      })
+      await mountMedical('/medical?tab=fit')
+      await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
+      await flushPromises()
+      toasts()
+        .find((t) => t.action)!
+        .action!.run()
+      await flushPromises()
+
+      const sent = vi.mocked(updateEntryMode).mock.calls.map(([, mode]) => mode)
+      expect(sent).toEqual(['online', null])
+    })
+
+    it('ignores a second click while the request is running', async () => {
+      const { updateEntryMode } = await import('@/api/passports')
+      vi.mocked(updateEntryMode).mockImplementation(() => new Promise(() => {}))
+      vi.mocked(listPassports).mockResolvedValue(page([A]))
+      await mountMedical('/medical?tab=fit')
+
+      const button = rowOf('FT0000070')!.get('button[data-mark="online"]')
+      await button.trigger('click')
+      await button.trigger('click')
+
+      expect(updateEntryMode).toHaveBeenCalledTimes(1)
+    })
+
+    it('Undo clears the mark (entry_mode null) and puts the row back', async () => {
+      const { updateEntryMode } = await import('@/api/passports')
+      vi.mocked(updateEntryMode).mockResolvedValue({
+        ...A,
+        entry_mode: { value: 'online', label: 'Online' },
+      })
+      await mountMedical('/medical?tab=fit')
+      vi.mocked(listPassports).mockResolvedValue(page([B]))
+      await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
+      await flushPromises()
+      expect(rowOf('FT0000070')).toBeUndefined()
+
+      vi.mocked(updateEntryMode).mockResolvedValue({ ...A, entry_mode: null })
+      vi.mocked(listPassports).mockResolvedValue(page([A, B]))
+      toasts()
+        .find((t) => t.action)!
+        .action!.run()
+      await flushPromises()
+
+      expect(updateEntryMode).toHaveBeenLastCalledWith(70, null)
+      expect(rowOf('FT0000070')).toBeDefined()
+      expect(toasts().map((t) => t.message)).toContain('FT0000070: back on the Fit tab.')
+    })
+
+    it('an error puts the row back and shows the message', async () => {
+      const { updateEntryMode } = await import('@/api/passports')
+      const { httpError } = await import('@/test/helpers')
+      vi.mocked(updateEntryMode).mockRejectedValue(
+        httpError(422, {
+          errors: {
+            entry_mode: [
+              'Only a passport with a fit medical that has not expired can be marked Online.',
+            ],
+          },
+        }),
+      )
+      await mountMedical('/medical?tab=fit')
+
+      await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
+      await flushPromises()
+
+      expect(rows().map((r) => r.text().includes('FT0000070'))).toEqual([true, false])
+      expect(toasts().map((t) => t.message)).toContain(
+        'Only a passport with a fit medical that has not expired can be marked Online.',
+      )
+    })
+
+    it('shows the new empty text on the Fit tab', async () => {
+      vi.mocked(listPassports).mockResolvedValue(page([]))
+      await mountMedical('/medical?tab=fit')
+
+      expect(wrapper.get('[data-empty]').text()).toContain('No fit passports waiting to be marked.')
+    })
+
+    it('Expired has no mark buttons', async () => {
+      vi.mocked(listPassports).mockResolvedValue(
+        page([makePassport({ ...FIT_BASE, medical_status: 'expired' })]),
+      )
+      await mountMedical('/medical?tab=expired')
+
+      expect(wrapper.find('button[data-mark]').exists()).toBe(false)
+    })
+
+    it('accounts sees no buttons at all', async () => {
+      await mountMedical('/medical?tab=fit')
+      useAuthStore().user = makeUser({ role: 'accounts' })
+      await flushPromises()
+
+      expect(wrapper.findAll('tbody button, tbody a[href$="/edit"]')).toHaveLength(0)
+    })
   })
 })

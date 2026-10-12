@@ -127,4 +127,9 @@ export interface WorkflowSummary {
   stages?: Record<string, StageCounts>
   /** Passports that finished the last step (departed). */
   completed?: number
+  /**
+   * Each step page's tab counts (by step key, then tab key), the same scope as the list's
+   * `tab_counts`: the step bar and the sidebar show the Pending one.
+   */
+  step_tabs?: Record<string, Record<string, number>>
 }

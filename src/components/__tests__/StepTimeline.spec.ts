@@ -151,6 +151,65 @@ describe('StepTimeline', () => {
     expect(text).toContain('22-09-2026')
   })
 
+  it('shows the Online badge next to the Calling step', async () => {
+    setActivePinia(createPinia())
+    const marked = { ...passport, entry_mode: { value: 'online' as const, label: 'Online' } }
+    const w = mount(StepTimeline, {
+      props: { passport: marked, history: HISTORY, role: 'data_entry', userId: DATA_ENTRY_ID },
+    })
+    await flushPromises()
+
+    expect(w.get('[data-timeline-step="calling"] [data-entry-mode="online"]').text()).toBe('Online')
+    expect(w.findAll('[data-entry-mode]')).toHaveLength(1) // only next to Calling
+    w.unmount()
+  })
+
+  it.each([
+    ['calling', 'in_process', 'Calling date entered', '2026-10-05', 'blue'],
+    ['visa', 'waiting', 'Permitted - enter visa submitted date', '2026-10-11', 'amber'],
+    ['visa', 'in_process', 'Visa submitted', '2026-10-12', 'blue'],
+  ] as const)(
+    'shows the latest status on the %s step: "%s" → %s',
+    async (stage, status, text, date, tone) => {
+      setActivePinia(createPinia())
+      const latest_status = {
+        stage,
+        stage_label: stage,
+        status,
+        status_label: status,
+        text,
+        tone,
+        date,
+      }
+      const w = mount(StepTimeline, {
+        props: {
+          passport: { ...passport, latest_status },
+          history: HISTORY,
+          role: 'data_entry',
+          userId: DATA_ENTRY_ID,
+        },
+      })
+      await flushPromises()
+
+      const shown = w.get(`[data-timeline-step="${stage}"] [data-timeline-status]`)
+      expect(shown.get('[data-status-text]').text()).toBe(text)
+      expect(shown.get('[data-status-date]').text()).toBe(date.split('-').reverse().join('-'))
+      expect(w.findAll('[data-timeline-status]')).toHaveLength(1)
+      w.unmount()
+    },
+  )
+
+  it('labels the calling and visa dates from the config', async () => {
+    const wrapper = await mountTimeline('data_entry', DATA_ENTRY_ID)
+    await useWorkflowStore().loadConfig() // the detail page loads it
+    await flushPromises()
+
+    expect(stepEl(wrapper, 'calling').get('[data-latest-record]').text()).toContain('Calling date')
+    expect(stepEl(wrapper, 'visa').get('[data-latest-record]').text()).toContain(
+      'Visa submitted date',
+    )
+  })
+
   it('collapses older records', async () => {
     const wrapper = await mountTimeline('data_entry', DATA_ENTRY_ID)
 
