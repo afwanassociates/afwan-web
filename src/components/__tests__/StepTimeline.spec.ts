@@ -125,7 +125,7 @@ describe('StepTimeline', () => {
     expect(details).toContain('28-07-2026')
   })
 
-  it('shows the BMET training certificate and finger dates as DD-MM-YYYY', async () => {
+  it('shows the BMET training and finger dates as DD-MM-YYYY (no clearance date yet)', async () => {
     const bmet = [
       record({
         id: 3,
@@ -145,10 +145,11 @@ describe('StepTimeline', () => {
     await flushPromises()
 
     const text = stepEl(wrapper, 'bmet').get('[data-latest-record]').text()
-    expect(text).toContain('Training certificate date')
+    expect(text).toContain('Training date')
     expect(text).toContain('20-09-2026')
     expect(text).toContain('Finger date')
     expect(text).toContain('22-09-2026')
+    expect(text).not.toContain('Clearance date')
   })
 
   it('shows the Online badge next to the Calling step', async () => {
@@ -168,8 +169,14 @@ describe('StepTimeline', () => {
     ['calling', 'in_process', 'Calling date entered', '2026-10-05', 'blue'],
     ['visa', 'waiting', 'Permitted - enter visa submitted date', '2026-10-11', 'amber'],
     ['visa', 'in_process', 'Visa submitted', '2026-10-12', 'blue'],
+    ['bmet', 'waiting', 'Visa issued - BMET and flight pending', '2026-10-13', 'amber'],
+    ['flight', 'in_process', 'Flight booked (01-12-2026) - BMET pending', '2026-12-01', 'blue'],
+    ['flight', 'waiting', 'BMET cleared - flight booking date pending', '2026-10-14', 'amber'],
+    ['flight', 'in_process', 'Ready to confirm flight', '2026-10-15', 'blue'],
+    // Done: the API's stage is "completed"; shown on the last step (Flight).
+    ['completed', 'completed', 'Flight confirmed (02-11-2026)', '2026-11-02', 'green'],
   ] as const)(
-    'shows the latest status on the %s step: "%s" → %s',
+    'shows the latest status (stage %s, %s): "%s"',
     async (stage, status, text, date, tone) => {
       setActivePinia(createPinia())
       const latest_status = {
@@ -191,7 +198,8 @@ describe('StepTimeline', () => {
       })
       await flushPromises()
 
-      const shown = w.get(`[data-timeline-step="${stage}"] [data-timeline-status]`)
+      const on = stage === 'completed' ? 'flight' : stage
+      const shown = w.get(`[data-timeline-step="${on}"] [data-timeline-status]`)
       expect(shown.get('[data-status-text]').text()).toBe(text)
       expect(shown.get('[data-status-date]').text()).toBe(date.split('-').reverse().join('-'))
       expect(w.findAll('[data-timeline-status]')).toHaveLength(1)
@@ -199,15 +207,154 @@ describe('StepTimeline', () => {
     },
   )
 
+  it('a confirmed flight shows its booking and confirmed dates (no extra "Flight date")', async () => {
+    const flight = record({
+      id: 3,
+      step_key: 'flight',
+      step_label: 'Flight',
+      status: 'completed',
+      status_label: 'Flight confirmed',
+      reference_no: null,
+      step_date: '2026-10-13',
+      valid_until: null,
+      validity_status: null,
+      details: { booking_date: '2026-11-20', confirmed_date: '2026-10-13' },
+    })
+    const wrapper = await mountTimeline('data_entry', DATA_ENTRY_ID, {
+      ...HISTORY,
+      flight: [flight],
+    })
+    await useWorkflowStore().loadConfig()
+    await flushPromises()
+
+    const text = stepEl(wrapper, 'flight').get('[data-latest-record]').text()
+    expect(text).toContain('Flight booking date20-11-2026')
+    expect(text).toContain('Confirmed date13-10-2026')
+    expect(text).not.toContain('Flight date')
+  })
+
+  it('an issued visa shows its submitted date (the record is dated by the issue date)', async () => {
+    const visa = record({
+      id: 2,
+      step_key: 'visa',
+      step_label: 'Visa',
+      status: 'completed',
+      status_label: 'Visa issued',
+      reference_no: null,
+      step_date: '2026-10-08',
+      valid_until: '2027-01-08',
+      details: { issue_date: '2026-10-08', start_date: '2026-10-02' },
+    })
+    const wrapper = await mountTimeline('data_entry', DATA_ENTRY_ID, { ...HISTORY, visa: [visa] })
+    await useWorkflowStore().loadConfig()
+    await flushPromises()
+
+    const text = stepEl(wrapper, 'visa').get('[data-latest-record]').text()
+    expect(text).toContain('Visa submitted date02-10-2026')
+    expect(text).toContain('Issue date08-10-2026')
+    expect(text).toContain('Expired date')
+  })
+
   it('labels the calling and visa dates from the config', async () => {
     const wrapper = await mountTimeline('data_entry', DATA_ENTRY_ID)
     await useWorkflowStore().loadConfig() // the detail page loads it
     await flushPromises()
 
     expect(stepEl(wrapper, 'calling').get('[data-latest-record]').text()).toContain('Calling date')
+    expect(stepEl(wrapper, 'calling').get('[data-latest-record]').text()).toContain(
+      'Calling expiry',
+    )
     expect(stepEl(wrapper, 'visa').get('[data-latest-record]').text()).toContain(
       'Visa submitted date',
     )
+  })
+
+  it('BMET and Flight: no generic Record / Update / Edit, a link to their page instead', async () => {
+    setActivePinia(createPinia())
+    await useWorkflowStore().loadConfig()
+    const atFlight = {
+      ...passport,
+      current_stage: 'flight',
+      stage_status: 'in_process',
+      workflow: {
+        current_step: 'flight',
+        steps: passport.workflow.steps.map((st) =>
+          st.key === 'bmet'
+            ? { ...st, state: 'in_process' as const }
+            : st.key === 'flight'
+              ? { ...st, state: 'in_process' as const }
+              : st,
+        ),
+      },
+    }
+    const booked = record({
+      id: 4,
+      step_key: 'flight',
+      step_label: 'Flight',
+      status: 'in_process',
+      status_label: 'Booked',
+      reference_no: null,
+      valid_until: null,
+      validity_status: null,
+      details: { booking_date: '2026-12-01' },
+      recorded_by: { id: DATA_ENTRY_ID, name: 'Data Entry' },
+    })
+    const w = mount(StepTimeline, {
+      props: {
+        passport: atFlight,
+        history: { ...HISTORY, flight: [booked] },
+        role: 'admin',
+        userId: 1,
+      },
+      global: {
+        stubs: {
+          RouterLink: { props: ['to'], template: '<a :data-to="to.params.step"><slot /></a>' },
+        },
+      },
+    })
+    await flushPromises()
+
+    const flight = w.get('[data-timeline-step="flight"]')
+    expect(flight.find('[data-step-action]').exists()).toBe(false)
+    expect(flight.find('[data-edit-record]').exists()).toBe(false)
+    expect(flight.get('[data-step-page-link]').text()).toBe('Open Flight page')
+    expect(flight.get('[data-step-page-link]').attributes('data-to')).toBe('flight')
+    expect(w.get('[data-timeline-step="bmet"] [data-step-page-link]').text()).toBe(
+      'Open BMET Clearance page',
+    )
+    w.unmount()
+  })
+
+  it('a confirmed flight cannot be edited here (its booking date is locked)', async () => {
+    setActivePinia(createPinia())
+    await useWorkflowStore().loadConfig()
+    const confirmed = record({
+      id: 5,
+      step_key: 'flight',
+      step_label: 'Flight',
+      status: 'completed',
+      status_label: 'Flight confirmed',
+      reference_no: null,
+      valid_until: null,
+      validity_status: null,
+      details: { booking_date: '2026-12-01', confirmed_date: '2026-10-13' },
+      recorded_by: { id: DATA_ENTRY_ID, name: 'Data Entry' },
+    })
+    const w = mount(StepTimeline, {
+      props: {
+        passport,
+        history: { ...HISTORY, flight: [confirmed] },
+        role: 'super_admin',
+        userId: 1,
+      },
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    })
+    await flushPromises()
+
+    const flight = w.get('[data-timeline-step="flight"]')
+    expect(flight.find('[data-edit-record]').exists()).toBe(false)
+    expect(flight.find('[data-step-page-link]').exists()).toBe(false)
+    w.unmount()
   })
 
   it('collapses older records', async () => {

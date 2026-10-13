@@ -6,14 +6,20 @@ import StepListPage from '../StepListPage.vue'
 import {
   deleteStepRecord,
   listStepPassports,
+  markStepAction,
   recordStepResult,
   startStep,
+  bookFlight,
+  clearFlightBooking,
+  confirmFlight,
+  undoFlightConfirm,
   updateCalling,
+  undoStepAction,
 } from '@/api/steps'
 import { useToast } from '@/composables/useToast'
 import { addDays, businessToday } from '@/lib/dates'
 import { useAuthStore } from '@/stores/auth'
-import { makeUser } from '@/test/helpers'
+import { httpError, makeUser } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import { fetchWorkflowSummary } from '@/api/workflow'
 import type { Role } from '@/types/auth'
@@ -24,7 +30,13 @@ vi.mock('@/api/steps', () => ({
   startStep: vi.fn(),
   recordStepResult: vi.fn(),
   updateCalling: vi.fn(),
+  bookFlight: vi.fn(),
+  clearFlightBooking: vi.fn(),
+  confirmFlight: vi.fn(),
+  undoFlightConfirm: vi.fn(),
   deleteStepRecord: vi.fn(),
+  markStepAction: vi.fn(),
+  undoStepAction: vi.fn(),
 }))
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowConfig: vi.fn(async () => WORKFLOW_CONFIG),
@@ -109,7 +121,11 @@ const permitted = (id: number, validUntil: string | null) =>
   })
 
 /** Visa Pending: submitted from the Calling Permitted tab, waiting for the result. */
-const visaPending = (id: number, permitExpiry: string | null) =>
+const visaPending = (
+  id: number,
+  permitExpiry: string | null,
+  record: Partial<NonNullable<StepListRow['record']>> = {},
+) =>
   row({
     id,
     passport_number: `VS00000${id}`,
@@ -131,11 +147,54 @@ const visaPending = (id: number, permitExpiry: string | null) =>
       reference_no: null,
       valid_until: null,
       details: null,
+      ...record,
     },
   })
 const VISA_PENDING = visaPending(51, addDays(TODAY, 200))
 
 /** One list response: the rows plus every tab's count of that step (as the API sends). */
+/** A Flight row: the visa expiry, BMET status and booking (can_confirm as the API works it out). */
+const flightRow = (
+  id: number,
+  o: {
+    visa?: string | null
+    clearance?: string | null
+    booking?: string | null
+    confirmed?: string | null
+  } = {},
+) => {
+  const missing = [
+    ...(o.clearance ? [] : (['bmet'] as const)),
+    ...(o.booking ? [] : (['booking_date'] as const)),
+  ]
+  return row({
+    id,
+    passport_number: `FL00000${id}`,
+    visa_valid_until: o.visa === undefined ? addDays(TODAY, 200) : o.visa,
+    bmet_cleared: !!o.clearance,
+    clearance_date: o.clearance ?? null,
+    booking_date: o.booking ?? null,
+    confirmed_date: o.confirmed ?? null,
+    can_confirm: !o.confirmed && missing.length === 0,
+    missing: o.confirmed ? [] : missing,
+  })
+}
+
+/** A BMET row: the visa's dates and the actions done so far. */
+const bmetRow = (
+  id: number,
+  o: { training?: string; finger?: string; clearance?: string; visa?: string } = {},
+) =>
+  row({
+    id,
+    passport_number: `BM00000${id}`,
+    visa_issue_date: '2026-10-01',
+    visa_valid_until: o.visa ?? addDays(TODAY, 200),
+    training_date: o.training ?? null,
+    finger_date: o.finger ?? null,
+    clearance_date: o.clearance ?? null,
+  })
+
 const page = (data: StepListRow[], step = 'calling') => ({
   data,
   links: { first: null, last: null, prev: null, next: null },
@@ -163,6 +222,8 @@ const ROWS: Record<StepListTab, StepListRow[]> = {
   rejected: [REJECTED],
   permitted: [],
   issued: [],
+  confirmed: [],
+  cleared: [],
 }
 const COUNTS: Record<StepListTab, number> = {
   pending: 2,
@@ -171,7 +232,13 @@ const COUNTS: Record<StepListTab, number> = {
   rejected: 1,
   permitted: 3,
   issued: 4,
+  confirmed: 6,
+  cleared: 3,
 }
+/** BMET Pending (visa issued). */
+let bmetPendingRows: StepListRow[] = []
+/** Flight Pending (BMET cleared). */
+let flightPendingRows: StepListRow[] = []
 /** Visa Pending (the API only lists submitted passports there). */
 let visaPendingRows: StepListRow[] = [VISA_PENDING]
 
@@ -225,9 +292,32 @@ beforeEach(() => {
   vi.clearAllMocks()
   useToast().toasts.value = []
   visaPendingRows = [VISA_PENDING]
+  flightPendingRows = [
+    flightRow(70), // neither
+    flightRow(71, { booking: '2026-12-01' }), // booked, BMET pending
+    flightRow(72, { clearance: '2026-10-11' }), // cleared, no booking
+    flightRow(73, { clearance: '2026-10-11', booking: '2026-12-01' }), // ready
+  ]
+  vi.mocked(bookFlight).mockResolvedValue(saved as never)
+  vi.mocked(clearFlightBooking).mockResolvedValue(undefined)
+  vi.mocked(confirmFlight).mockResolvedValue(saved as never)
+  vi.mocked(undoFlightConfirm).mockResolvedValue(saved as never)
+  bmetPendingRows = [
+    bmetRow(60),
+    bmetRow(61, { training: '2026-10-05' }),
+    bmetRow(62, { training: '2026-10-05', finger: '2026-10-06' }),
+  ]
+  vi.mocked(markStepAction).mockResolvedValue(saved as never)
+  vi.mocked(undoStepAction).mockResolvedValue(undefined)
   vi.mocked(listStepPassports).mockImplementation(async (step: string, params: StepListParams) =>
     page(
-      step === 'visa' && params.tab === 'pending' ? visaPendingRows : (ROWS[params.tab] ?? []),
+      step === 'visa' && params.tab === 'pending'
+        ? visaPendingRows
+        : step === 'flight' && params.tab === 'pending'
+          ? flightPendingRows
+          : step === 'bmet' && params.tab === 'pending'
+            ? bmetPendingRows
+            : (ROWS[params.tab] ?? []),
       step,
     ),
   )
@@ -285,8 +375,8 @@ describe('Step pages (one per step)', () => {
     it.each([
       ['calling', ['Pending', 'Permitted']],
       ['visa', ['Pending', 'Visa issued', 'Rejected']],
-      ['bmet', ['Pending', 'Submitted', 'Cleared', 'Rejected']],
-      ['flight', ['Pending', 'Ticket booked', 'Departed', 'Cancelled']],
+      ['bmet', ['Pending', 'BMET cleared']],
+      ['flight', ['Pending', 'Flight confirmed']],
     ])('%s tabs: %j, each with the count from the list response', async (key, labels) => {
       await mountStep(`/${key}`)
 
@@ -295,54 +385,24 @@ describe('Step pages (one per step)', () => {
       const tabs = wrapper.findAll('[role="tab"]')
       expect(tabs.map((t) => t.text().replace(/\s*\S+$/, ''))).toEqual(labels)
       expect(tabs.map((t) => t.get('[data-tab-count]').text())).toEqual(
-        key === 'calling' ? ['2', '3'] : key === 'visa' ? ['2', '4', '1'] : ['2', '1', '4', '1'],
+        {
+          calling: ['2', '3'],
+          visa: ['2', '4', '1'],
+          bmet: ['2', '3'],
+          flight: ['2', '6'],
+        }[key],
       )
     })
 
-    it('Pending lists passports whose previous step is done (the API tab), oldest first', async () => {
+    it('lists the Pending tab first with the searches (the API decides the order)', async () => {
       await mountStep('/bmet')
 
-      expect(lastListCall()[1]).toEqual(expect.objectContaining({ tab: 'pending', page: 1 }))
-      expect(lastListCall()[1]).not.toHaveProperty('sort')
-      expect(headers()).toEqual([
-        'Passport name',
-        'Passport number',
-        'Reference',
-        'Company',
-        'Visa done',
-        'Actions',
+      expect(lastListCall()).toEqual([
+        'bmet',
+        expect.objectContaining({ tab: 'pending', page: 1, per_page: 15 }),
       ])
-      expect(wrapper.get('[data-cell="previous_done"]').text()).toBe('20-09-2026')
-    })
-
-    it('status tabs show the step fields as columns; name and number are separate', async () => {
-      await mountStep('/bmet?tab=in_process')
-
-      expect(headers()).toEqual(
-        expect.arrayContaining([
-          'Passport name',
-          'Passport number',
-          'Reference',
-          'Company',
-          'Clearance number',
-          'Actions',
-        ]),
-      )
-      expect(headers()).not.toContain('Country')
-      expect(headers()).not.toContain('Waiting')
-      const r = wrapper.get('tr[data-row="51"]')
-      expect(r.get('[data-cell="passport_name"]').text()).toBe('KARIM UDDIN')
-      expect(r.get('[data-cell="passport_number"]').text()).toBe('NW5000001')
-      expect(r.get('[data-cell="step_date"]').text()).toBe('01-10-2026')
+      expect(lastListCall()[1]).not.toHaveProperty('sort')
       expect(wrapper.find('tbody [data-state]').exists()).toBe(false) // no row stepper
-    })
-
-    it('flight shows its own detail fields as columns', async () => {
-      await mountStep('/flight?tab=in_process')
-
-      expect(headers()).toEqual(
-        expect.arrayContaining(['Airline', 'Flight number', 'Departure date', 'Ticket PNR']),
-      )
     })
   })
 
@@ -359,11 +419,15 @@ describe('Step pages (one per step)', () => {
       }
     })
 
-    it('BMET and Flight have no Mode column', async () => {
-      await mountStep('/bmet')
+    it.each(['visa', 'visa?tab=issued', 'visa?tab=rejected', 'bmet', 'flight'])(
+      '/%s has no Mode column',
+      async (path) => {
+        await mountStep(`/${path}`)
 
-      expect(headers()).not.toContain('Mode')
-    })
+        expect(headers()).not.toContain('Mode')
+        expect(wrapper.find('[data-cell="mode"], [data-entry-mode]').exists()).toBe(false)
+      },
+    )
 
     it('Pending empty text points to the Medical Fit tab', async () => {
       vi.mocked(listStepPassports).mockResolvedValue(page([]))
@@ -395,14 +459,12 @@ describe('Step pages (one per step)', () => {
       wrapper.unmount()
 
       await mountStep('/bmet')
-      expect(wrapper.findAll('[role="tab"]')).toHaveLength(4)
+      expect(wrapper.findAll('[role="tab"]')).toHaveLength(2)
       wrapper.unmount()
       await mountStep('/flight')
       expect(wrapper.findAll('[role="tab"]').map((t) => t.attributes('data-tab'))).toEqual([
         'pending',
-        'in_process',
-        'completed',
-        'rejected',
+        'confirmed',
       ])
     })
 
@@ -635,9 +697,9 @@ describe('Step pages (one per step)', () => {
         expect(startStep).not.toHaveBeenCalled()
       })
 
-      it('BMET and Flight keep the small popover under the button', async () => {
-        await mountStep('/bmet')
-        await wrapper.get('tr[data-row="50"] button[data-step-start]').trigger('click')
+      it('"Apply again" (Visa Rejected) keeps the small popover under the button', async () => {
+        await mountStep('/visa?tab=rejected')
+        await wrapper.get('tr[data-row="52"] button[data-step-again]').trigger('click')
         await flushPromises()
 
         expect(modal()).toBeNull()
@@ -806,7 +868,7 @@ describe('Step pages (one per step)', () => {
       expect(wrapper.text()).not.toMatch(/not started/i)
     })
 
-    it('Pending: the submitted passports with the calling permit expiry and the visa submitted date', async () => {
+    it('Pending: the submitted passports with the calling expiry and the visa submitted date', async () => {
       visaPendingRows = [
         VISA_PENDING,
         visaPending(54, addDays(TODAY, 10)), // within 30 days
@@ -819,19 +881,64 @@ describe('Step pages (one per step)', () => {
         'Passport number',
         'Reference',
         'Company',
-        'Mode',
-        'Calling permit expiry',
+        'Calling expiry',
         'Visa submitted date',
         'Actions',
       ])
+      expect(wrapper.text()).not.toContain('Calling permit expiry')
       const cell = (id: number, name: string) =>
         wrapper.get(`tr[data-row="${id}"] [data-cell="${name}"]`)
-      expect(cell(51, 'mode').text()).toBe('Online')
       expect(cell(51, 'previous_expiry').text()).toBe(toDisplay(addDays(TODAY, 200)))
       expect(cell(51, 'previous_expiry').classes()).not.toContain('text-amber-700')
       expect(cell(54, 'previous_expiry').classes()).toContain('text-amber-700')
       expect(cell(55, 'previous_expiry').classes()).toContain('text-red-700')
       expect(cell(51, 'step_date').text()).toBe('02-10-2026')
+    })
+
+    it('Visa issued: calling expiry, submitted, issue and expired dates (amber/red) and the visa number', async () => {
+      const issued = (id: number, expiry: string, number: string | null) =>
+        visaPending(id, addDays(TODAY, 300), {
+          status: 'completed',
+          status_label: 'Visa issued',
+          step_date: '2026-10-08',
+          submitted_date: '2026-10-02',
+          reference_no: number,
+          valid_until: expiry,
+          details: { issue_date: '2026-10-08', start_date: '2026-10-02' },
+        })
+      ROWS.issued = [
+        issued(56, addDays(TODAY, 200), 'V-56'),
+        issued(57, addDays(TODAY, 20), null), // within 30 days
+        issued(58, addDays(TODAY, -1), null), // expired
+      ]
+      try {
+        await mountStep('/visa?tab=issued')
+
+        expect(headers()).toEqual([
+          'Passport name',
+          'Passport number',
+          'Reference',
+          'Company',
+          'Calling expiry',
+          'Visa submitted date',
+          'Issue date',
+          'Expired date',
+          'Visa number',
+        ])
+        const cell = (id: number, name: string) =>
+          wrapper.get(`tr[data-row="${id}"] [data-cell="${name}"]`)
+        expect(cell(56, 'previous_expiry').text()).toBe(toDisplay(addDays(TODAY, 300)))
+        expect(cell(56, 'step_date').text()).toBe('02-10-2026')
+        expect(cell(56, 'issue_date').text()).toBe('08-10-2026')
+        expect(cell(56, 'reference_no').text()).toBe('V-56')
+        expect(cell(57, 'reference_no').text()).toBe('-')
+        expect(cell(56, 'valid_until').classes()).not.toContain('text-amber-700')
+        expect(cell(57, 'valid_until').classes()).toContain('text-amber-700')
+        expect(cell(58, 'valid_until').classes()).toContain('text-red-700')
+        expect(wrapper.findAll('tbody button')).toHaveLength(0)
+      } finally {
+        ROWS.issued = []
+      }
     })
 
     it('Pending has no action to enter the submitted date; the empty text points to Calling', async () => {
@@ -893,99 +1000,471 @@ describe('Step pages (one per step)', () => {
     })
   })
 
-  describe('Action 1: Enter <step> date (BMET, Flight)', () => {
-    it('opens a small popover with the step date (required, not in the future)', async () => {
+  describe('Flight', () => {
+    const tabKeys = () => wrapper.findAll('[role="tab"]').map((t) => t.attributes('data-tab'))
+    const selected = () => wrapper.get('[role="tab"][aria-selected="true"]').attributes('data-tab')
+    const cell = (id: number, key: string) =>
+      wrapper.get(`tr[data-row="${id}"] [data-cell="${key}"]`)
+    const confirmButton = (id: number) =>
+      wrapper.get<HTMLButtonElement>(`tr[data-row="${id}"] button[data-confirm]`)
+    const bookingPopover = () => {
+      const el = document.body.querySelector<HTMLElement>('[data-date-popover]')
+      return el ? new DOMWrapper(el) : null
+    }
+    afterEach(() => {
+      ROWS.confirmed = []
+    })
+
+    it('has exactly two tabs, Pending (default) and Flight confirmed', async () => {
       await mountStep('/flight')
 
-      const button = wrapper.get('tr[data-row="50"] button[data-step-start]')
-      expect(button.text()).toContain('Enter flight date')
-      await button.trigger('click')
-      await flushPromises()
-
-      const p = popover()!
-      expect(p.element.tagName).toBe('FORM')
-      expect(document.body.querySelector('dialog[open]')).toBeNull() // not a modal
-      const date = p.get('[data-step-field="step_date"] input')
-      expect(date.attributes('max')).toBe(TODAY)
-
-      await p.trigger('submit')
-      expect(p.text()).toContain('Enter the booking date.')
-      await date.setValue(addDays(TODAY, 1))
-      await p.trigger('submit')
-      expect(p.text()).toContain('The date cannot be in the future.')
-      expect(startStep).not.toHaveBeenCalled()
+      expect(tabKeys()).toEqual(['pending', 'confirmed'])
+      expect(selected()).toBe('pending')
+      expect(lastListCall()).toEqual(['flight', expect.objectContaining({ tab: 'pending' })])
+      expect(wrapper.text()).not.toMatch(/Waiting for BMET|Ticket booked|Departed|Cancelled/)
     })
 
-    it('saves: creates the in-process record, refreshes the list and counts, toasts', async () => {
-      await mountStep('/bmet')
-      await wrapper.get('tr[data-row="50"] button[data-step-start]').trigger('click')
-      await flushPromises()
-      const callsBefore = vi.mocked(listStepPassports).mock.calls.length
+    it('Pending: visa expiry, BMET status, booking date and two buttons in order', async () => {
+      flightPendingRows = [
+        flightRow(70, { visa: addDays(TODAY, 10) }), // within 30 days
+        flightRow(73, { clearance: '2026-10-11', booking: '2026-12-01', visa: addDays(TODAY, -1) }),
+      ]
+      await mountStep('/flight')
 
-      await popover()!.get('[data-step-field="step_date"] input').setValue('2026-10-02')
-      await popover()!.trigger('submit')
-      await flushPromises()
-
-      expect(startStep).toHaveBeenCalledWith(
-        50,
-        'bmet',
-        expect.objectContaining({ status: 'in_process', step_date: '2026-10-02' }),
-      )
-      expect(popover()).toBeNull()
-      // The list again, its tab counts included.
-      expect(vi.mocked(listStepPassports).mock.calls.length - callsBefore).toBe(1)
-      expect(toastMessages()).toContain('NW5000001: BMET submitted.')
-    })
-
-    it('BMET: the popover also has the training certificate and finger dates (start fields)', async () => {
-      await mountStep('/bmet')
-      await wrapper.get('tr[data-row="50"] button[data-step-start]').trigger('click')
-      await flushPromises()
-
-      const p = popover()!
-      expect(p.findAll('[data-step-field]').map((f) => f.attributes('data-step-field'))).toEqual([
-        'step_date',
-        'training_certificate_date',
-        'finger_date',
+      expect(headers()).toEqual([
+        'Passport name',
+        'Passport number',
+        'Reference',
+        'Company',
+        'Visa expired date',
+        'BMET status',
+        'Flight booking date',
+        'Actions',
       ])
-      const inputs = p.findAll('input')
-      await inputs[0]!.setValue('2026-10-03')
-      await inputs[1]!.setValue('2026-09-28')
-      await inputs[2]!.setValue('2026-09-29')
+      expect(cell(70, 'visa_valid_until').classes()).toContain('text-amber-700')
+      expect(cell(73, 'visa_valid_until').classes()).toContain('text-red-700')
+      expect(cell(70, 'bmet_status').get('[data-bmet="pending"]').classes()).toContain(
+        'text-amber-700',
+      )
+      expect(cell(73, 'bmet_status').get('[data-bmet="cleared"]').text()).toBe('Cleared 11-10-2026')
+      expect(cell(70, 'booking_date').text()).toBe('-')
+      expect(cell(73, 'booking_date').text()).toBe('01-12-2026')
+      const buttons = wrapper.findAll('tr[data-row="70"] [data-actions] button')
+      expect(buttons.map((b) => b.text().replace(/\s+(for\s+)?FL\d+$/, ''))).toEqual([
+        'Flight booking date',
+        'Mark flight confirm',
+      ])
+      // With a date: a pencil instead of the text button.
+      expect(wrapper.get('tr[data-row="73"] button[data-booking]').attributes()).toHaveProperty(
+        'data-booking-edit',
+      )
+    })
+
+    it.each([
+      [70, 'BMET clearance and flight booking date are required'],
+      [71, 'BMET clearance must be done first'],
+      [72, 'Enter the flight booking date first'],
+    ])('"Mark flight confirm" is disabled on row %i: %s', async (id, hint) => {
+      await mountStep('/flight')
+
+      expect(confirmButton(id).element.disabled).toBe(true)
+      expect(confirmButton(id).element.parentElement!.getAttribute('title')).toBe(hint)
+      await confirmButton(id).trigger('click')
+      expect(confirmFlight).not.toHaveBeenCalled()
+    })
+
+    it('"Mark flight confirm" is enabled only with BMET cleared and a booking date', async () => {
+      await mountStep('/flight')
+
+      expect(confirmButton(73).element.disabled).toBe(false)
+      expect(confirmButton(73).element.parentElement!.getAttribute('title')).toBeNull()
+    })
+
+    it('the booking popover (not a modal) saves the date; future dates allowed', async () => {
+      await mountStep('/flight')
+      await wrapper.get('tr[data-row="70"] button[data-booking]').trigger('click')
+      await flushPromises()
+
+      const p = bookingPopover()!
+      expect(modal()).toBeNull()
+      expect(p.attributes('style')).toContain('top:')
+      expect(p.get('label').text()).toBe('Flight booking date *')
+      expect(p.get('input').attributes('max')).toBeUndefined()
+      expect(p.find('[data-date-clear]').exists()).toBe(false) // nothing to clear yet
+      await p.get('button[data-date-save]').trigger('click')
+      expect(p.get('[data-date-error]').text()).toBe('Enter the flight booking date.')
+
+      const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
+      flightPendingRows = [flightRow(70, { booking: addDays(TODAY, 40) })]
+      await p.get('input').setValue(addDays(TODAY, 40))
       await p.trigger('submit')
       await flushPromises()
 
-      expect(startStep).toHaveBeenCalledWith(
-        50,
-        'bmet',
-        expect.objectContaining({
-          step_date: '2026-10-03',
-          details: { training_certificate_date: '2026-09-28', finger_date: '2026-09-29' },
+      expect(bookFlight).toHaveBeenCalledWith(70, addDays(TODAY, 40))
+      expect(bookingPopover()).toBeNull()
+      expect(cell(70, 'booking_date').text()).toBe(toDisplay(addDays(TODAY, 40)))
+      expect(wrapper.get('tr[data-row="70"] button[data-booking]').attributes()).toHaveProperty(
+        'data-booking-edit',
+      )
+      expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
+      // Still BMET pending: the confirm stays disabled.
+      expect(confirmButton(70).element.disabled).toBe(true)
+    })
+
+    it("shows the API's 422 under the date (e.g. before the visa issue date)", async () => {
+      vi.mocked(bookFlight).mockRejectedValue(
+        httpError(422, {
+          message: 'Invalid.',
+          errors: {
+            booking_date: [
+              'The flight booking date cannot be before the visa issue date (08-10-2026).',
+            ],
+          },
         }),
       )
+      await mountStep('/flight')
+      await wrapper.get('tr[data-row="70"] button[data-booking]').trigger('click')
+      await flushPromises()
+      const p = bookingPopover()!
+      await p.get('input').setValue('2026-10-01')
+      await p.trigger('submit')
+      await flushPromises()
+
+      expect(bookingPopover()!.get('[data-date-error]').text()).toBe(
+        'The flight booking date cannot be before the visa issue date (08-10-2026).',
+      )
     })
 
-    it('shows API warnings without blocking: saved, then OK closes', async () => {
-      vi.mocked(startStep).mockResolvedValue({
-        ...saved,
-        warnings: [
-          { code: 'medical_expires', message: 'The medical expires before the BMET date.' },
-        ],
-      } as never)
-      await mountStep('/bmet')
-      await wrapper.get('tr[data-row="50"] button[data-step-start]').trigger('click')
+    it('the pencil edits and clears the date', async () => {
+      await mountStep('/flight')
+      await wrapper.get('tr[data-row="71"] button[data-booking-edit]').trigger('click')
       await flushPromises()
-      await popover()!.get('[data-step-field="step_date"] input').setValue('2026-10-02')
-      await popover()!.trigger('submit')
+      let p = bookingPopover()!
+      expect(p.get<HTMLInputElement>('input').element.value).toBe('2026-12-01')
+      await p.get('input').setValue('2026-12-05')
+      await p.trigger('submit')
+      await flushPromises()
+      expect(bookFlight).toHaveBeenCalledWith(71, '2026-12-05')
+
+      await wrapper.get('tr[data-row="71"] button[data-booking-edit]').trigger('click')
+      await flushPromises()
+      p = bookingPopover()!
+      flightPendingRows = [flightRow(71)]
+      await p.get('button[data-date-clear]').trigger('click')
+      await flushPromises()
+      expect(clearFlightBooking).toHaveBeenCalledWith(71)
+      expect(cell(71, 'booking_date').text()).toBe('-')
+      expect(toastMessages()).toContain('FL0000071: Flight booking date cleared.')
+    })
+
+    it('one click confirms: the row moves at once, no double click, toast with Undo; Undo puts it back', async () => {
+      let resolve!: (value: unknown) => void
+      vi.mocked(confirmFlight).mockReturnValue(new Promise((r) => (resolve = r)) as never)
+      await mountStep('/flight')
+      const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
+
+      await confirmButton(73).trigger('click')
+      expect(wrapper.find('tr[data-row="73"]').exists()).toBe(false) // at once
+      expect(document.body.querySelector('[data-top-modal], [data-date-popover]')).toBeNull()
+      expect(confirmFlight).toHaveBeenCalledTimes(1)
+      expect(confirmFlight).toHaveBeenCalledWith(73)
+
+      flightPendingRows = flightPendingRows.filter((r) => r.id !== 73)
+      ROWS.confirmed = [
+        flightRow(73, { clearance: '2026-10-11', booking: '2026-12-01', confirmed: TODAY }),
+      ]
+      resolve(saved)
       await flushPromises()
 
-      const p = popover()!
-      expect(p.get('[data-step-warnings]').text()).toContain(
-        'The medical expires before the BMET date.',
+      const toast = useToast().toasts.value.find(
+        (t) => t.message === 'FL0000073: Flight confirmed',
+      )!
+      expect(toast.action?.label).toBe('Undo')
+      expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
+
+      flightPendingRows = [
+        ...flightPendingRows,
+        flightRow(73, { clearance: '2026-10-11', booking: '2026-12-01' }),
+      ]
+      ROWS.confirmed = []
+      toast.action!.run()
+      await flushPromises()
+      expect(undoFlightConfirm).toHaveBeenCalledWith(73)
+      expect(toastMessages()).toContain('FL0000073: back in Pending.')
+      // Back with its booking date kept.
+      expect(cell(73, 'booking_date').text()).toBe('01-12-2026')
+    })
+
+    it("puts the row back and shows the API's 422 message in a toast", async () => {
+      vi.mocked(confirmFlight).mockRejectedValue(
+        httpError(422, {
+          message: 'BMET clearance must be done before the flight is confirmed.',
+        }),
       )
-      expect(p.text()).toContain('Saved. You can continue.')
-      await p.get('button[data-warnings-ok]').trigger('click')
-      expect(popover()).toBeNull()
+      await mountStep('/flight')
+      await confirmButton(73).trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('tr[data-row="73"]').exists()).toBe(true)
+      expect(useToast().toasts.value.find((t) => t.type === 'error')?.message).toBe(
+        'BMET clearance must be done before the flight is confirmed.',
+      )
+    })
+
+    it('shows API warnings without blocking', async () => {
+      vi.mocked(confirmFlight).mockResolvedValue({
+        ...saved,
+        warnings: [{ code: 'visa_expires', message: 'The visa expires before the flight.' }],
+      } as never)
+      await mountStep('/flight')
+      await confirmButton(73).trigger('click')
+      await flushPromises()
+
+      expect(
+        useToast()
+          .toasts.value.filter((t) => t.type === 'warning')
+          .map((t) => t.message),
+      ).toEqual(['The visa expires before the flight.'])
+      expect(toastMessages()).toContain('FL0000073: Flight confirmed')
+    })
+
+    it('Flight confirmed: booking and confirmed dates, read-only (the booking is locked)', async () => {
+      ROWS.confirmed = [
+        flightRow(90, { clearance: '2026-10-11', booking: '2026-11-02', confirmed: '2026-10-13' }),
+      ]
+      await mountStep('/flight?tab=confirmed')
+
+      expect(headers()).toEqual([
+        'Passport name',
+        'Passport number',
+        'Reference',
+        'Company',
+        'Flight booking date',
+        'Confirmed date',
+      ])
+      expect(cell(90, 'booking_date').text()).toBe('02-11-2026')
+      expect(cell(90, 'confirmed_date').text()).toBe('13-10-2026')
+      expect(wrapper.findAll('tbody button')).toHaveLength(0)
+      expect(wrapper.find('[data-booking], [data-date-popover]').exists()).toBe(false)
+    })
+
+    it('empty texts', async () => {
+      flightPendingRows = []
+      await mountStep('/flight')
+      expect(wrapper.get('[data-empty]').text()).toContain(
+        'Passports with an issued visa appear here.',
+      )
+      wrapper.unmount()
+      await mountStep('/flight?tab=confirmed')
+      expect(wrapper.get('[data-empty]').text()).toContain('No confirmed flights yet.')
+    })
+
+    it('has no Flight modal (no flight date dialog or extra fields)', async () => {
+      await mountStep('/flight')
+      for (const id of [70, 73]) {
+        for (const b of wrapper.findAll(`tr[data-row="${id}"] button`)) {
+          if ((b.element as HTMLButtonElement).disabled) continue
+          await b.trigger('click')
+          await flushPromises()
+          expect(modal()).toBeNull()
+        }
+      }
+      expect(document.body.textContent).not.toMatch(/Airline|Ticket PNR|Flight number/)
+      const components = import.meta.glob('../../components/*.vue')
+      expect(Object.keys(components).some((p) => /Flight.*(Modal|Dialog)/.test(p))).toBe(false)
+    })
+
+    it('accounts sees no buttons on either Flight tab', async () => {
+      ROWS.confirmed = [flightRow(90, { booking: '2026-11-02', confirmed: '2026-10-13' })]
+      for (const tab of ['pending', 'confirmed']) {
+        await mountStep(`/flight?tab=${tab}`, 'accounts')
+        expect(wrapper.findAll('tbody tr').length).toBeGreaterThan(0)
+        expect(wrapper.findAll('tbody button')).toHaveLength(0)
+        expect(headers()).not.toContain('Actions')
+        wrapper.unmount()
+      }
+      await mountStep('/flight', 'accounts')
+    })
+  })
+
+  describe('BMET Clearance', () => {
+    const tabKeys = () => wrapper.findAll('[role="tab"]').map((t) => t.attributes('data-tab'))
+    const cell = (id: number, key: string) =>
+      wrapper.get(`tr[data-row="${id}"] [data-cell="${key}"]`)
+    const markButton = (id: number, key: string) =>
+      wrapper.find<HTMLButtonElement>(`tr[data-row="${id}"] button[data-action="${key}"]`)
+    afterEach(() => {
+      ROWS.cleared = []
+    })
+
+    it('has exactly two tabs, Pending and BMET cleared; no "Enter BMET date"', async () => {
+      await mountStep('/bmet')
+
+      expect(tabKeys()).toEqual(['pending', 'cleared'])
+      expect(wrapper.text()).not.toMatch(/Submitted|Rejected|Enter BMET date/)
+      expect(wrapper.find('button[data-step-start], button[data-step-result]').exists()).toBe(false)
+    })
+
+    it('Pending: visa expiry and three action columns; clearance waits for training and finger', async () => {
+      bmetPendingRows = [
+        bmetRow(60, { visa: addDays(TODAY, 10) }), // within 30 days
+        bmetRow(61, { training: '2026-10-05', visa: addDays(TODAY, -1) }), // expired
+        bmetRow(62, { training: '2026-10-05', finger: '2026-10-06' }),
+      ]
+      await mountStep('/bmet')
+
+      expect(headers()).toEqual([
+        'Passport name',
+        'Passport number',
+        'Reference',
+        'Company',
+        'Visa expired date',
+        'Training',
+        'Finger',
+        'BMET clearance',
+      ])
+      expect(cell(60, 'visa_valid_until').classes()).toContain('text-amber-700')
+      expect(cell(61, 'visa_valid_until').classes()).toContain('text-red-700')
+      // Nothing done: Training and Finger can be marked, in any order; clearance waits.
+      expect(markButton(60, 'training').element.disabled).toBe(false)
+      expect(markButton(60, 'finger').element.disabled).toBe(false)
+      expect(markButton(60, 'clearance').element.disabled).toBe(true)
+      expect(markButton(60, 'clearance').element.parentElement!.getAttribute('title')).toBe(
+        'Training and finger must be done first',
+      )
+      // Training done: its date, a pencil; clearance still waits.
+      expect(cell(61, 'training').get('[data-action-done]').text()).toContain('05-10-2026')
+      expect(cell(61, 'training').find('button[data-action-edit]').exists()).toBe(true)
+      expect(markButton(61, 'clearance').element.disabled).toBe(true)
+      // Both done: clearance can be marked.
+      expect(markButton(62, 'clearance').element.disabled).toBe(false)
+      expect(markButton(62, 'clearance').element.parentElement!.getAttribute('title')).toBeNull()
+    })
+
+    it('Mark done saves today in one click: the row changes at once, no double click, toast with Undo', async () => {
+      let resolve!: (value: unknown) => void
+      vi.mocked(markStepAction).mockReturnValue(new Promise((r) => (resolve = r)) as never)
+      await mountStep('/bmet')
+      const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
+
+      await markButton(60, 'finger').trigger('click')
+      // At once, before the API answers; the row's other buttons wait.
+      expect(cell(60, 'finger').get('[data-action-done]').text()).toContain(toDisplay(TODAY))
+      expect(markButton(60, 'training').element.disabled).toBe(true)
+      await markButton(60, 'training').trigger('click')
+      expect(markStepAction).toHaveBeenCalledTimes(1)
+      expect(markStepAction).toHaveBeenCalledWith(60, 'bmet', 'finger', undefined)
+
+      bmetPendingRows = [bmetRow(60, { finger: TODAY }), ...bmetPendingRows.slice(1)]
+      resolve(saved)
+      await flushPromises()
+
+      const toast = useToast().toasts.value.find((t) => t.message === 'BM0000060: Finger done')!
+      expect(toast.action?.label).toBe('Undo')
+      expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
+
+      bmetPendingRows = [bmetRow(60), ...bmetPendingRows.slice(1)]
+      toast.action!.run()
+      await flushPromises()
+      expect(undoStepAction).toHaveBeenCalledWith(60, 'bmet', 'finger')
+      expect(toastMessages()).toContain('BM0000060: Finger undone.')
+      expect(markButton(60, 'finger').exists()).toBe(true)
+    })
+
+    it('puts the row back and shows the API error when marking fails', async () => {
+      vi.mocked(markStepAction).mockRejectedValue(new Error('The BMET step is not open.'))
+      await mountStep('/bmet')
+      await markButton(60, 'training').trigger('click')
+      await flushPromises()
+
+      expect(markButton(60, 'training').exists()).toBe(true)
+      expect(useToast().toasts.value.some((t) => t.type === 'error')).toBe(true)
+    })
+
+    it('the pencil corrects a date in a top modal (not in the future)', async () => {
+      await mountStep('/bmet')
+      await cell(61, 'training').get('button[data-action-edit]').trigger('click')
+      await flushPromises()
+
+      const m = modal()!
+      expect(m.get('h2').text()).toBe('Training date')
+      const input = m.get<HTMLInputElement>('input[type="date"]')
+      expect(input.element.value).toBe('2026-10-05')
+      await input.setValue(addDays(TODAY, 1))
+      await m.get('form').trigger('submit')
+      expect(m.get('[data-action-date-error]').text()).toBe('The date cannot be in the future.')
+      expect(markStepAction).not.toHaveBeenCalled()
+
+      await input.setValue('2026-10-04')
+      await m.get('form').trigger('submit')
+      await flushPromises()
+      expect(modal()).toBeNull()
+      expect(markStepAction).toHaveBeenCalledWith(61, 'bmet', 'training', '2026-10-04')
+      expect(toastMessages()).toContain('BM0000061: Training date changed to 04-10-2026.')
+    })
+
+    it('BMET clearance moves the row to BMET cleared and to Flight Pending', async () => {
+      await mountStep('/bmet')
+      vi.mocked(markStepAction).mockImplementation(async () => {
+        // The API: BMET cleared, and Flight Pending.
+        bmetPendingRows = bmetPendingRows.filter((r) => r.id !== 62)
+        ROWS.cleared = [
+          bmetRow(62, { training: '2026-10-05', finger: '2026-10-06', clearance: TODAY }),
+        ]
+        flightPendingRows = [flightRow(62, { clearance: TODAY, booking: '2026-12-01' })]
+        return saved as never
+      })
+      const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
+      await markButton(62, 'clearance').trigger('click')
+      expect(wrapper.find('tr[data-row="62"]').exists()).toBe(false) // at once
+      await flushPromises()
+
+      expect(markStepAction).toHaveBeenCalledWith(62, 'bmet', 'clearance', undefined)
+      const toast = useToast().toasts.value.find((t) => t.message.includes('BMET cleared'))!
+      expect(toast.message).toBe('BM0000062: Moved to BMET cleared - now in Flight Pending')
+      expect(toast.action?.label).toBe('Undo')
+      expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
+      wrapper.unmount()
+
+      await mountStep('/bmet?tab=cleared')
+      expect(headers()).toEqual([
+        'Passport name',
+        'Passport number',
+        'Reference',
+        'Company',
+        'Training date',
+        'Finger date',
+        'BMET clearance date',
+      ])
+      expect(cell(62, 'clearance').text()).toBe(toDisplay(TODAY))
+      expect(cell(62, 'training').text()).toBe('05-10-2026')
+      expect(wrapper.findAll('tbody button')).toHaveLength(0)
+      // Flight in the same app (no reload): BMET cleared, and the confirm is enabled.
+      await router.push('/flight')
+      await flushPromises()
+      expect(cell(62, 'bmet_status').text()).toBe(`Cleared ${toDisplay(TODAY)}`)
+      expect(
+        wrapper.get<HTMLButtonElement>('tr[data-row="62"] button[data-confirm]').element.disabled,
+      ).toBe(false)
+    })
+
+    it('empty texts', async () => {
+      bmetPendingRows = []
+      await mountStep('/bmet')
+      expect(wrapper.get('[data-empty]').text()).toContain(
+        'Passports with an issued visa appear here.',
+      )
+      wrapper.unmount()
+      await mountStep('/bmet?tab=cleared')
+      expect(wrapper.get('[data-empty]').text()).toContain('No cleared passports yet.')
+    })
+
+    it('accounts sees the progress but no buttons', async () => {
+      await mountStep('/bmet', 'accounts')
+
+      expect(wrapper.findAll('tbody button')).toHaveLength(0)
+      expect(cell(60, 'training').text()).toBe('Pending')
+      expect(cell(61, 'training').text()).toContain('05-10-2026')
     })
   })
 
@@ -1000,43 +1479,84 @@ describe('Step pages (one per step)', () => {
       ])
     })
 
-    it('BMET in process: the result buttons from the config', async () => {
-      await mountStep('/bmet?tab=in_process')
-      expect(
-        wrapper
-          .findAll('tr[data-row="51"] button[data-step-result]')
-          .map((b) => b.attributes('data-step-result')),
-      ).toEqual(['completed', 'rejected'])
-    })
-
-    it('Visa issued: result date (today by default) plus the result fields; the visa number is required', async () => {
+    it('Visa issued: Issue date, Expired date, then the optional Visa number (no Result date)', async () => {
       await mountStep('/visa')
       await wrapper.get('tr[data-row="51"] button[data-step-result="completed"]').trigger('click')
       await flushPromises()
 
-      const dialog = wrapper.get('[data-step-result-dialog]')
-      expect(wrapper.get('dialog').text()).toContain('Mark KARIM UDDIN as Visa issued?')
+      const m = modal()!
+      expect(m.get('h2').text()).toBe('Mark KARIM UDDIN as Visa issued?')
+      const dialog = m.get('[data-step-result-dialog]')
       expect(
         dialog.findAll('[data-step-field]').map((f) => f.attributes('data-step-field')),
-      ).toEqual(['result_date', 'reference_no', 'valid_until'])
-      expect(
-        dialog.get<HTMLInputElement>('[data-step-field="result_date"] input').element.value,
-      ).toBe(TODAY)
+      ).toEqual(['issue_date', 'valid_until', 'reference_no'])
+      expect(dialog.findAll('label').map((l) => l.text())).toEqual([
+        'Issue date *',
+        'Expired date *',
+        'Visa number',
+      ])
+      expect(dialog.text()).not.toContain('Result date')
+      expect(dialog.get('[data-step-field="issue_date"] input').attributes('max')).toBe(TODAY)
 
       await dialog.get('form').trigger('submit')
-      expect(dialog.text()).toContain('Enter the visa number.')
+      expect(dialog.text()).toContain('Enter the issue date.')
+      expect(dialog.text()).toContain('Enter the expired date.')
+      expect(dialog.text()).not.toContain('Enter the visa number.')
+
+      await dialog.get('[data-step-field="issue_date"] input').setValue(addDays(TODAY, 1))
+      await dialog.get('[data-step-field="valid_until"] input').setValue(addDays(TODAY, 1))
+      await dialog.get('form').trigger('submit')
+      expect(dialog.text()).toContain('The issue date cannot be in the future.')
+      expect(dialog.text()).toContain('The expired date must be after the issue date.')
       expect(recordStepResult).not.toHaveBeenCalled()
 
-      await dialog.get('[data-step-field="reference_no"] input').setValue('WP-123')
+      await dialog.get('[data-step-field="issue_date"] input').setValue('2026-10-08')
+      await dialog.get('[data-step-field="valid_until"] input').setValue('2027-01-08')
       await dialog.get('form').trigger('submit')
       await flushPromises()
 
       expect(recordStepResult).toHaveBeenCalledWith(51, 'visa', {
         result: 'completed',
-        result_date: TODAY,
-        reference_no: 'WP-123',
+        result_date: '2026-10-08',
+        valid_until: '2027-01-08',
+        details: { issue_date: '2026-10-08' },
       })
-      expect(toastMessages()).toContain('VS0000051: Visa: Visa issued.')
+      expect(toastMessages()).toContain(
+        'VS0000051: Moved to Visa issued - now in BMET Clearance and Flight',
+      )
+    })
+
+    it('Visa issued: the passport is under Visa issued, BMET Pending and Flight Pending', async () => {
+      bmetPendingRows = []
+      vi.mocked(recordStepResult).mockImplementation(async () => {
+        visaPendingRows = []
+        ROWS.issued = [visaPending(51, addDays(TODAY, 200), { status: 'completed' })]
+        bmetPendingRows = [bmetRow(51)]
+        flightPendingRows = [flightRow(51)]
+        return saved as never
+      })
+      try {
+        await mountStep('/visa')
+        const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
+        await wrapper.get('tr[data-row="51"] button[data-step-result="completed"]').trigger('click')
+        await flushPromises()
+        const dialog = modal()!.get('[data-step-result-dialog]')
+        await dialog.get('[data-step-field="issue_date"] input').setValue('2026-10-08')
+        await dialog.get('[data-step-field="valid_until"] input').setValue('2027-01-08')
+        await dialog.get('form').trigger('submit')
+        await flushPromises()
+
+        expect(wrapper.find('tr[data-row="51"]').exists()).toBe(false)
+        expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
+        expect(wrapper.get('[role="tab"][data-tab="issued"] [data-tab-count]').text()).toBe('4')
+        for (const path of ['/visa?tab=issued', '/bmet', '/flight']) {
+          wrapper.unmount()
+          await mountStep(path)
+          expect(wrapper.find('tr[data-row="51"]').exists()).toBe(true)
+        }
+      } finally {
+        ROWS.issued = []
+      }
     })
 
     it('Rejected: only the result date; it may not be in the future', async () => {
@@ -1044,7 +1564,7 @@ describe('Step pages (one per step)', () => {
       await wrapper.get('tr[data-row="51"] button[data-step-result="rejected"]').trigger('click')
       await flushPromises()
 
-      const dialog = wrapper.get('[data-step-result-dialog]')
+      const dialog = modal()!.get('[data-step-result-dialog]')
       expect(
         dialog.findAll('[data-step-field]').map((f) => f.attributes('data-step-field')),
       ).toEqual(['result_date'])

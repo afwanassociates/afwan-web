@@ -34,6 +34,7 @@ async function openCompanyModal(extraProps: Record<string, unknown> = {}) {
       nameLabel: 'Company name',
       initialName: 'ABC Sdn Bhd',
       save,
+      withQuota: true,
       withCountry: true,
       defaultCountryCode: 'MY',
       ...extraProps,
@@ -49,6 +50,7 @@ async function openCompanyModal(extraProps: Record<string, unknown> = {}) {
 const isOpen = () => (wrapper.props() as Record<string, unknown>).open
 const countrySelect = () => wrapper.findComponent(SearchSelect)
 const countryValue = () => (countrySelect().props() as Record<string, unknown>).modelValue
+const quota = () => wrapper.get<HTMLInputElement>('[data-field="quota"] input')
 const submit = async () => {
   await wrapper.get('form').trigger('submit')
   await flushPromises()
@@ -65,8 +67,20 @@ describe('QuickAddModal (company)', () => {
     expect(wrapper.get<HTMLInputElement>('input[role="combobox"]').element.value).toBe('Malaysia')
   })
 
-  it('sends name and country_code', async () => {
+  it('has exactly three required fields: Company name, Quota and Country', async () => {
     await openCompanyModal()
+
+    const labels = wrapper.findAll('form label').map((l) => l.text().replace(/\s+/g, ' ').trim())
+    expect(labels).toEqual(['Company name *', 'Quota *', 'Country *'])
+    expect(wrapper.find('[data-field="agent_name"], [data-field="agent_phone"]').exists()).toBe(
+      false,
+    )
+    expect(wrapper.find('input[type="tel"], input[type="email"]').exists()).toBe(false)
+  })
+
+  it('sends name, quota and country_code', async () => {
+    await openCompanyModal()
+    await quota().setValue('25')
 
     await submit()
 
@@ -74,53 +88,60 @@ describe('QuickAddModal (company)', () => {
       name: 'ABC Sdn Bhd',
       phone: null,
       country_code: 'MY',
-      agent: null,
+      quota: 25,
     })
     expect(wrapper.emitted('saved')).toEqual([[{ id: 9, name: 'ABC Sdn Bhd' }]])
     expect(isOpen()).toBe(false)
   })
 
-  it('sends the optional agent details and quota (empty ones as null)', async () => {
-    await openCompanyModal({ withAgent: true })
-    const field = (name: string) => wrapper.get<HTMLInputElement>(`[data-field="${name}"] input`)
+  it.each([
+    ['', 'Enter the quota.'],
+    ['0', 'The quota must be at least 1.'],
+    ['2.5', 'The quota must be a whole number.'],
+  ])('checks the quota %j: %s', async (value, message) => {
+    await openCompanyModal()
+    await quota().setValue(value)
 
-    await field('agent_name').setValue('  Rahim  ')
-    await field('agent_phone').setValue('+60 12-345 (6789)')
-    await field('bd_agency_name').setValue('Dhaka Overseas')
-    await field('quota').setValue('25')
-    await submit()
-
-    expect(save).toHaveBeenCalledWith({
-      name: 'ABC Sdn Bhd',
-      phone: null,
-      country_code: 'MY',
-      agent: {
-        agent_name: 'Rahim',
-        agent_phone: '+60 12-345 (6789)',
-        agent_email: null,
-        bd_agency_name: 'Dhaka Overseas',
-        quota: 25,
-      },
-    })
-  })
-
-  it('checks the agent phone and email before saving', async () => {
-    await openCompanyModal({ withAgent: true })
-    const field = (name: string) => wrapper.get<HTMLInputElement>(`[data-field="${name}"] input`)
-
-    await field('agent_phone').setValue('call me')
-    await field('agent_email').setValue('not-an-email')
     await submit()
 
     expect(save).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-field="agent_phone"]').text()).toContain(
-      'may only contain digits, spaces, +, - and brackets',
+    expect(wrapper.get('[data-field="quota"]').text()).toContain(message)
+    expect(quota().attributes('aria-invalid')).toBe('true')
+  })
+
+  it('requires the company name', async () => {
+    await openCompanyModal({ initialName: '' })
+    await quota().setValue('5')
+
+    await submit()
+
+    expect(save).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('Enter the company name.')
+  })
+
+  it('maps API 422 errors to the name and quota fields', async () => {
+    await openCompanyModal()
+    await quota().setValue('5')
+    save.mockRejectedValueOnce(
+      httpError(422, {
+        message: 'Invalid.',
+        errors: {
+          name: ['A company with this name already exists.'],
+          quota: ['The quota must be at least 1.'],
+        },
+      }),
     )
-    expect(wrapper.get('[data-field="agent_email"]').text()).toContain('Enter a valid email')
+
+    await submit()
+
+    expect(wrapper.text()).toContain('A company with this name already exists.')
+    expect(wrapper.get('[data-field="quota"]').text()).toContain('The quota must be at least 1.')
+    expect(isOpen()).toBe(true)
   })
 
   it('lets the user choose another country', async () => {
     await openCompanyModal()
+    await quota().setValue('3')
     countrySelect().vm.$emit('update:modelValue', COUNTRIES[2])
     await flushPromises()
 
@@ -142,6 +163,7 @@ describe('QuickAddModal (company)', () => {
 
   it('shows a 422 for the country under the field and stays open', async () => {
     await openCompanyModal()
+    await quota().setValue('3')
     save.mockRejectedValueOnce(
       httpError(422, {
         message: 'The selected country does not exist or is inactive.',

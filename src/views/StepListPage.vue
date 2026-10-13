@@ -3,13 +3,24 @@ import { computed, ref, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import StepResultDialog from '@/components/StepResultDialog.vue'
 import StepStartPopover from '@/components/StepStartPopover.vue'
-import EntryModeBadge from '@/components/EntryModeBadge.vue'
+import TopModal from '@/components/TopModal.vue'
+import DatePopover from '@/components/DatePopover.vue'
 import PassportListBody from '@/components/PassportListBody.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
-import { deleteStepRecord, listStepPassports, startStep } from '@/api/steps'
+import {
+  bookFlight,
+  clearFlightBooking,
+  confirmFlight,
+  deleteStepRecord,
+  listStepPassports,
+  markStepAction,
+  undoStepAction,
+  startStep,
+  undoFlightConfirm,
+} from '@/api/steps'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
-import { businessToday, daysLeft, toDisplayDate } from '@/lib/dates'
+import { businessToday, daysLeft, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { staffTitle } from '@/lib/pageTitle'
 import { ADMIN_ROLES, canAccessArea } from '@/lib/roles'
@@ -17,20 +28,25 @@ import { STICKY_ACTIONS, TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClass
 import { finalStatuses, isRecordStep, statusLabel } from '@/lib/workflow'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
-import type { StepFieldConfig, StepListResponse, StepListRow, StepListTab } from '@/types/workflow'
+import type {
+  StepAction,
+  StepConfig,
+  StepFieldConfig,
+  StepListResponse,
+  StepListRow,
+  StepListTab,
+} from '@/types/workflow'
 
 /**
  * One page per workflow step (Calling, Visa, BMET, Flight, …), built like the Medical page
  * and driven by the route's step key and GET /workflow/config: labels, statuses and fields.
- * A new step needs only config. Tabs come from the config (calling: Pending, Permitted; the
- * others Pending, then one per status). Tab, the three searches and the page live in the URL;
- * the API decides the order of each tab.
+ * Tabs come from the config (calling: Pending, Permitted; visa: Pending, Visa issued,
+ * Rejected; BMET: Pending, BMET cleared; flight: Pending, Flight confirmed). Tab, the three
+ * searches and the page live in the URL; the API decides the order and counts of each tab.
  */
 const PER_PAGE = 15
-/** Tabs for an API that does not send them yet. */
-const DEFAULT_TAB_KEYS = ['pending', 'in_process', 'completed', 'rejected']
 /** Column titles that read better than the generic one (by step key). */
-const PREVIOUS_EXPIRY_LABEL: Record<string, string> = { visa: 'Calling permit expiry' }
+const PREVIOUS_EXPIRY_LABEL: Record<string, string> = { visa: 'Calling expiry' }
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +57,7 @@ workflow.load()
 workflow.loadConfig()
 
 const searchId = useId()
+const blockedId = useId()
 const companyId = useId()
 const referenceId = useId()
 
@@ -118,7 +135,7 @@ const hasFilters = computed(() =>
 function queryWith(changes: Partial<Filters>): LocationQuery {
   const next = { ...filters.value, page: 1, ...changes }
   const query: LocationQuery = {}
-  if (next.tab && next.tab !== tabs.value[0]?.key) query.tab = next.tab
+  if (next.tab && next.tab !== defaultTab.value) query.tab = next.tab
   if (next.q) query.q = next.q
   if (next.company) query.company = next.company
   if (next.reference) query.reference = next.reference
@@ -192,29 +209,34 @@ watch(filters, (f) => {
 
 /* ---------- Tabs ---------- */
 
-/** The config's tabs; for an older API: Pending, then one per status. */
+/** The config's tabs (Pending alone if it sends none). */
 const tabs = computed<{ key: StepListTab; label: string }[]>(() => {
   const s = step.value
   if (!s) return []
-  if (s.tabs?.length) return s.tabs
-  return [
-    { key: 'pending', label: 'Pending' },
-    ...s.statuses
-      .filter((st) => DEFAULT_TAB_KEYS.includes(st.value))
-      .map((st) => ({ key: st.value, label: st.label })),
-  ]
+  return s.tabs?.length ? s.tabs : [{ key: 'pending', label: 'Pending' }]
 })
 
-/** The tab in the URL, or the first one. */
-const activeTab = computed<StepListTab>(() => {
-  const keys = tabs.value.map((t) => t.key)
-  return keys.includes(filters.value.tab) ? filters.value.tab : (keys[0] ?? 'pending')
-})
-const isPendingTab = computed(() => activeTab.value === tabs.value[0]?.key)
+/** Pending opens first when the step has it; else the first tab. */
+const defaultTab = computed<StepListTab>(() =>
+  tabs.value.some((t) => t.key === 'pending') ? 'pending' : (tabs.value[0]?.key ?? 'pending'),
+)
+/** The tab in the URL, or the default one. */
+const activeTab = computed<StepListTab>(() =>
+  tabs.value.some((t) => t.key === filters.value.tab) ? filters.value.tab : defaultTab.value,
+)
+const isPendingTab = computed(() => activeTab.value === 'pending')
+/**
+ * A step with a booking date (flight): it runs alongside the step before (BMET) once the
+ * visa is issued; the booking is saved any time, the confirm needs both.
+ */
+const isBookingStepConfig = (s: StepConfig) => s.fields.some((f) => f.phase === 'booking')
+const isBookingStep = computed(() => (step.value ? isBookingStepConfig(step.value) : false))
+const bookingField = computed(() => step.value?.fields.find((f) => f.phase === 'booking'))
+const confirmField = computed(() => step.value?.fields.find((f) => f.phase === 'confirm'))
 
 /**
- * No "in process" tab (calling): started passports stay in Pending with their date, and the
- * result is entered there.
+ * No "in process" tab (every step now): started passports stay in Pending with their date,
+ * and the result is entered there (visa).
  */
 const startedInPending = computed(() => !tabs.value.some((t) => t.key === 'in_process'))
 /** One outcome only (calling: Permitted): its result is a "details" form, no reject. */
@@ -313,6 +335,9 @@ function fieldValue(row: StepListRow, field: StepFieldConfig): string {
   // "-" when missing (e.g. old records without a field), as on the Medical page.
   const record = row.record
   if (!record) return '-'
+  // The step date column is when the step started (visa: submitted), also once it has a result.
+  if (field.name === 'step_date' && record.submitted_date)
+    return toDisplayDate(record.submitted_date) || record.submitted_date
   const raw = field.in_details
     ? record.details?.[field.name]
     : (record as unknown as Record<string, unknown>)[field.name]
@@ -343,33 +368,44 @@ function expiryTone(value: string | null | undefined): string | undefined {
   return undefined
 }
 
-/** The Online mark: on the step after the first recorded step (visa), not on Calling itself. */
-const showMode = computed(
-  () => previousStep.value !== null && previousStep.value.key === firstRecordStep.value,
-)
-
 /**
  * Pending of a later step whose passports arrive already started (visa, submitted from the
  * Calling page): the step before's expiry (the calling permit) is shown next to them.
  */
+/** The visa's expiry: BMET Pending and Flight Pending. */
+const showVisaExpiry = computed(
+  () => isPendingTab.value && (isMilestoneStep.value || isBookingStep.value),
+)
+
+/** Calling expiry on Visa Pending and Visa issued (not on Rejected). */
+const showPreviousExpiry = computed(
+  () => previousExpiry.value !== null && (isPendingTab.value || activeTab.value !== 'rejected'),
+)
 const previousExpiry = computed(() => {
   const prev = previousStep.value
-  if (!startedInPending.value || isFirstStep.value || !prev) return null
+  if (
+    !startedInPending.value ||
+    isFirstStep.value ||
+    isMilestoneStep.value ||
+    isBookingStep.value ||
+    !prev
+  )
+    return null
   if (!prev.fields.some((f) => f.name === 'valid_until')) return null
   return PREVIOUS_EXPIRY_LABEL[stepKey.value] ?? `${prev.short_label} expiry`
 })
 
-const previousDoneLabel = computed(() =>
-  previousStep.value ? `${previousStep.value.short_label} done` : 'Ready since',
-)
+/**
+ * The step whose finished passports arrive here: the one before, or for a step running
+ * alongside it (flight next to BMET) the one before that (visa: "an issued visa").
+ */
+const sourceStep = computed(() => {
+  const steps = recordSteps.value
+  const index = steps.findIndex((st) => st.key === stepKey.value)
+  return (isBookingStep.value ? steps[index - 2] : steps[index - 1]) ?? null
+})
 
 /* ---------- Actions ---------- */
-
-/** "Enter calling date": short labels like "BMET" keep their capitals. */
-const startLabel = computed(() => {
-  const short = step.value?.short_label ?? ''
-  return `Enter ${short === short.toUpperCase() ? short : short.toLowerCase()} date`
-})
 
 type PopoverMode = 'start' | 'again' | 'update'
 const start = ref<{
@@ -386,9 +422,11 @@ function openStart(row: StepListRow, event: Event, mode: PopoverMode, next = fal
 
 /**
  * Saved in one update (calling): no "in process" tab and one outcome, so every Pending row
- * gets "Update calling" (the date and, all or none, the permit dates).
+ * gets "Update calling" (the permit dates). Not flight, which has its booking and confirm.
  */
-const singleUpdate = computed(() => startedInPending.value && singleOutcome.value)
+const singleUpdate = computed(
+  () => startedInPending.value && singleOutcome.value && !isBookingStep.value,
+)
 const updateLabel = computed(() => {
   const short = step.value?.short_label ?? ''
   return `Update ${short === short.toUpperCase() ? short : short.toLowerCase()}`
@@ -409,13 +447,11 @@ const isHandOverTab = computed(
 const tabHasActions = computed(
   () =>
     canAct.value &&
-    (isPendingTab.value ||
-      activeTab.value === 'in_process' ||
-      activeTab.value === 'rejected' ||
-      isHandOverTab.value),
+    !isMilestoneStep.value &&
+    (isPendingTab.value || activeTab.value === 'rejected' || isHandOverTab.value),
 )
 
-/** In Pending: started (in process) rows get the result; the others the start. */
+/** In Pending: started (in process) rows get the result (visa). */
 const isStarted = (row: StepListRow) => row.record?.status === 'in_process'
 
 const resultOpen = ref(false)
@@ -443,11 +479,12 @@ function onStarted() {
   const s = step.value
   if (!target || !s) return
   if (target.mode === 'update') {
+    // Calling: "Moved to Permitted".
     afterSave(target.row, `Moved to ${statusLabel(s, 'completed')}`)
     return
   }
+  // Apply again: "Submitted" reads "Visa submitted".
   const started = statusLabel(s, 'in_process')
-  // "Calling date entered" already names the step; "Submitted" reads "Visa submitted".
   afterSave(
     target.row,
     started.toLowerCase().includes(s.short_label.toLowerCase())
@@ -458,13 +495,232 @@ function onStarted() {
 
 function onResultSaved() {
   const row = resultRow.value
-  if (!row || !step.value) return
-  afterSave(row, `${step.value.short_label}: ${statusLabel(step.value, resultValue.value)}.`)
+  const s = step.value
+  if (!row || !s) return
+  const label = statusLabel(s, resultValue.value)
+  // Visa issued: "Moved to Visa issued - now in BMET Clearance and Flight".
+  afterSave(
+    row,
+    resultValue.value === 'completed' && receivingSteps.value.length
+      ? `Moved to ${label} - now in ${receivingSteps.value.map((st) => st.label).join(' and ')}`
+      : `${s.short_label}: ${label}.`,
+  )
+}
+
+/* ---------- Milestone actions (BMET: Training, Finger, then BMET clearance) ---------- */
+
+/** Where a finished passport goes: the next step and a step running alongside it (flight). */
+const receivingSteps = computed(() => {
+  const steps = recordSteps.value
+  const index = steps.findIndex((st) => st.key === stepKey.value)
+  const next = steps[index + 1]
+  const after = steps[index + 2]
+  return [next, after && isBookingStepConfig(after) ? after : undefined].filter(
+    (st): st is StepConfig => !!st,
+  )
+})
+
+const actions = computed(() => step.value?.actions ?? [])
+const isMilestoneStep = computed(() => actions.value.length > 0)
+/** The last action completes the step (BMET clearance); it needs the others first. */
+const completeAction = computed(() => actions.value[actions.value.length - 1] ?? null)
+const milestoneActions = computed(() => actions.value.slice(0, -1))
+/** "Training" from "Training done". */
+const actionName = (a: StepAction) => a.label.replace(/\s+done$/i, '')
+/** When the action was done: the row's `<action>_date`. */
+const actionDate = (row: StepListRow, a: StepAction) =>
+  ((row as unknown as Record<string, unknown>)[`${a.key}_date`] as string | null | undefined) ??
+  null
+const isComplete = (a: StepAction) => a.key === completeAction.value?.key
+/** "Training and finger must be done first". */
+const blockedHint = computed(() => {
+  const names = milestoneActions.value.map((a) => actionName(a).toLowerCase()).join(' and ')
+  return `${names.charAt(0).toUpperCase()}${names.slice(1)} must be done first`
+})
+const isBlocked = (row: StepListRow, a: StepAction) =>
+  isComplete(a) && milestoneActions.value.some((m) => !actionDate(row, m))
+
+/** Rows with a request running: their buttons wait (no double clicks). */
+const busyRows = ref(new Set<number>())
+const setBusy = (id: number, on: boolean) => {
+  const next = new Set(busyRows.value)
+  if (on) next.add(id)
+  else next.delete(id)
+  busyRows.value = next
+}
+
+/**
+ * Marks an action done (today in Dhaka, or `date` to correct it). The row changes at once
+ * (the last action takes it off Pending) and comes back on an error. A new mark gets a toast
+ * with Undo.
+ */
+async function markAction(row: StepListRow, a: StepAction, date?: string) {
+  const s = step.value
+  const current = list.value
+  if (!s || !current || busyRows.value.has(row.id)) return
+  setBusy(row.id, true)
+  const done = date ?? businessToday()
+  const name = actionName(a)
+  list.value = {
+    ...current,
+    data:
+      isComplete(a) && !date
+        ? current.data.filter((r) => r.id !== row.id)
+        : current.data.map((r) => (r.id === row.id ? { ...r, [`${a.key}_date`]: done } : r)),
+  }
+  try {
+    await markStepAction(row.id, s.key, a.key, date)
+    if (date) {
+      toast.success(`${row.passport_number}: ${name} date changed to ${toDisplayDate(date)}.`)
+    } else {
+      const cleared = tabs.value[tabs.value.length - 1]?.label ?? statusLabel(s, 'completed')
+      const next = nextStep.value
+      const nextTab = next?.tabs?.find((t) => t.key === 'pending')?.label ?? 'Pending'
+      toast.success(
+        `${row.passport_number}: ${
+          isComplete(a) && next ? `Moved to ${cleared} - now in ${next.label} ${nextTab}` : a.label
+        }`,
+        { duration: UNDO_MS, action: { label: 'Undo', run: () => undoAction(row, a) } },
+      )
+    }
+  } catch (error) {
+    list.value = current
+    if (errorStatus(error) !== 401)
+      toast.error(
+        errorStatus(error) === 422
+          ? (Object.values(fieldErrors(error))[0] ?? errorMessage(error))
+          : errorMessage(error, 'Could not save. Please try again.'),
+      )
+  } finally {
+    setBusy(row.id, false)
+    load()
+    workflow.refresh()
+  }
+}
+
+async function undoAction(row: StepListRow, a: StepAction) {
+  const s = step.value
+  if (!s) return
+  setBusy(row.id, true)
+  try {
+    await undoStepAction(row.id, s.key, a.key)
+    toast.success(`${row.passport_number}: ${actionName(a)} undone.`)
+  } catch (error) {
+    toast.error(errorMessage(error, 'Could not undo. Please try again.'))
+  } finally {
+    setBusy(row.id, false)
+    load()
+    workflow.refresh()
+  }
+}
+
+/** The pencil: correct an action's date in a small top modal (not in the future). */
+const dateEdit = ref<{ row: StepListRow; action: StepAction; value: string; error: string } | null>(
+  null,
+)
+function openDateEdit(row: StepListRow, a: StepAction) {
+  dateEdit.value = { row, action: a, value: actionDate(row, a) ?? businessToday(), error: '' }
+}
+function saveDateEdit() {
+  const edit = dateEdit.value
+  if (!edit) return
+  const date = toApiDate(edit.value)
+  if (!edit.value) edit.error = 'Enter the date.'
+  else if (!date) edit.error = 'Enter a valid date.'
+  else if (date > businessToday()) edit.error = 'The date cannot be in the future.'
+  else {
+    dateEdit.value = null
+    markAction(edit.row, edit.action, date)
+  }
+}
+
+/* ---------- Undo ---------- */
+
+const UNDO_MS = 6000
+
+/* ---------- Flight: booking date and one-click confirm ---------- */
+
+/** The booking popover (under its button). */
+const booking = ref<{ row: StepListRow; anchor: HTMLElement | null } | null>(null)
+function openBooking(row: StepListRow, event: Event) {
+  booking.value = { row, anchor: event.currentTarget as HTMLElement }
+}
+
+async function saveBooking(row: StepListRow, date: string) {
+  await bookFlight(row.id, date)
+  toast.success(
+    `${row.passport_number}: ${bookingField.value?.label ?? 'Booking date'} ${toDisplayDate(date)} saved.`,
+  )
+  load()
+  workflow.refresh()
+}
+
+async function clearBooking(row: StepListRow) {
+  await clearFlightBooking(row.id)
+  toast.success(`${row.passport_number}: ${bookingField.value?.label ?? 'Booking date'} cleared.`)
+  load()
+  workflow.refresh()
+}
+
+/** What the confirm still needs, from the row's `missing`. */
+function confirmHint(row: StepListRow): string | undefined {
+  if (row.can_confirm) return undefined
+  const missing = row.missing ?? []
+  const bmet = missing.includes('bmet')
+  const date = missing.includes('booking_date')
+  if (bmet && date) return 'BMET clearance and flight booking date are required'
+  if (bmet) return 'BMET clearance must be done first'
+  if (date) return 'Enter the flight booking date first'
+  return 'This flight cannot be confirmed yet'
+}
+
+/**
+ * One click: the row leaves Pending at once and comes back on an error (the API's message in
+ * a toast). The toast "Flight confirmed" offers Undo (the booking date is kept).
+ */
+async function markConfirm(row: StepListRow) {
+  const current = list.value
+  if (!current || !row.can_confirm || busyRows.value.has(row.id)) return
+  setBusy(row.id, true)
+  list.value = { ...current, data: current.data.filter((r) => r.id !== row.id) }
+  try {
+    const response = await confirmFlight(row.id)
+    toast.success(`${row.passport_number}: ${statusLabel(step.value!, 'completed')}`, {
+      duration: UNDO_MS,
+      action: { label: 'Undo', run: () => undoConfirm(row) },
+    })
+    for (const w of response.warnings ?? []) toast.warning(w.message)
+  } catch (error) {
+    list.value = current
+    if (errorStatus(error) !== 401)
+      toast.error(
+        errorStatus(error) === 422
+          ? (Object.values(fieldErrors(error))[0] ?? errorMessage(error))
+          : errorMessage(error, 'Could not confirm the flight. Please try again.'),
+      )
+  } finally {
+    setBusy(row.id, false)
+    load()
+    workflow.refresh()
+  }
+}
+
+async function undoConfirm(row: StepListRow) {
+  setBusy(row.id, true)
+  try {
+    await undoFlightConfirm(row.id)
+    toast.success(`${row.passport_number}: back in Pending.`)
+  } catch (error) {
+    toast.error(errorMessage(error, 'Could not undo. Please try again.'))
+  } finally {
+    setBusy(row.id, false)
+    load()
+    workflow.refresh()
+  }
 }
 
 /* ---------- Permitted → the next step (optimistic, with Undo for admins) ---------- */
 
-const UNDO_MS = 6000
 /** Only admins may delete a step record, so only they get Undo. */
 const canUndo = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
 
@@ -519,18 +775,24 @@ async function undoNext(row: StepListRow, recordId: number) {
 const emptyTitle = computed(() =>
   hasFilters.value
     ? 'No passports match these searches.'
-    : isPendingTab.value
-      ? `No passports are waiting for ${step.value?.label ?? 'this step'}.`
-      : `No passports in "${tabs.value.find((t) => t.key === activeTab.value)?.label ?? ''}".`,
+    : isBookingStep.value && !isPendingTab.value
+      ? `No confirmed ${step.value?.short_label.toLowerCase() ?? 'step'}s yet.`
+      : isMilestoneStep.value && !isPendingTab.value
+        ? `No ${(statusLabel(step.value!, 'completed').split(' ').pop() ?? 'done').toLowerCase()} passports yet.`
+        : isPendingTab.value
+          ? `No passports are waiting for ${step.value?.label ?? 'this step'}.`
+          : `No passports in "${tabs.value.find((t) => t.key === activeTab.value)?.label ?? ''}".`,
 )
 const emptyText = computed(() =>
   hasFilters.value
     ? 'Check the name or passport number, company and reference searches, or clear them.'
-    : isPendingTab.value && isFirstStep.value
-      ? 'Mark passports Online on the Medical Fit tab to see them here.'
-      : isPendingTab.value && previousExpiry.value && previousStep.value
-        ? `Enter the ${(step.value?.fields.find((f) => f.name === 'step_date')?.label ?? 'date').toLowerCase()} on the ${previousStep.value.label} page (${previousStep.value.tabs?.[previousStep.value.tabs.length - 1]?.label ?? 'last'} tab) to see passports here.`
-        : undefined,
+    : isPendingTab.value && (isMilestoneStep.value || isBookingStep.value) && sourceStep.value
+      ? `Passports with an issued ${sourceStep.value.short_label.toLowerCase()} appear here.`
+      : isPendingTab.value && isFirstStep.value
+        ? 'Mark passports Online on the Medical Fit tab to see them here.'
+        : isPendingTab.value && previousExpiry.value && previousStep.value
+          ? `Enter the ${(step.value?.fields.find((f) => f.name === 'step_date')?.label ?? 'date').toLowerCase()} on the ${previousStep.value.label} page (${previousStep.value.tabs?.[previousStep.value.tabs.length - 1]?.label ?? 'last'} tab) to see passports here.`
+          : undefined,
 )
 
 const inputClass =
@@ -695,16 +957,42 @@ const STICKY = STICKY_ACTIONS
                       <th scope="col" :class="th">Passport number</th>
                       <th scope="col" :class="th">Reference</th>
                       <th scope="col" :class="th">Company</th>
-                      <th v-if="showMode" scope="col" :class="th" data-column="mode">Mode</th>
                       <th
-                        v-if="isPendingTab && previousExpiry"
+                        v-if="showPreviousExpiry"
                         scope="col"
                         :class="th"
                         data-column="previous_expiry"
                       >
                         {{ previousExpiry }}
                       </th>
-                      <template v-if="isPendingTab && startedInPending">
+                      <th
+                        v-if="showVisaExpiry"
+                        scope="col"
+                        :class="th"
+                        data-column="visa_valid_until"
+                      >
+                        Visa expired date
+                      </th>
+                      <!-- BMET: one column per action (Pending), or its date (BMET cleared) -->
+                      <template v-if="isMilestoneStep">
+                        <th
+                          v-for="a in actions"
+                          :key="a.key"
+                          scope="col"
+                          :class="th"
+                          :data-column="a.key"
+                        >
+                          {{ isPendingTab ? actionName(a) : `${actionName(a)} date` }}
+                        </th>
+                      </template>
+                      <!-- Flight Pending: BMET status and the booking date -->
+                      <template v-else-if="isBookingStep && isPendingTab">
+                        <th scope="col" :class="th" data-column="bmet_status">BMET status</th>
+                        <th scope="col" :class="th" data-column="booking_date">
+                          {{ bookingField?.label }}
+                        </th>
+                      </template>
+                      <template v-else-if="isPendingTab && startedInPending">
                         <th
                           v-for="field in startColumns"
                           :key="field.name"
@@ -715,9 +1003,15 @@ const STICKY = STICKY_ACTIONS
                           {{ field.label }}
                         </th>
                       </template>
-                      <th v-else-if="isPendingTab" scope="col" :class="th">
-                        {{ previousDoneLabel }}
-                      </th>
+                      <!-- Flight confirmed: the booking and confirmed dates -->
+                      <template v-else-if="isBookingStep">
+                        <th scope="col" :class="th" data-column="booking_date">
+                          {{ bookingField?.label }}
+                        </th>
+                        <th scope="col" :class="th" data-column="confirmed_date">
+                          {{ confirmField?.label }}
+                        </th>
+                      </template>
                       <template v-else>
                         <th
                           v-for="field in fieldColumns"
@@ -757,20 +1051,137 @@ const STICKY = STICKY_ACTIONS
                       </td>
                       <td :class="TABLE_TD">{{ row.reference?.name ?? '—' }}</td>
                       <td :class="TABLE_TD">{{ row.company.name }}</td>
-                      <td v-if="showMode" :class="TABLE_TD" data-cell="mode">
-                        <EntryModeBadge v-if="row.entry_mode" :mode="row.entry_mode" />
-                        <template v-else>—</template>
-                      </td>
                       <td
-                        v-if="isPendingTab && previousExpiry"
+                        v-if="showPreviousExpiry"
                         class="py-3 pr-4 whitespace-nowrap text-slate-800"
                         :class="expiryTone(row.previous_record?.valid_until)"
                         data-cell="previous_expiry"
                       >
                         {{ toDisplayDate(row.previous_record?.valid_until) || '-' }}
                       </td>
-                      <!-- Pending (calling, visa): the start date, once entered -->
-                      <template v-if="isPendingTab && startedInPending">
+                      <td
+                        v-if="showVisaExpiry"
+                        class="py-3 pr-4 whitespace-nowrap text-slate-800"
+                        :class="expiryTone(row.visa_valid_until)"
+                        data-cell="visa_valid_until"
+                      >
+                        {{ toDisplayDate(row.visa_valid_until) || '-' }}
+                      </td>
+                      <!-- BMET Pending: each action done (date, pencil) or "Mark done" -->
+                      <template v-if="isMilestoneStep && isPendingTab">
+                        <td
+                          v-for="a in actions"
+                          :key="a.key"
+                          class="py-3 pr-4 whitespace-nowrap"
+                          :data-cell="a.key"
+                        >
+                          <span
+                            v-if="actionDate(row, a)"
+                            class="inline-flex items-center gap-1 font-medium text-green-700"
+                            data-action-done
+                          >
+                            <svg
+                              class="h-4 w-4"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="3"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M5 12l5 5L20 7" />
+                            </svg>
+                            <span class="sr-only">Done</span>
+                            {{ toDisplayDate(actionDate(row, a)) }}
+                            <button
+                              v-if="canAct && !isComplete(a)"
+                              type="button"
+                              class="rounded-full p-1 text-primary-700 hover:bg-primary-50 disabled:opacity-50"
+                              :disabled="busyRows.has(row.id)"
+                              data-action-edit
+                              @click="openDateEdit(row, a)"
+                            >
+                              <svg
+                                class="h-3.5 w-3.5"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4zM13.5 6.5l4 4" />
+                              </svg>
+                              <span class="sr-only">{{
+                                `Change the ${actionName(a).toLowerCase()} date of ${row.passport_number}`
+                              }}</span>
+                            </button>
+                          </span>
+                          <span
+                            v-else-if="canAct"
+                            class="inline-block"
+                            :title="isBlocked(row, a) ? blockedHint : undefined"
+                          >
+                            <button
+                              type="button"
+                              :class="[
+                                actionClass,
+                                isComplete(a)
+                                  ? 'bg-green-700 text-white hover:bg-green-800'
+                                  : 'bg-primary-900 text-white hover:bg-primary-700',
+                                'disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600',
+                              ]"
+                              :disabled="isBlocked(row, a) || busyRows.has(row.id)"
+                              :aria-describedby="isBlocked(row, a) ? blockedId : undefined"
+                              :data-action="a.key"
+                              @click="markAction(row, a)"
+                            >
+                              Mark done<span class="sr-only">{{
+                                ` ${actionName(a).toLowerCase()} ${row.passport_number}`
+                              }}</span>
+                            </button>
+                          </span>
+                          <span v-else class="font-medium text-amber-700" data-action-pending>
+                            Pending
+                          </span>
+                        </td>
+                      </template>
+                      <!-- BMET cleared: the dates, read-only -->
+                      <template v-else-if="isMilestoneStep">
+                        <td
+                          v-for="a in actions"
+                          :key="a.key"
+                          class="py-3 pr-4 whitespace-nowrap text-slate-800"
+                          :data-cell="a.key"
+                        >
+                          {{ toDisplayDate(actionDate(row, a)) || '-' }}
+                        </td>
+                      </template>
+                      <!-- Flight Pending: BMET cleared (date) or pending; the booking date -->
+                      <template v-else-if="isBookingStep && isPendingTab">
+                        <td class="py-3 pr-4 whitespace-nowrap" data-cell="bmet_status">
+                          <span
+                            v-if="row.bmet_cleared"
+                            class="font-medium text-green-700"
+                            data-bmet="cleared"
+                          >
+                            Cleared {{ toDisplayDate(row.clearance_date) }}
+                          </span>
+                          <span v-else class="font-medium text-amber-700" data-bmet="pending">
+                            Pending
+                          </span>
+                        </td>
+                        <td
+                          class="py-3 pr-4 whitespace-nowrap text-slate-800"
+                          data-cell="booking_date"
+                        >
+                          {{ toDisplayDate(row.booking_date) || '-' }}
+                        </td>
+                      </template>
+                      <!-- Pending (visa): the start date, once entered -->
+                      <template v-else-if="isPendingTab && startedInPending">
                         <td
                           v-for="field in startColumns"
                           :key="field.name"
@@ -780,13 +1191,21 @@ const STICKY = STICKY_ACTIONS
                           {{ isStarted(row) ? fieldValue(row, field) : '-' }}
                         </td>
                       </template>
-                      <td
-                        v-else-if="isPendingTab"
-                        class="py-3 pr-4 whitespace-nowrap text-slate-800"
-                        data-cell="previous_done"
-                      >
-                        {{ toDisplayDate(row.previous_step_completed_on) || '—' }}
-                      </td>
+                      <!-- Flight confirmed: the booking and confirmed dates, read-only -->
+                      <template v-else-if="isBookingStep">
+                        <td
+                          class="py-3 pr-4 whitespace-nowrap text-slate-800"
+                          data-cell="booking_date"
+                        >
+                          {{ toDisplayDate(row.booking_date) || '-' }}
+                        </td>
+                        <td
+                          class="py-3 pr-4 whitespace-nowrap text-slate-800"
+                          data-cell="confirmed_date"
+                        >
+                          {{ toDisplayDate(row.confirmed_date) || '-' }}
+                        </td>
+                      </template>
                       <template v-else>
                         <td
                           v-for="field in fieldColumns"
@@ -800,9 +1219,77 @@ const STICKY = STICKY_ACTIONS
                       </template>
                       <td v-if="tabHasActions" class="py-3" :class="STICKY" data-actions>
                         <div class="flex flex-wrap justify-end gap-1">
-                          <!-- Calling Pending: one "Update calling" (the date and the permit together) -->
+                          <!-- Flight Pending: the booking date (any time), then the one-click confirm -->
+                          <template v-if="isBookingStep && isPendingTab">
+                            <button
+                              v-if="!row.booking_date"
+                              type="button"
+                              :class="[
+                                actionClass,
+                                'border border-primary-300 bg-white text-primary-800 hover:bg-primary-50',
+                              ]"
+                              :disabled="busyRows.has(row.id)"
+                              data-booking
+                              @click="openBooking(row, $event)"
+                            >
+                              {{ bookingField?.label
+                              }}<span class="sr-only">{{ ` for ${row.passport_number}` }}</span>
+                            </button>
+                            <button
+                              v-else
+                              type="button"
+                              class="rounded-full p-2 text-primary-700 hover:bg-primary-50 disabled:opacity-50"
+                              :disabled="busyRows.has(row.id)"
+                              data-booking
+                              data-booking-edit
+                              @click="openBooking(row, $event)"
+                            >
+                              <svg
+                                class="h-4 w-4"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4zM13.5 6.5l4 4" />
+                              </svg>
+                              <span class="sr-only">{{
+                                `Change the ${(bookingField?.label ?? 'booking date').toLowerCase()} of ${row.passport_number}`
+                              }}</span>
+                            </button>
+                            <span class="inline-block" :title="confirmHint(row)">
+                              <button
+                                type="button"
+                                :class="[
+                                  actionClass,
+                                  'bg-green-700 text-white hover:bg-green-800',
+                                  'disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600',
+                                ]"
+                                :disabled="!row.can_confirm || busyRows.has(row.id)"
+                                :aria-describedby="
+                                  row.can_confirm ? undefined : `${blockedId}-${row.id}`
+                                "
+                                data-confirm
+                                @click="markConfirm(row)"
+                              >
+                                Mark flight confirm<span class="sr-only">{{
+                                  ` ${row.passport_number}`
+                                }}</span>
+                              </button>
+                              <span
+                                v-if="!row.can_confirm"
+                                :id="`${blockedId}-${row.id}`"
+                                class="sr-only"
+                                >{{ confirmHint(row) }}</span
+                              >
+                            </span>
+                          </template>
+                          <!-- Calling Pending: one "Update calling" (the permit dates) -->
                           <button
-                            v-if="isPendingTab && singleUpdate"
+                            v-else-if="isPendingTab && singleUpdate"
                             type="button"
                             :class="[actionClass, 'bg-primary-900 text-white hover:bg-primary-700']"
                             data-step-update
@@ -822,12 +1309,8 @@ const STICKY = STICKY_ACTIONS
                             Enter {{ nextStartLabel
                             }}<span class="sr-only">{{ ` for ${row.passport_number}` }}</span>
                           </button>
-                          <!-- Started (visa Pending, or an "in process" tab): the results -->
-                          <template
-                            v-else-if="
-                              (isPendingTab && isStarted(row)) || activeTab === 'in_process'
-                            "
-                          >
+                          <!-- Visa Pending (submitted): the results -->
+                          <template v-else-if="isPendingTab && isStarted(row)">
                             <button
                               v-for="final in finalStatuses(step)"
                               :key="final.value"
@@ -845,17 +1328,6 @@ const STICKY = STICKY_ACTIONS
                               }}<span class="sr-only">{{ ` ${row.passport_number}` }}</span>
                             </button>
                           </template>
-                          <!-- Pending, not started (BMET, Flight): the start -->
-                          <button
-                            v-else-if="isPendingTab && !startedInPending"
-                            type="button"
-                            :class="[actionClass, 'bg-primary-900 text-white hover:bg-primary-700']"
-                            data-step-start
-                            @click="openStart(row, $event, 'start')"
-                          >
-                            {{ startLabel
-                            }}<span class="sr-only">{{ ` for ${row.passport_number}` }}</span>
-                          </button>
                           <button
                             v-else-if="activeTab === 'rejected'"
                             type="button"
@@ -904,6 +1376,61 @@ const STICKY = STICKY_ACTIONS
         @saved="onStarted"
         @close="start = null"
       />
+      <span :id="blockedId" class="sr-only">{{ blockedHint }}</span>
+      <DatePopover
+        v-if="booking"
+        :key="`booking-${booking.row.id}`"
+        :anchor="booking.anchor"
+        :title="bookingField?.label ?? 'Booking date'"
+        :subtitle="`${booking.row.passport_name} · ${booking.row.passport_number}`"
+        :label="bookingField?.label ?? 'Booking date'"
+        :value="booking.row.booking_date ?? null"
+        :save="(date) => saveBooking(booking!.row, date)"
+        :clear="() => clearBooking(booking!.row)"
+        @close="booking = null"
+      />
+      <TopModal
+        v-if="dateEdit"
+        :title="`${actionName(dateEdit.action)} date`"
+        :subtitle="`${dateEdit.row.passport_name} · ${dateEdit.row.passport_number}`"
+        @close="dateEdit = null"
+      >
+        <form novalidate data-action-date-form @submit.prevent="saveDateEdit">
+          <label :for="`${blockedId}-date`" class="block text-sm font-medium text-slate-700">
+            {{ actionName(dateEdit.action) }} date<span class="text-red-700" aria-hidden="true">
+              *</span
+            >
+          </label>
+          <input
+            :id="`${blockedId}-date`"
+            v-model="dateEdit.value"
+            type="date"
+            required
+            :max="businessToday()"
+            :class="[inputClass, dateEdit.error ? 'border-red-500' : '']"
+            :aria-invalid="dateEdit.error ? 'true' : undefined"
+          />
+          <p v-if="dateEdit.error" class="mt-1 text-sm text-red-700" data-action-date-error>
+            {{ dateEdit.error }}
+          </p>
+          <div class="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              class="rounded-full px-3 py-1.5 text-sm font-semibold text-primary-800 hover:bg-primary-50"
+              @click="dateEdit = null"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="rounded-full bg-primary-900 px-4 py-1.5 text-sm font-semibold text-white hover:bg-primary-700"
+              data-action-date-save
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </TopModal>
       <StepResultDialog
         v-model:open="resultOpen"
         :step="step"

@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import PassportFormView from '../PassportFormView.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
+import { createCompany } from '@/api/companies'
 import { fetchDefaults } from '@/api/countries'
 import { addDays, todayApiDate } from '@/lib/dates'
 import { httpError, makePassport } from '@/test/helpers'
@@ -610,6 +611,35 @@ describe('PassportFormView', () => {
       expect(countrySelects).toHaveLength(2)
       const modalCountry = countrySelects[countrySelects.length - 1]!
       expect((modalCountry.props() as Record<string, unknown>).modelValue).toEqual(COUNTRIES[0])
+    })
+
+    it('saves name, quota and country, then selects the new company and clears its error', async () => {
+      const added = {
+        ...COMPANY,
+        id: 99,
+        name: 'New Co',
+        country: { code: 'BD', name: 'Bangladesh' },
+      }
+      vi.mocked(createCompany).mockResolvedValue(added as never)
+      await mountForm()
+      // Submitting first shows "Select a company."
+      await wrapper.get('form').trigger('submit')
+      await flushPromises()
+      expect(select('Company name').error()).toBe('Select a company.')
+
+      const companySelect = wrapper
+        .findAllComponents(SearchSelect)
+        .find((c) => (c.props() as Record<string, unknown>).label === 'Company name')!
+      companySelect.vm.$emit('add', 'New Co')
+      await flushPromises()
+      const dialog = wrapper.get('[data-field="quota"]').element.closest('form')!
+      await wrapper.get('[data-field="quota"] input').setValue('12')
+      dialog.dispatchEvent(new Event('submit'))
+      await flushPromises()
+
+      expect(createCompany).toHaveBeenCalledWith({ name: 'New Co', quota: 12, country_code: 'BD' })
+      expect(select('Company name').value()).toEqual(added)
+      expect(select('Company name').error()).toBeUndefined()
     })
   })
 

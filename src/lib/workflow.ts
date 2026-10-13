@@ -9,8 +9,6 @@ import type {
 
 /** Max remarks length (all steps). */
 export const STEP_REMARKS_MAX = 1000
-/** Mirrors afwan-api config workflow.passport_expiry_warning_months. */
-export const PASSPORT_EXPIRY_WARNING_MONTHS = 6
 
 /** Steps recorded on their own step pages (they have statuses and fields). */
 export const isRecordStep = (step: StepConfig) =>
@@ -64,8 +62,6 @@ export const TONE_BADGE: Record<StatusTone, string> = {
  */
 const FIELD_RULES: Record<string, { notFutureFor?: string[]; pattern?: RegExp; message?: string }> =
   {
-    departure_date: { notFutureFor: ['completed'] },
-    flight_no: { pattern: /^[A-Za-z0-9]+$/, message: 'may only contain letters and digits' },
     // Calling's permit: neither the receive nor the issued date in the future.
     receive_date: { notFutureFor: ['completed'] },
     issue_date: { notFutureFor: ['completed'] },
@@ -124,10 +120,7 @@ export function validateStepForm(
       if (field.name === 'step_date' && date > today)
         errors[field.name] = 'The date cannot be in the future.'
       else if (status && notFutureFor(field).includes(status) && date > today)
-        errors[field.name] =
-          field.name === 'departure_date'
-            ? 'A flight can only be marked departed on or after its departure date.'
-            : `The ${label} cannot be in the future.`
+        errors[field.name] = `The ${label} cannot be in the future.`
       else if (field.after) {
         // The config's "after" (e.g. the expiry after the issued date).
         const other = field.after.replace(/^details\./, '')
@@ -187,31 +180,6 @@ export function valuesFromRecord(step: StepConfig, record: StepRecordSummary): S
     values[field.name] = typeof value === 'string' ? value : ''
   }
   return values
-}
-
-export interface StepWarningInput {
-  stepKey: string
-  values: StepFormValues
-  passportExpiry: string | null
-  /** Valid-until of the visa record, if any. */
-  visaValidUntil: string | null
-}
-
-/** The API's non-blocking warnings, worked out before saving when the data is there. */
-export function stepSoftWarnings(input: StepWarningInput): string[] {
-  const warnings: string[] = []
-  const departure = toApiDate(input.values.departure_date ?? '')
-  if (!departure) return warnings
-  if (
-    input.passportExpiry &&
-    input.passportExpiry < addMonthsNoOverflow(departure, PASSPORT_EXPIRY_WARNING_MONTHS)
-  )
-    warnings.push(
-      `The passport expires less than ${PASSPORT_EXPIRY_WARNING_MONTHS} months after the flight departure date.`,
-    )
-  if (input.visaValidUntil && input.visaValidUntil < departure)
-    warnings.push('The visa is valid only until before the flight departure date.')
-  return warnings
 }
 
 /** Field the form shows per config field, exported for the views. */

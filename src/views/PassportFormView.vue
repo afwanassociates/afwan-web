@@ -285,7 +285,11 @@ const saveReference = (values: QuickAddValues) =>
   createReference({ type: referenceType.value, name: values.name, phone: values.phone })
 
 const saveCompany = (values: QuickAddValues) =>
-  createCompany({ name: values.name, country_code: values.country_code ?? '', ...values.agent })
+  createCompany({
+    name: values.name,
+    quota: values.quota ?? undefined,
+    country_code: values.country_code ?? '',
+  })
 
 const defaultCompanyCountryCode = computed(
   () => countries.defaults?.default_company_country_code ?? null,
@@ -770,8 +774,8 @@ const inputClass =
       name-label="Company name"
       :initial-name="quickAddName"
       :save="saveCompany"
+      with-quota
       with-country
-      with-agent
       :default-country-code="defaultCompanyCountryCode"
       @saved="onCompanyAdded"
     />

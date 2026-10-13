@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import EntryModeBadge from '@/components/EntryModeBadge.vue'
 import LatestStatusText from '@/components/LatestStatusText.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
@@ -45,15 +46,33 @@ const latestRecord = computed<StepRecord | null>(() => {
 
 const isAdmin = computed(() => isMedicalAdmin(props.role))
 
+/**
+ * Steps worked only on their own page (BMET: Training / Finger / Clearance; Flight: booking
+ * date and Mark flight confirm): no generic Record / Update / Edit form here, so a confirmed
+ * flight's booking date stays locked. The step shows a link to its page instead.
+ */
+function isPageOnly(stepKey: string) {
+  const config = workflow.stepConfig(stepKey)
+  return !!config && (!!config.actions?.length || config.fields.some((f) => f.phase === 'booking'))
+}
+
+/** A page-only step the passport has reached and not finished: link to its page. */
+const showsPageLink = (step: { key: string; state: StepState }) =>
+  isPageOnly(step.key) &&
+  step.state !== 'locked' &&
+  props.history[step.key]?.[0]?.status !== 'completed'
+
 /** data_entry: only their own records (the API also checks that no later step exists). */
 const canEdit = (record: StepRecord) =>
-  record.can.update && (isAdmin.value || record.recorded_by?.id === props.userId)
+  !isPageOnly(record.step_key) &&
+  record.can.update &&
+  (isAdmin.value || record.recorded_by?.id === props.userId)
 
 const canUndo = (record: StepRecord) =>
   isAdmin.value && record.can.delete && record.id === latestRecord.value?.id
 
 function currentAction(stepKey: string): { label: string; update: boolean } | null {
-  if (props.passport.current_stage !== stepKey) return null
+  if (props.passport.current_stage !== stepKey || isPageOnly(stepKey)) return null
   switch (props.passport.stage_status) {
     case 'waiting':
       return { label: 'Record', update: false }
@@ -66,9 +85,39 @@ function currentAction(stepKey: string): { label: string; update: boolean } | nu
   }
 }
 
-/** A field's label from the step config (e.g. visa: "Visa submitted date", "Expiry date"). */
+/** Labels that read better here than the config's (the calling permit's expiry). */
+const TIMELINE_LABEL: Record<string, Record<string, string>> = {
+  calling: { valid_until: 'Calling expiry' },
+}
+
+/** A field's label from the step config (e.g. visa: "Visa submitted date", "Expired date"). */
 const fieldLabel = (stepKey: string, name: string, fallback: string) =>
-  workflow.stepConfig(stepKey)?.fields.find((f) => f.name === name)?.label ?? fallback
+  TIMELINE_LABEL[stepKey]?.[name] ??
+  workflow.stepConfig(stepKey)?.fields.find((f) => f.name === name)?.label ??
+  fallback
+
+/**
+ * The record's own date row, unless a detail already shows that date under the step's own
+ * label (flight: the record's date is its "Flight date").
+ */
+function showsStepDate(stepKey: string, record: StepRecordSummary) {
+  if (!record.step_date) return false
+  // BMET in progress: its date is the first milestone's, not the clearance date.
+  if (workflow.stepConfig(stepKey)?.actions?.length && record.status !== 'completed') return false
+  if (workflow.stepConfig(stepKey)?.fields.some((f) => f.name === 'step_date')) return true
+  const shown = toDisplayDate(record.step_date)
+  return !detailsOf(stepKey, record).some((d) => d.value === shown)
+}
+
+/**
+ * The date under the step's date label. When that field is a start field (visa: "Visa
+ * submitted date"), it is the date the step started, also once the result redated the record.
+ */
+function recordDate(stepKey: string, record: StepRecordSummary) {
+  const field = workflow.stepConfig(stepKey)?.fields.find((f) => f.name === 'step_date')
+  const started = record.details?.start_date
+  return toDisplayDate(field?.phase === 'start' && started ? started : record.step_date)
+}
 
 /** The record's own date: from the config, else "<Step> date" (calling's older records). */
 const dateLabel = (stepKey: string) => {
@@ -76,7 +125,7 @@ const dateLabel = (stepKey: string) => {
   return fieldLabel(stepKey, 'step_date', short ? `${short} date` : 'Date')
 }
 
-/** Labelled extra fields of a record (e.g. the flight's airline), from the step config. */
+/** Labelled extra fields of a record (e.g. the flight's booking date), from the step config. */
 function detailsOf(stepKey: string, record: StepRecordSummary) {
   const fields = workflow.stepConfig(stepKey)?.fields.filter((f) => f.in_details) ?? []
   return fields
@@ -95,6 +144,16 @@ const medicalDetails = computed(() => {
     { label: 'Medical slip date', value: toDisplayDate(slip.date), mono: false },
     { label: 'Medical center', value: slip.medical_center?.name, mono: false },
   ].filter((d) => d.value)
+})
+
+/**
+ * The step that shows the latest status line: its stage, or the last step once the passport
+ * is done (stage "completed": "Flight confirmed (DD-MM-YYYY)").
+ */
+const statusStep = computed(() => {
+  const stage = props.passport.latest_status?.stage
+  const steps = props.passport.workflow.steps
+  return stage === 'completed' ? steps[steps.length - 1]?.key : stage
 })
 
 /** The first step after Passport and Medical (Calling / Work Permit). */
@@ -158,11 +217,19 @@ const smallButton =
         >
           {{ currentAction(step.key)!.label }}
         </button>
+        <RouterLink
+          v-else-if="showsPageLink(step)"
+          :to="{ name: 'step-page', params: { step: step.key } }"
+          class="ml-auto text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
+          data-step-page-link
+        >
+          Open {{ step.label }} page
+        </RouterLink>
       </div>
 
       <!-- The step the passport is at: the API's status text with its date -->
       <p
-        v-if="passport.latest_status && passport.latest_status.stage === step.key && i > 1"
+        v-if="passport.latest_status && statusStep === step.key && i > 1"
         class="mt-1 text-sm"
         data-timeline-status
       >
@@ -213,9 +280,9 @@ const smallButton =
                 <dt class="text-muted">Reference</dt>
                 <dd class="font-mono text-ink">{{ record.reference_no }}</dd>
               </template>
-              <template v-if="record.step_date">
+              <template v-if="showsStepDate(step.key, record)">
                 <dt class="text-muted">{{ dateLabel(step.key) }}</dt>
-                <dd class="text-ink">{{ toDisplayDate(record.step_date) }}</dd>
+                <dd class="text-ink">{{ recordDate(step.key, record) }}</dd>
               </template>
               <template v-if="record.valid_until">
                 <dt class="text-muted">{{ fieldLabel(step.key, 'valid_until', 'Valid until') }}</dt>

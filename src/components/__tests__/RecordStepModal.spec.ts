@@ -67,19 +67,15 @@ describe('RecordStepModal', () => {
     ],
     [
       'visa',
-      ['reference_no', 'step_date', 'valid_until'],
+      ['step_date', 'issue_date', 'valid_until', 'reference_no'],
       ['Submitted', 'Visa issued', 'Rejected'],
     ],
     [
       'bmet',
-      ['reference_no', 'step_date', 'training_certificate_date', 'finger_date'],
-      ['Submitted', 'Cleared', 'Rejected'],
+      ['training_certificate_date', 'finger_date', 'step_date'],
+      ['In progress', 'BMET cleared'],
     ],
-    [
-      'flight',
-      ['step_date', 'airline', 'flight_no', 'departure_date', 'ticket_pnr'],
-      ['Ticket booked', 'Departed', 'Cancelled'],
-    ],
+    ['flight', ['booking_date', 'confirmed_date'], ['Booked', 'Flight confirmed']],
   ])('builds the %s form from the config', async (stepKey, fields, statuses) => {
     await openFor(stepKey)
 
@@ -95,7 +91,7 @@ describe('RecordStepModal', () => {
     await openFor('bmet')
 
     expect(wrapper.get('[data-field="training_certificate_date"] label').text()).toContain(
-      'Training certificate date',
+      'Training date',
     )
     expect(input('finger_date').attributes('type')).toBe('date')
 
@@ -113,17 +109,6 @@ describe('RecordStepModal', () => {
     )
   })
 
-  it('rejects a future finger date for a submitted BMET', async () => {
-    await openFor('bmet')
-
-    await chooseStatus('in_process')
-    await input('finger_date').setValue(addDays(TODAY, 3))
-    await save()
-
-    expect(recordStep).not.toHaveBeenCalled()
-    expect(errorOf('finger_date').exists()).toBe(true)
-  })
-
   it('requires a status', async () => {
     await openFor('calling')
 
@@ -133,68 +118,42 @@ describe('RecordStepModal', () => {
     expect(wrapper.text()).toContain('Choose a status.')
   })
 
-  it('requires fields by status: the visa number only when issued', async () => {
+  it('requires fields by status: issue and expired dates when issued; the visa number is optional', async () => {
     vi.mocked(recordStep).mockResolvedValue(saved as never)
     await openFor('visa')
 
     await chooseStatus('completed')
     await save()
-    expect(errorOf('reference_no').text()).toBe('Enter the visa number.')
+    expect(errorOf('issue_date').text()).toBe('Enter the issue date.')
+    expect(errorOf('valid_until').text()).toBe('Enter the expired date.')
+    expect(errorOf('reference_no').exists()).toBe(false)
     expect(recordStep).not.toHaveBeenCalled()
 
     await chooseStatus('in_process')
     await save()
-    expect(recordStep).toHaveBeenCalledWith(42, 'visa', {
-      status: 'in_process',
-      remarks: null,
-      reference_no: null,
-      step_date: TODAY,
-      valid_until: null,
-    })
+    expect(recordStep).toHaveBeenCalledWith(
+      42,
+      'visa',
+      expect.objectContaining({ status: 'in_process', step_date: TODAY }),
+    )
   })
 
-  it('rejects a departed flight with a future departure date', async () => {
+  it('accepts a future flight booking date', async () => {
     vi.mocked(recordStep).mockResolvedValue(saved as never)
     await openFor('flight')
-    await input('airline').setValue('Biman')
-    await input('flight_no').setValue('BG084')
-    await input('departure_date').setValue(addDays(TODAY, 3))
+    await input('booking_date').setValue(addDays(TODAY, 30))
 
-    await chooseStatus('completed')
-    await save()
-    expect(errorOf('departure_date').text()).toBe(
-      'A flight can only be marked departed on or after its departure date.',
-    )
-    expect(recordStep).not.toHaveBeenCalled()
-
-    // Booking a ticket for a future flight is fine; the flight fields go in `details`.
     await chooseStatus('in_process')
     await save()
+
+    expect(errorOf('booking_date').exists()).toBe(false)
     expect(recordStep).toHaveBeenCalledWith(
       42,
       'flight',
       expect.objectContaining({
         status: 'in_process',
-        step_date: TODAY,
-        details: {
-          airline: 'Biman',
-          flight_no: 'BG084',
-          departure_date: addDays(TODAY, 3),
-          ticket_pnr: null,
-        },
+        details: expect.objectContaining({ booking_date: addDays(TODAY, 30) }),
       }),
-    )
-  })
-
-  it('checks the flight number format', async () => {
-    await openFor('flight')
-    await input('flight_no').setValue('BG-084')
-    await chooseStatus('in_process')
-
-    await save()
-
-    expect(errorOf('flight_no').text()).toBe(
-      'The flight number may only contain letters and digits.',
     )
   })
 
@@ -237,31 +196,15 @@ describe('RecordStepModal', () => {
     vi.mocked(recordStep).mockRejectedValue(
       httpError(422, {
         message: 'Invalid.',
-        errors: { 'details.airline': ['The airline field is required when status is in_process.'] },
+        errors: { 'details.finger_date': ['The finger date cannot be in the future.'] },
       }),
     )
-    await openFor('flight')
-    await input('airline').setValue('X')
-    await input('flight_no').setValue('BG1')
-    await input('departure_date').setValue(addDays(TODAY, 1))
+    await openFor('bmet')
+    await input('finger_date').setValue(TODAY)
     await chooseStatus('in_process')
 
     await save()
 
-    expect(errorOf('airline').text()).toBe(
-      'The airline field is required when status is in_process.',
-    )
-  })
-
-  it('warns before saving when the passport expires soon after the flight', async () => {
-    await openFor('flight', {
-      passport: makePassport({ passport_expiry_date: addDays(TODAY, 60) }),
-    })
-
-    await input('departure_date').setValue(addDays(TODAY, 10))
-
-    expect(wrapper.get('[data-warnings]').text()).toContain(
-      'The passport expires less than 6 months after the flight departure date.',
-    )
+    expect(errorOf('finger_date').text()).toBe('The finger date cannot be in the future.')
   })
 })

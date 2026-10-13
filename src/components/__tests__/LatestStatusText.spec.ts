@@ -81,6 +81,27 @@ describe('LatestStatusText', () => {
       'amber',
     ],
     [{ stage: 'visa', status: 'in_process', tone: 'blue' }, 'Visa submitted', 'blue'],
+    [
+      { stage: 'bmet', status: 'waiting', tone: 'amber' },
+      'Visa issued - BMET and flight pending',
+      'amber',
+    ],
+    [
+      { stage: 'flight', status: 'in_process', tone: 'blue' },
+      'Flight booked (01-12-2026) - BMET pending',
+      'blue',
+    ],
+    [
+      { stage: 'flight', status: 'waiting', tone: 'amber' },
+      'BMET cleared - flight booking date pending',
+      'amber',
+    ],
+    [{ stage: 'flight', status: 'in_process', tone: 'blue' }, 'Ready to confirm flight', 'blue'],
+    [
+      { stage: 'completed', status: 'completed', tone: 'green' },
+      'Flight confirmed (02-11-2026)',
+      'green',
+    ],
   ] as const)('shows the API text for %o', (overrides, text, tone) => {
     const wrapper = mount(LatestStatusText, {
       props: { latestStatus: { ...status(overrides.tone, text), ...overrides } },

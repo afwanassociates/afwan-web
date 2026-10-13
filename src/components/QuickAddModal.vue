@@ -5,28 +5,22 @@ import CountrySelect from '@/components/CountrySelect.vue'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { useCountriesStore } from '@/stores/countries'
 import type { CountrySummary } from '@/types/country'
-import {
-  AGENT_FIELDS,
-  emptyAgentValues,
-  validateAgentValues,
-  type AgentFormValues,
-} from '@/lib/companyForm'
-import type { CompanyAgentDetails } from '@/types/passport'
 
 export interface QuickAddValues {
   name: string
   phone: string | null
   /** Only with `withCountry`. */
   country_code: string | null
-  /** Only with `withAgent`. */
-  agent: CompanyAgentDetails | null
+  /** Only with `withQuota`: a whole number, at least 1. */
+  quota: number | null
 }
 
 /**
- * Small "add new" dialog used from a SearchSelect: a required name, an optional phone,
- * an optional (then required) country preselected with `defaultCountryCode` and, for
- * companies, the optional agent details and quota (`withAgent`).
- * `save` calls the API; a 422 (e.g. the name already exists) keeps the dialog open.
+ * Small "add new" dialog used from a SearchSelect: a required name, an optional phone, and
+ * for companies a required quota (`withQuota`) and a required country preselected with
+ * `defaultCountryCode` (`withCountry`). The company's other details stay on the admin
+ * Companies page. `save` calls the API; a 422 (e.g. the name already exists) keeps the
+ * dialog open with the errors under their fields.
  */
 const open = defineModel<boolean>('open', { required: true })
 const props = withDefaults(
@@ -39,8 +33,8 @@ const props = withDefaults(
     withCountry?: boolean
     /** Country preselected when the dialog opens (can be changed). */
     defaultCountryCode?: string | null
-    /** Show the optional company agent fields and quota. */
-    withAgent?: boolean
+    /** Show a required Quota field (whole number, at least 1). */
+    withQuota?: boolean
     /** Prefills the name, e.g. with the text typed in the combobox. */
     initialName?: string
   }>(),
@@ -49,7 +43,7 @@ const props = withDefaults(
     withPhone: false,
     withCountry: false,
     defaultCountryCode: null,
-    withAgent: false,
+    withQuota: false,
     initialName: '',
   },
 )
@@ -60,14 +54,14 @@ const PHONE_MAX = 30
 
 const nameId = useId()
 const phoneId = useId()
-const fieldId = useId()
+const quotaId = useId()
 
 const countries = useCountriesStore()
 
 const name = ref('')
 const phone = ref('')
 const country = ref<CountrySummary | null>(null)
-const agent = ref<AgentFormValues>(emptyAgentValues())
+const quota = ref<string | number>('')
 const errors = ref<Record<string, string>>({})
 const formError = ref<string | null>(null)
 const isSaving = ref(false)
@@ -76,7 +70,7 @@ watch(open, async (isOpen) => {
   if (!isOpen) return
   name.value = props.initialName
   phone.value = ''
-  agent.value = emptyAgentValues()
+  quota.value = ''
   errors.value = {}
   formError.value = null
   country.value = null
@@ -96,8 +90,13 @@ async function onSubmit() {
     errors.value.name = `The ${props.nameLabel.toLowerCase()} must be at most ${NAME_MAX} characters.`
   if (trimmedPhone.length > PHONE_MAX)
     errors.value.phone = `The phone must be at most ${PHONE_MAX} characters.`
+  const quotaText = String(quota.value ?? '').trim()
+  if (props.withQuota) {
+    if (!quotaText) errors.value.quota = 'Enter the quota.'
+    else if (!/^\d+$/.test(quotaText)) errors.value.quota = 'The quota must be a whole number.'
+    else if (Number(quotaText) < 1) errors.value.quota = 'The quota must be at least 1.'
+  }
   if (props.withCountry && !country.value) errors.value.country_code = 'Select a country.'
-  const agentValues = props.withAgent ? validateAgent() : null
   if (Object.keys(errors.value).length > 0) return
 
   isSaving.value = true
@@ -106,7 +105,7 @@ async function onSubmit() {
       name: trimmedName,
       phone: trimmedPhone || null,
       country_code: props.withCountry ? (country.value?.code ?? null) : null,
-      agent: agentValues,
+      quota: props.withQuota ? Number(quotaText) : null,
     })
     emit('saved', item)
     open.value = false
@@ -121,13 +120,6 @@ async function onSubmit() {
   } finally {
     isSaving.value = false
   }
-}
-
-/** Checks the agent fields (adding to `errors`) and returns them trimmed, empty as null. */
-function validateAgent(): CompanyAgentDetails {
-  const { values, errors: agentErrors } = validateAgentValues(agent.value)
-  Object.assign(errors.value, agentErrors)
-  return values
 }
 
 const inputClass =
@@ -184,6 +176,30 @@ const inputClass =
         </p>
       </div>
 
+      <div v-if="withQuota" data-field="quota">
+        <label :for="quotaId" class="block text-sm font-medium text-slate-700">
+          Quota<span class="text-red-700" aria-hidden="true"> *</span>
+        </label>
+        <input
+          :id="quotaId"
+          v-model="quota"
+          type="number"
+          inputmode="numeric"
+          min="1"
+          step="1"
+          required
+          :class="[inputClass, errors.quota ? 'border-red-500' : 'border-slate-300']"
+          :aria-invalid="errors.quota ? 'true' : undefined"
+          :aria-describedby="`${quotaId}-hint${errors.quota ? ` ${quotaId}-error` : ''}`"
+        />
+        <p :id="`${quotaId}-hint`" class="mt-1 text-xs text-muted">
+          Workers the company asked for.
+        </p>
+        <p v-if="errors.quota" :id="`${quotaId}-error`" class="mt-1 text-sm text-red-700">
+          {{ errors.quota }}
+        </p>
+      </div>
+
       <CountrySelect
         v-if="withCountry"
         v-model="country"
@@ -191,58 +207,6 @@ const inputClass =
         :error="errors.country_code"
         required
       />
-
-      <fieldset v-if="withAgent" class="space-y-4 rounded-xl border border-stroke p-4">
-        <legend class="px-1 text-sm font-semibold text-ink">
-          Agent and quota <span class="font-normal text-muted">(optional)</span>
-        </legend>
-        <div class="grid gap-4 sm:grid-cols-2">
-          <div v-for="f in AGENT_FIELDS" :key="f.name" :data-field="f.name">
-            <label :for="`${fieldId}-${f.name}`" class="block text-sm font-medium text-slate-700">
-              {{ f.label }}
-            </label>
-            <input
-              :id="`${fieldId}-${f.name}`"
-              v-model="agent[f.name]"
-              :type="f.type"
-              autocomplete="off"
-              :maxlength="f.max"
-              :class="[inputClass, errors[f.name] ? 'border-red-500' : 'border-slate-300']"
-              :aria-invalid="errors[f.name] ? 'true' : undefined"
-              :aria-describedby="errors[f.name] ? `${fieldId}-${f.name}-error` : undefined"
-            />
-            <p
-              v-if="errors[f.name]"
-              :id="`${fieldId}-${f.name}-error`"
-              class="mt-1 text-sm text-red-700"
-            >
-              {{ errors[f.name] }}
-            </p>
-          </div>
-          <div data-field="quota">
-            <label :for="`${fieldId}-quota`" class="block text-sm font-medium text-slate-700">
-              Quota
-            </label>
-            <input
-              :id="`${fieldId}-quota`"
-              v-model="agent.quota"
-              type="number"
-              inputmode="numeric"
-              min="0"
-              step="1"
-              :class="[inputClass, errors.quota ? 'border-red-500' : 'border-slate-300']"
-              :aria-invalid="errors.quota ? 'true' : undefined"
-              :aria-describedby="`${fieldId}-quota-hint${errors.quota ? ` ${fieldId}-quota-error` : ''}`"
-            />
-            <p :id="`${fieldId}-quota-hint`" class="mt-1 text-xs text-muted">
-              Workers the company asked for.
-            </p>
-            <p v-if="errors.quota" :id="`${fieldId}-quota-error`" class="mt-1 text-sm text-red-700">
-              {{ errors.quota }}
-            </p>
-          </div>
-        </div>
-      </fieldset>
 
       <div class="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
         <button

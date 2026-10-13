@@ -12,7 +12,6 @@ import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import {
   STEP_REMARKS_MAX,
   stepPayload,
-  stepSoftWarnings,
   validateStepForm,
   valuesFromRecord,
   type StepFormValues,
@@ -102,21 +101,9 @@ watch(status, () => {
   delete errors.value.status
 })
 
-/* ---------- Summary and soft warnings ---------- */
+/* ---------- Summary ---------- */
 
 const medicalValidUntil = computed(() => current.value?.current_medical?.valid_until ?? null)
-
-const warnings = computed(() => {
-  const p = current.value
-  if (!p || !props.stepKey) return []
-  const visa = p.workflow.steps.find((s) => s.key === 'visa')?.record
-  return stepSoftWarnings({
-    stepKey: props.stepKey,
-    values: values.value,
-    passportExpiry: p.passport_expiry_date,
-    visaValidUntil: visa?.valid_until ?? null,
-  })
-})
 
 const isRequired = (fieldName: string) => {
   const field = step.value?.fields.find((f) => f.name === fieldName)
@@ -173,7 +160,7 @@ async function save(action: 'save' | 'next') {
     if (code === 422 && body?.code) {
       banner.value = { message: CODE_MESSAGES[body.code] ?? errorMessage(error), code: body.code }
     } else if (code === 422) {
-      // "details.airline" → "airline"
+      // "details.booking_date" → "booking_date"
       errors.value = Object.fromEntries(
         Object.entries(fieldErrors(error)).map(([key, message]) => [
           key.replace(/^details\./, ''),
@@ -390,18 +377,6 @@ const inputClass =
         </p>
         <p v-if="errors.remarks" class="mt-1 text-sm text-red-700">{{ errors.remarks }}</p>
       </div>
-
-      <!-- Soft warnings (never blocking) -->
-      <ul
-        v-if="warnings.length"
-        class="space-y-1 rounded-lg border border-accent-300 bg-accent-50 px-3 py-2.5 text-sm text-accent-900"
-        role="status"
-        data-warnings
-      >
-        <li v-for="warning in warnings" :key="warning" class="flex gap-2">
-          <span aria-hidden="true">⚠</span>{{ warning }}
-        </li>
-      </ul>
 
       <!-- Rejected / Cancelled confirmation -->
       <div

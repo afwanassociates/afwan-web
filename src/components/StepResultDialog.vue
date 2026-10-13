@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, useId, watch } from 'vue'
-import BaseDialog from '@/components/staff/BaseDialog.vue'
+import TopModal from '@/components/TopModal.vue'
 import StepFields from '@/components/StepFields.vue'
 import { recordStepResult, type StepSaveResponse } from '@/api/steps'
 import { businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
@@ -9,9 +9,11 @@ import { statusLabel, stepResultPayload, stepWithPhase, validateStepForm } from 
 import type { StepConfig, StepListRow, WorkflowWarning } from '@/types/workflow'
 
 /**
- * A tiny confirm for a step's result ("Mark NAME as Approved?"): the result date (today in
- * Dhaka by default, not in the future) plus only the step's "result" fields that apply to
- * this result. Confirm and Cancel. API warnings are shown without blocking.
+ * A small top modal for a step's result ("Mark NAME as Visa issued?"): the step's "result"
+ * fields that apply to it, in config order. The result is dated by its first required date
+ * field (visa issued: the Issue date); without one (rejected) a Result date is asked (today
+ * in Dhaka by default, not in the future). Confirm and Cancel. API warnings are shown
+ * without blocking.
  */
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{
@@ -28,6 +30,13 @@ const resultFields = computed(() =>
   stepWithPhase(props.step, 'result').fields.filter(
     (f) => props.result === 'completed' || f.required_for.includes(props.result),
   ),
+)
+
+/** The required date field that dates the result (visa issued: issue_date), if any. */
+const dateField = computed(
+  () =>
+    resultFields.value.find((f) => f.type === 'date' && f.required_for.includes(props.result)) ??
+    null,
 )
 
 const today = ref(businessToday())
@@ -58,7 +67,8 @@ async function confirm() {
   const row = props.row
   if (!row || isSaving.value) return
   banner.value = null
-  const date = toApiDate(resultDate.value)
+  const own = dateField.value
+  const date = toApiDate(own ? (values[own.name] ?? '') : resultDate.value)
   const e = validateStepForm(
     { ...props.step, fields: resultFields.value },
     props.result,
@@ -66,7 +76,9 @@ async function confirm() {
     '',
     today.value,
   )
-  if (!resultDate.value) e.result_date = 'Enter the result date.'
+  if (own) {
+    // Its own field is checked above (required, not in the future).
+  } else if (!resultDate.value) e.result_date = 'Enter the result date.'
   else if (!date) e.result_date = 'Enter a valid date.'
   else if (date > today.value) e.result_date = 'The result date cannot be in the future.'
   errors.value = e
@@ -88,7 +100,9 @@ async function confirm() {
       const server = fieldErrors(error)
       errors.value = Object.fromEntries(
         Object.entries(server).map(([key, message]) => [
-          key === 'step_date' ? 'result_date' : key.replace(/^details\./, ''),
+          key === 'step_date' || key === 'result_date'
+            ? (dateField.value?.name ?? 'result_date')
+            : key.replace(/^details\./, ''),
           message,
         ]),
       )
@@ -108,7 +122,7 @@ const inputClass =
 </script>
 
 <template>
-  <BaseDialog v-model:open="open" :title="title" :busy="isSaving">
+  <TopModal v-if="open" :title="title" :busy="isSaving" @close="open = false">
     <div data-step-result-dialog :data-result="result">
       <template v-if="warnings.length">
         <ul
@@ -143,7 +157,7 @@ const inputClass =
           {{ banner }}
         </p>
 
-        <div data-step-field="result_date">
+        <div v-if="!dateField" data-step-field="result_date">
           <label :for="dateId" class="block text-sm font-medium text-slate-700">
             Result date<span class="text-red-700" aria-hidden="true"> *</span>
           </label>
@@ -200,5 +214,5 @@ const inputClass =
         </div>
       </form>
     </div>
-  </BaseDialog>
+  </TopModal>
 </template>

@@ -14,7 +14,7 @@ export interface StepFieldConfig {
   type: 'text' | 'date'
   /** Max length for text fields. */
   max: number | null
-  /** Sent inside `details` (e.g. the flight's airline). */
+  /** Sent inside `details` (e.g. the flight's booking date). */
   in_details: boolean
   /** Statuses for which the field is required. */
   required_for: string[]
@@ -26,7 +26,7 @@ export interface StepFieldConfig {
    * When it is entered on the step pages: "start" (with the step date, when the step is
    * started) or "result" (when Approved / Rejected … is recorded). Defaults to "start".
    */
-  phase?: 'start' | 'result'
+  phase?: 'start' | 'result' | (string & {})
   /** Optional: the date must be after this field's (e.g. "details.issue_date"). */
   after?: string | null
 }
@@ -46,6 +46,19 @@ export interface StepConfig {
    * per status). Older APIs leave it out.
    */
   tabs?: { key: string; label: string }[]
+  /**
+   * One-click actions of a milestone step (BMET: Training done, Finger done, then the last
+   * one, BMET clearance done, which completes it). Empty or absent for other steps.
+   */
+  actions?: StepAction[]
+}
+
+/** A milestone action: POST/DELETE /passports/{id}/steps/{step}/{key}. */
+export interface StepAction {
+  key: string
+  label: string
+  /** The field it dates (e.g. training_certificate_date). */
+  field: string
 }
 
 export interface WorkflowConfig {
@@ -65,7 +78,7 @@ export interface StepRecordSummary {
   valid_until: string | null
   validity_status: ValidityStatus | null
   days_left: number | null
-  /** Extra fields (e.g. flight airline, flight_no, departure_date, ticket_pnr). */
+  /** Extra fields (e.g. the flight's booking_date and confirmed_date). */
   details: Record<string, string> | null
   remarks: string | null
   recorded_by: { id: number; name: string } | null
@@ -134,14 +147,34 @@ export interface StepListRow {
   previous_step_completed_on: string | null
   /** The Online mark (set on the Medical Fit tab). */
   entry_mode?: { value: 'online'; label: string } | null
+  /** BMET and Flight rows: the visa's expiry (YYYY-MM-DD). */
+  visa_valid_until?: string | null
+  /** BMET rows: the visa's issue date. */
+  visa_issue_date?: string | null
+  /**
+   * BMET rows: when each action was done (`<action>_date`, YYYY-MM-DD or null); Flight rows
+   * have the clearance date too.
+   */
+  training_date?: string | null
+  finger_date?: string | null
+  clearance_date?: string | null
+  /** Flight rows: whether BMET is cleared (clearance_date has its date). */
+  bmet_cleared?: boolean
+  /** Flight rows: the booking and confirmed dates (YYYY-MM-DD or null). */
+  booking_date?: string | null
+  confirmed_date?: string | null
+  /** Flight rows: the flight may be confirmed (BMET cleared and a booking date). */
+  can_confirm?: boolean
+  /** Flight rows: what the confirm still needs. */
+  missing?: ('bmet' | 'booking_date')[]
 }
 
-/** Filters of a step page. */
 /** GET /steps/{step}/passports: a page of rows plus every tab's count (same searches). */
 export type StepListResponse = Paginated<StepListRow> & {
   tab_counts?: Record<StepListTab, number>
 }
 
+/** Filters of a step page. */
 export interface StepListParams {
   tab: StepListTab
   search?: string

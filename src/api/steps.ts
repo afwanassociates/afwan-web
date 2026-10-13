@@ -124,3 +124,71 @@ export async function updateCalling(
   )
   return data
 }
+
+/**
+ * Marks a milestone action done (BMET: training, finger, clearance). Without a date the API
+ * uses today (Dhaka); a date corrects an action already done.
+ */
+export async function markStepAction(
+  passportId: number,
+  stepKey: string,
+  action: string,
+  date?: string,
+): Promise<StepSaveResponse> {
+  const { data } = await api.post<StepSaveResponse>(
+    `${BASE}/passports/${passportId}/steps/${encodeURIComponent(stepKey)}/${encodeURIComponent(action)}`,
+    date ? { date } : {},
+  )
+  return data
+}
+
+/** Undoes a milestone action (data is null once the last one is undone). */
+export async function undoStepAction(
+  passportId: number,
+  stepKey: string,
+  action: string,
+): Promise<void> {
+  await api.delete(
+    `${BASE}/passports/${passportId}/steps/${encodeURIComponent(stepKey)}/${encodeURIComponent(action)}`,
+  )
+}
+
+/**
+ * Saves (or changes) the flight booking date: any time after the visa is issued, today or
+ * later is fine, not before the visa issue date (422 on booking_date).
+ */
+export async function bookFlight(
+  passportId: number,
+  bookingDate: string,
+): Promise<StepSaveResponse> {
+  const { data } = await api.post<StepSaveResponse>(
+    `${BASE}/passports/${passportId}/steps/flight/booking`,
+    { booking_date: bookingDate },
+  )
+  return data
+}
+
+/** Clears the flight booking date (not once the flight is confirmed). */
+export async function clearFlightBooking(passportId: number): Promise<void> {
+  await api.delete(`${BASE}/passports/${passportId}/steps/flight/booking`)
+}
+
+/**
+ * Confirms the flight (no body). Refused with 422 unless BMET is cleared and a booking date
+ * exists (the row's can_confirm).
+ */
+export async function confirmFlight(passportId: number): Promise<StepSaveResponse> {
+  const { data } = await api.post<StepSaveResponse>(
+    `${BASE}/passports/${passportId}/steps/flight/confirm`,
+    {},
+  )
+  return data
+}
+
+/** Undoes the confirmation: back to Flight Pending, the booking date kept. */
+export async function undoFlightConfirm(passportId: number): Promise<StepSaveResponse> {
+  const { data } = await api.delete<StepSaveResponse>(
+    `${BASE}/passports/${passportId}/steps/flight/confirm`,
+  )
+  return data
+}

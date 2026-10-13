@@ -11,7 +11,12 @@ import {
 } from 'vue'
 import StepFields from '@/components/StepFields.vue'
 import TopModal from '@/components/TopModal.vue'
-import { startStep, updateCalling, type StepSaveResponse } from '@/api/steps'
+import {
+  startStep,
+  updateCalling,
+  type CallingUpdatePayload,
+  type StepSaveResponse,
+} from '@/api/steps'
 import { businessToday, toApiDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { stepPayload, stepWithPhase, validateStepForm } from '@/lib/workflow'
@@ -132,12 +137,16 @@ function check(): boolean {
   return Object.keys(e).length === 0
 }
 
-/** Update: the permit dates, flat, as the API takes them. */
-const updatePayload = () => ({
-  receive_date: toApiDate(values.receive_date ?? ''),
-  issue_date: toApiDate(values.issue_date ?? ''),
-  valid_until: toApiDate(values.valid_until ?? ''),
-})
+/** Update: the filled fields, flat, as the API takes them (dates as YYYY-MM-DD). */
+function updatePayload(): Record<string, string> {
+  const payload: Record<string, string> = {}
+  for (const field of startStepConfig.value.fields) {
+    const raw = (values[field.name] ?? '').trim()
+    const value = field.type === 'date' ? toApiDate(raw) : raw
+    if (value) payload[field.name] = value
+  }
+  return payload
+}
 
 async function save() {
   if (isSaving.value) return
@@ -151,7 +160,11 @@ async function save() {
   isSaving.value = true
   try {
     const response = isUpdate.value
-      ? await updateCalling(props.row.id, props.step.key, updatePayload())
+      ? await updateCalling(
+          props.row.id,
+          props.step.key,
+          updatePayload() as unknown as CallingUpdatePayload,
+        )
       : await startStep(
           props.row.id,
           props.step.key,
@@ -163,7 +176,7 @@ async function save() {
   } catch (error) {
     if (errorStatus(error) === 422) {
       const server = fieldErrors(error)
-      // Fields inside `details` come back as "details.airline".
+      // Fields inside `details` come back as "details.issue_date".
       errors.value = Object.fromEntries(
         Object.entries(server).map(([key, message]) => [key.replace(/^details\./, ''), message]),
       )
