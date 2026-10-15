@@ -3,12 +3,14 @@ import { computed, onMounted, ref, shallowRef, useId, watch } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import PassportListBody from '@/components/PassportListBody.vue'
 import PassportOverviewTable from '@/components/PassportOverviewTable.vue'
+import SearchSelect from '@/components/SearchSelect.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
+import { searchCompanies } from '@/api/companies'
 import { listPassportOverview } from '@/api/passports'
 import { useDebounce } from '@/composables/useDebounce'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import type { Paginated } from '@/types/auth'
-import type { PassportOverview } from '@/types/passport'
+import type { CompanySummary, PassportOverview } from '@/types/passport'
 
 /**
  * All Passports: a read-only overview of every passport in every status (unfit included),
@@ -29,6 +31,7 @@ const OLD_KEYS = [
   'company_id',
   'company_name',
   'company_country_code',
+  'company',
 ]
 
 const route = useRoute()
@@ -36,23 +39,23 @@ const router = useRouter()
 
 const searchId = useId()
 const referenceId = useId()
-const companyId = useId()
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
 const filters = computed(() => {
   const page = Number(text(route.query.page))
+  const companyId = Number(text(route.query.company_id))
   return {
     q: text(route.query.q).trim(),
     reference: text(route.query.reference).trim(),
-    company: text(route.query.company).trim(),
+    company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
     page: Number.isInteger(page) && page > 1 ? page : 1,
   }
 })
 type Filters = typeof filters.value
 
 const hasFilters = computed(() =>
-  Boolean(filters.value.q || filters.value.reference || filters.value.company),
+  Boolean(filters.value.q || filters.value.reference || filters.value.company_id),
 )
 
 /** The current query with `changes` applied; a search change goes back to page 1. */
@@ -60,22 +63,22 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   const next = { ...filters.value, page: 1, ...changes }
   const query: LocationQuery = { ...route.query }
   for (const key of OLD_KEYS) delete query[key]
-  const set = (key: string, value: string | number) => {
-    if (value === '' || value === 1) delete query[key]
+  const set = (key: string, value: string | number | null) => {
+    if (!value || value === 1) delete query[key]
     else query[key] = String(value)
   }
   set('q', next.q)
   set('reference', next.reference)
-  set('company', next.company)
+  set('company_id', next.company_id)
   set('page', next.page)
   return query
 }
 
-/* ---------- The three searches (debounced, 300 ms) ---------- */
+/* ---------- The searches (debounced, 300 ms) ---------- */
 
 const search = ref(filters.value.q)
 const reference = ref(filters.value.reference)
-const company = ref(filters.value.company)
+const selectedCompany = ref<CompanySummary | null>(null)
 
 const searchDebounce = useDebounce(
   () => router.replace({ query: queryWith({ q: search.value.trim() }) }),
@@ -86,38 +89,31 @@ const referenceDebounce = useDebounce(
   300,
 )
 
-const companyDebounce = useDebounce(
-  () => router.replace({ query: queryWith({ company: company.value.trim() }) }),
-  300,
-)
-
-function clearCompany() {
-  company.value = ''
-  companyDebounce.cancel()
-  router.replace({ query: queryWith({ company: '' }) })
-}
-
 function clearReference() {
   reference.value = ''
   referenceDebounce.cancel()
   router.replace({ query: queryWith({ reference: '' }) })
 }
 
+function onCompanySelected(value: CompanySummary | null) {
+  selectedCompany.value = value
+  router.replace({ query: queryWith({ company_id: value?.id ?? null }) })
+}
+
 function clearFilters() {
   search.value = ''
   reference.value = ''
-  company.value = ''
+  selectedCompany.value = null
   searchDebounce.cancel()
   referenceDebounce.cancel()
-  companyDebounce.cancel()
-  router.replace({ query: queryWith({ q: '', reference: '', company: '' }) })
+  router.replace({ query: queryWith({ q: '', reference: '', company_id: null }) })
 }
 
 // Back / forward: show what the URL says.
 watch(filters, (f) => {
   if (f.q !== search.value.trim()) search.value = f.q
   if (f.reference !== reference.value.trim()) reference.value = f.reference
-  if (f.company !== company.value.trim()) company.value = f.company
+  if (!f.company_id && selectedCompany.value) selectedCompany.value = null
 })
 
 /* ---------- Loading ---------- */
@@ -138,7 +134,7 @@ async function load() {
       medical_status: 'all',
       q: f.q || undefined,
       reference: f.reference || undefined,
-      company: f.company || undefined,
+      company_id: f.company_id ?? undefined,
       page: f.page,
       per_page: PER_PAGE,
     })
@@ -249,44 +245,16 @@ const inputClass =
               </button>
             </div>
           </div>
-          <div>
-            <label :for="companyId" class="block text-sm font-medium text-slate-700">
-              Search company
-            </label>
-            <div class="relative">
-              <input
-                :id="companyId"
-                v-model="company"
-                type="text"
-                autocomplete="off"
-                placeholder="Company name"
-                :class="[inputClass, 'pr-10']"
-                data-company-search
-                @input="companyDebounce.run()"
-                @keydown.esc="clearCompany"
-              />
-              <button
-                v-if="company"
-                type="button"
-                class="absolute top-1/2 right-1.5 mt-0.5 -translate-y-1/2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                data-clear-company
-                @click="clearCompany"
-              >
-                <svg
-                  class="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-                <span class="sr-only">Clear company search</span>
-              </button>
-            </div>
-          </div>
+          <SearchSelect
+            :model-value="selectedCompany"
+            :fetch="searchCompanies"
+            label="Filter by company"
+            placeholder="Search company…"
+            none-label="All companies"
+            clearable
+            data-company-filter
+            @update:model-value="onCompanySelected"
+          />
         </div>
         <button
           v-if="hasFilters"

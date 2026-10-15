@@ -5,6 +5,8 @@ import ArrowIcon from '@/components/ArrowIcon.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import PassportTable from '@/components/PassportTable.vue'
+import SearchSelect from '@/components/SearchSelect.vue'
+import { searchCompanies } from '@/api/companies'
 import { deletePassport, listPassports } from '@/api/passports'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
@@ -12,7 +14,7 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { Paginated } from '@/types/auth'
-import type { PassportEntry } from '@/types/passport'
+import type { CompanySummary, PassportEntry } from '@/types/passport'
 
 const PER_PAGE = 15
 
@@ -25,7 +27,6 @@ workflow.load()
 
 const searchId = useId()
 const referenceId = useId()
-const companyId = useId()
 
 /**
  * This page lists only passports at the "Passport entered" stage: no medical slip date yet
@@ -40,11 +41,9 @@ const OLD_KEYS = [
   'reference_type',
   'reference_id',
   'reference_name',
-  'company_id',
   'company_name',
   'company_country_code',
-  'received_from',
-  'received_to',
+  'company',
   'stage',
 ]
 
@@ -53,8 +52,12 @@ interface Filters {
   q: string
   /** Part of the reference's name */
   reference: string
-  /** Part of the company's name */
-  company: string
+  /** Selected company ID */
+  company_id: number | null
+  /** YYYY-MM-DD: received date range start */
+  received_from: string
+  /** YYYY-MM-DD: received date range end */
+  received_to: string
   page: number
 }
 
@@ -67,12 +70,20 @@ const positiveInt = (value: unknown) => {
 const filters = computed<Filters>(() => ({
   q: text(route.query.q).trim(),
   reference: text(route.query.reference).trim(),
-  company: text(route.query.company).trim(),
+  company_id: positiveInt(route.query.company_id),
+  received_from: text(route.query.received_from).trim(),
+  received_to: text(route.query.received_to).trim(),
   page: positiveInt(route.query.page) ?? 1,
 }))
 
 const hasFilters = computed(() =>
-  Boolean(filters.value.q || filters.value.reference || filters.value.company),
+  Boolean(
+    filters.value.q ||
+      filters.value.reference ||
+      filters.value.company_id ||
+      filters.value.received_from ||
+      filters.value.received_to,
+  ),
 )
 
 /** Builds the URL query from the current filters plus `changes`. Changing a search resets the page. */
@@ -81,34 +92,38 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   const query: LocationQuery = {}
   if (next.q) query.q = next.q
   if (next.reference) query.reference = next.reference
-  if (next.company) query.company = next.company
+  if (next.company_id) query.company_id = String(next.company_id)
+  if (next.received_from) query.received_from = next.received_from
+  if (next.received_to) query.received_to = next.received_to
   if (next.page > 1) query.page = String(next.page)
   return query
 }
 
-// The three searches: debounced, and `replace` so typing does not flood the browser history.
+// The searches: debounced, and `replace` so typing does not flood the browser history.
 const search = ref(filters.value.q)
 const reference = ref(filters.value.reference)
-const company = ref(filters.value.company)
+const selectedCompany = ref<CompanySummary | null>(null)
+const receivedFrom = ref(filters.value.received_from)
+const receivedTo = ref(filters.value.received_to)
+const receivedFromId = useId()
+const receivedToId = useId()
 
 /**
- * Puts all three typed searches in the URL at once, so typing in two boxes quickly cannot
- * lose one of them (each update would otherwise start from a URL the other has not yet
- * changed).
+ * Puts all text searches in the URL at once.
  */
 function applySearches() {
   router.replace({
     query: queryWith({
       q: search.value.trim(),
       reference: reference.value.trim(),
-      company: company.value.trim(),
+      received_from: receivedFrom.value,
+      received_to: receivedTo.value,
     }),
   })
 }
 
 const debouncedSearch = useDebounce(applySearches, 300)
 const debouncedReference = useDebounce(applySearches, 300)
-const debouncedCompany = useDebounce(applySearches, 300)
 
 function clearReference() {
   reference.value = ''
@@ -116,56 +131,30 @@ function clearReference() {
   router.replace({ query: queryWith({ reference: '' }) })
 }
 
-function clearCompany() {
-  company.value = ''
-  debouncedCompany.cancel()
-  router.replace({ query: queryWith({ company: '' }) })
+function onCompanySelected(value: CompanySummary | null) {
+  selectedCompany.value = value
+  router.replace({ query: queryWith({ company_id: value?.id ?? null }) })
 }
 
 // Back / forward: show what the URL says.
 watch(filters, (f) => {
   if (f.q !== search.value.trim()) search.value = f.q
   if (f.reference !== reference.value.trim()) reference.value = f.reference
-  if (f.company !== company.value.trim()) company.value = f.company
+  if (!f.company_id && selectedCompany.value) selectedCompany.value = null
+  if (f.received_from !== receivedFrom.value) receivedFrom.value = f.received_from
+  if (f.received_to !== receivedTo.value) receivedTo.value = f.received_to
 })
 
 function clearFilters() {
   search.value = ''
   reference.value = ''
-  company.value = ''
+  selectedCompany.value = null
+  receivedFrom.value = ''
+  receivedTo.value = ''
   debouncedSearch.cancel()
   debouncedReference.cancel()
-  debouncedCompany.cancel()
   router.push({ query: {} })
 }
-
-/** "Search reference" and "Search company": same behaviour, different query key. */
-const searchBoxes = [
-  {
-    key: 'reference',
-    id: referenceId,
-    label: 'Search reference',
-    placeholder: 'Reference name',
-    model: reference,
-    onInput: (value: string) => {
-      reference.value = value
-      debouncedReference.run()
-    },
-    clear: clearReference,
-  },
-  {
-    key: 'company',
-    id: companyId,
-    label: 'Search company',
-    placeholder: 'Company name',
-    model: company,
-    onInput: (value: string) => {
-      company.value = value
-      debouncedCompany.run()
-    },
-    clear: clearCompany,
-  },
-]
 
 onMounted(() => {
   if (OLD_KEYS.some((key) => key in route.query)) router.replace({ query: queryWith({}) })
@@ -202,7 +191,9 @@ async function load() {
     const result = await listPassports({
       q: f.q || undefined,
       reference: f.reference || undefined,
-      company: f.company || undefined,
+      company_id: f.company_id ?? undefined,
+      received_from: f.received_from || undefined,
+      received_to: f.received_to || undefined,
       stage: STAGE,
       page: f.page,
       per_page: PER_PAGE,
@@ -330,7 +321,6 @@ const inputClass =
       <h2 id="passport-list-heading" class="sr-only">Passport entries</h2>
 
       <!-- Search and filters -->
-      <!-- Search: name / passport number, reference and company (combined) -->
       <div role="search" class="space-y-4">
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
@@ -346,28 +336,28 @@ const inputClass =
               @input="debouncedSearch.run()"
             />
           </div>
-          <div v-for="box in searchBoxes" :key="box.key">
-            <label :for="box.id" class="block text-sm font-medium text-slate-700">
-              {{ box.label }}
+          <div>
+            <label :for="referenceId" class="block text-sm font-medium text-slate-700">
+              Search reference
             </label>
             <div class="relative">
               <input
-                :id="box.id"
-                :value="box.model.value"
+                :id="referenceId"
+                v-model="reference"
                 type="text"
                 autocomplete="off"
-                :placeholder="box.placeholder"
+                placeholder="Reference name"
                 :class="[inputClass, 'pr-10']"
-                :data-search-box="box.key"
-                @input="box.onInput(($event.target as HTMLInputElement).value)"
-                @keydown.esc="box.clear"
+                data-search-box="reference"
+                @input="debouncedReference.run()"
+                @keydown.esc="clearReference"
               />
               <button
-                v-if="box.model.value"
+                v-if="reference"
                 type="button"
                 class="absolute top-1/2 right-1.5 mt-0.5 -translate-y-1/2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                :data-clear="box.key"
-                @click="box.clear"
+                data-clear="reference"
+                @click="clearReference"
               >
                 <svg
                   class="h-4 w-4"
@@ -380,9 +370,51 @@ const inputClass =
                 >
                   <path d="M6 6l12 12M18 6L6 18" />
                 </svg>
-                <span class="sr-only">Clear {{ box.label.toLowerCase() }}</span>
+                <span class="sr-only">Clear search reference</span>
               </button>
             </div>
+          </div>
+          <SearchSelect
+            :model-value="selectedCompany"
+            :fetch="searchCompanies"
+            label="Filter by company"
+            placeholder="Search company…"
+            none-label="All companies"
+            clearable
+            data-company-filter
+            @update:model-value="onCompanySelected"
+          />
+        </div>
+
+        <!-- Received date range -->
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label :for="receivedFromId" class="block text-sm font-medium text-slate-700">
+              Received from
+            </label>
+            <input
+              :id="receivedFromId"
+              v-model="receivedFrom"
+              type="date"
+              :max="receivedTo || undefined"
+              :class="inputClass"
+              data-received-from
+              @change="applySearches"
+            />
+          </div>
+          <div>
+            <label :for="receivedToId" class="block text-sm font-medium text-slate-700">
+              Received to
+            </label>
+            <input
+              :id="receivedToId"
+              v-model="receivedTo"
+              type="date"
+              :min="receivedFrom || undefined"
+              :class="inputClass"
+              data-received-to
+              @change="applySearches"
+            />
           </div>
         </div>
 

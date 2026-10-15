@@ -6,7 +6,9 @@ import StepStartPopover from '@/components/StepStartPopover.vue'
 import TopModal from '@/components/TopModal.vue'
 import DatePopover from '@/components/DatePopover.vue'
 import PassportListBody from '@/components/PassportListBody.vue'
+import SearchSelect from '@/components/SearchSelect.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
+import { searchCompanies } from '@/api/companies'
 import {
   bookFlight,
   clearFlightBooking,
@@ -28,6 +30,7 @@ import { STICKY_ACTIONS, TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClass
 import { finalStatuses, isRecordStep, statusLabel } from '@/lib/workflow'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
+import type { CompanySummary } from '@/types/passport'
 import type {
   StepAction,
   StepConfig,
@@ -58,8 +61,11 @@ workflow.loadConfig()
 
 const searchId = useId()
 const blockedId = useId()
-const companyId = useId()
 const referenceId = useId()
+const receiveDateFromId = useId()
+const receiveDateToId = useId()
+const bookingDateFromId = useId()
+const bookingDateToId = useId()
 
 const stepKey = computed(() => String(route.params.step ?? ''))
 const step = computed(() => {
@@ -117,19 +123,27 @@ const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
 const filters = computed(() => {
   const page = Number(text(route.query.page))
+  const companyId = Number(text(route.query.company_id))
   return {
-    /** As written in the URL; `activeTab` is the checked one. */
     tab: text(route.query.tab),
     q: text(route.query.q).trim(),
-    company: text(route.query.company).trim(),
+    company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
     reference: text(route.query.reference).trim(),
+    receive_date_from: text(route.query.receive_date_from).trim(),
+    receive_date_to: text(route.query.receive_date_to).trim(),
+    booking_date_from: text(route.query.booking_date_from).trim(),
+    booking_date_to: text(route.query.booking_date_to).trim(),
     page: Number.isInteger(page) && page > 1 ? page : 1,
   }
 })
 type Filters = typeof filters.value
 
 const hasFilters = computed(() =>
-  Boolean(filters.value.q || filters.value.company || filters.value.reference),
+  Boolean(
+    filters.value.q || filters.value.company_id || filters.value.reference ||
+    (activeTab.value === 'permitted' && (filters.value.receive_date_from || filters.value.receive_date_to)) ||
+    (stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed') && (filters.value.booking_date_from || filters.value.booking_date_to)),
+  ),
 )
 
 function queryWith(changes: Partial<Filters>): LocationQuery {
@@ -137,60 +151,65 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   const query: LocationQuery = {}
   if (next.tab && next.tab !== defaultTab.value) query.tab = next.tab
   if (next.q) query.q = next.q
-  if (next.company) query.company = next.company
+  if (next.company_id) query.company_id = String(next.company_id)
   if (next.reference) query.reference = next.reference
+  if (next.receive_date_from) query.receive_date_from = next.receive_date_from
+  else delete query.receive_date_from
+  if (next.receive_date_to) query.receive_date_to = next.receive_date_to
+  else delete query.receive_date_to
+  if (next.booking_date_from) query.booking_date_from = next.booking_date_from
+  else delete query.booking_date_from
+  if (next.booking_date_to) query.booking_date_to = next.booking_date_to
+  else delete query.booking_date_to
   if (next.page > 1) query.page = String(next.page)
   return query
 }
 
 const search = ref(filters.value.q)
-const company = ref(filters.value.company)
+const selectedCompany = ref<CompanySummary | null>(null)
 const reference = ref(filters.value.reference)
+const receiveDateFrom = ref(filters.value.receive_date_from)
+const receiveDateTo = ref(filters.value.receive_date_to)
+const bookingDateFrom = ref(filters.value.booking_date_from)
+const bookingDateTo = ref(filters.value.booking_date_to)
 
-/** All three at once, so quick typing in two boxes cannot lose one. */
+/** All at once, so quick typing in two boxes cannot lose one. */
 function applySearches() {
   router.replace({
     query: queryWith({
       q: search.value.trim(),
-      company: company.value.trim(),
       reference: reference.value.trim(),
     }),
   })
 }
 const debouncedSearch = useDebounce(applySearches, 300)
-const debouncedCompany = useDebounce(applySearches, 300)
 const debouncedReference = useDebounce(applySearches, 300)
 
-function clearBox(key: 'company' | 'reference') {
-  if (key === 'company') {
-    company.value = ''
-    debouncedCompany.cancel()
-  } else {
-    reference.value = ''
-    debouncedReference.cancel()
-  }
-  router.replace({ query: queryWith({ [key]: '' }) })
+function onCompanySelected(value: CompanySummary | null) {
+  selectedCompany.value = value
+  router.replace({ query: queryWith({ company_id: value?.id ?? null }) })
+}
+
+function clearBox(key: 'reference') {
+  reference.value = ''
+  debouncedReference.cancel()
+  router.replace({ query: queryWith({ reference: '' }) })
 }
 
 function clearFilters() {
   search.value = ''
-  company.value = ''
+  selectedCompany.value = null
   reference.value = ''
+  receiveDateFrom.value = ''
+  receiveDateTo.value = ''
+  bookingDateFrom.value = ''
+  bookingDateTo.value = ''
   debouncedSearch.cancel()
-  debouncedCompany.cancel()
   debouncedReference.cancel()
-  router.replace({ query: queryWith({ q: '', company: '', reference: '' }) })
+  router.replace({ query: queryWith({ q: '', company_id: null, reference: '', receive_date_from: '', receive_date_to: '', booking_date_from: '', booking_date_to: '' }) })
 }
 
 const searchBoxes = [
-  {
-    key: 'company' as const,
-    id: companyId,
-    label: 'Search company',
-    placeholder: 'Company name',
-    model: company,
-    debounce: debouncedCompany,
-  },
   {
     key: 'reference' as const,
     id: referenceId,
@@ -203,8 +222,12 @@ const searchBoxes = [
 
 watch(filters, (f) => {
   if (f.q !== search.value.trim()) search.value = f.q
-  if (f.company !== company.value.trim()) company.value = f.company
+  if (!f.company_id && selectedCompany.value) selectedCompany.value = null
   if (f.reference !== reference.value.trim()) reference.value = f.reference
+  if (f.receive_date_from !== receiveDateFrom.value) receiveDateFrom.value = f.receive_date_from
+  if (f.receive_date_to !== receiveDateTo.value) receiveDateTo.value = f.receive_date_to
+  if (f.booking_date_from !== bookingDateFrom.value) bookingDateFrom.value = f.booking_date_from
+  if (f.booking_date_to !== bookingDateTo.value) bookingDateTo.value = f.booking_date_to
 })
 
 /* ---------- Tabs ---------- */
@@ -269,8 +292,16 @@ let requestId = 0
 
 const apiFilters = (f: Filters) => ({
   search: f.q || undefined,
-  company: f.company || undefined,
+  company_id: f.company_id ?? undefined,
   reference: f.reference || undefined,
+  ...(activeTab.value === 'permitted' ? {
+    receive_date_from: f.receive_date_from || undefined,
+    receive_date_to: f.receive_date_to || undefined,
+  } : {}),
+  ...(stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed') ? {
+    booking_date_from: f.booking_date_from || undefined,
+    booking_date_to: f.booking_date_to || undefined,
+  } : {}),
 })
 
 async function load() {
@@ -322,20 +353,23 @@ const pageLink = (page: number) => ({ query: queryWith({ ...filters.value, page 
 
 /* ---------- Columns ---------- */
 
-/** The step's own fields as columns, in config order (the step date first). */
+/** The step's own fields as columns, in config order (the step date first).
+ * On the visa issued tab, step_date (Visa submitted date) is hidden.
+ */
 const fieldColumns = computed<StepFieldConfig[]>(() => {
   const fields = step.value?.fields ?? []
-  return [
+  const ordered = [
     ...fields.filter((f) => f.name === 'step_date'),
     ...fields.filter((f) => f.name !== 'step_date'),
   ]
+  if (stepKey.value === 'visa' && activeTab.value === 'issued')
+    return ordered.filter((f) => f.name !== 'step_date')
+  return ordered
 })
 
 function fieldValue(row: StepListRow, field: StepFieldConfig): string {
-  // "-" when missing (e.g. old records without a field), as on the Medical page.
   const record = row.record
   if (!record) return '-'
-  // The step date column is when the step started (visa: submitted), also once it has a result.
   if (field.name === 'step_date' && record.submitted_date)
     return toDisplayDate(record.submitted_date) || record.submitted_date
   const raw = field.in_details
@@ -377,9 +411,9 @@ const showVisaExpiry = computed(
   () => isPendingTab.value && (isMilestoneStep.value || isBookingStep.value),
 )
 
-/** Calling expiry on Visa Pending and Visa issued (not on Rejected). */
+/** Calling expiry on Visa Pending only (not on Issued or Rejected). */
 const showPreviousExpiry = computed(
-  () => previousExpiry.value !== null && (isPendingTab.value || activeTab.value !== 'rejected'),
+  () => previousExpiry.value !== null && isPendingTab.value,
 )
 const previousExpiry = computed(() => {
   const prev = previousStep.value
@@ -889,6 +923,16 @@ const STICKY = STICKY_ACTIONS
                   @input="debouncedSearch.run()"
                 />
               </div>
+              <SearchSelect
+                :model-value="selectedCompany"
+                :fetch="searchCompanies"
+                label="Filter by company"
+                placeholder="Search company…"
+                none-label="All companies"
+                clearable
+                data-company-filter
+                @update:model-value="onCompanySelected"
+              />
               <div v-for="box in searchBoxes" :key="box.key">
                 <label :for="box.id" class="block text-sm font-medium text-slate-700">
                   {{ box.label }}
@@ -927,6 +971,60 @@ const STICKY = STICKY_ACTIONS
                   </button>
                 </div>
               </div>
+              <!-- Permitted tab only: receive date range filter -->
+              <template v-if="activeTab === 'permitted' && stepKey === 'calling'">
+                <div>
+                  <label :for="receiveDateFromId" class="block text-sm font-medium text-slate-700">Receive date from</label>
+                  <input
+                    :id="receiveDateFromId"
+                    v-model="receiveDateFrom"
+                    type="date"
+                    :max="receiveDateTo || undefined"
+                    :class="inputClass"
+                    data-receive-date-from
+                    @change="router.replace({ query: queryWith({ receive_date_from: receiveDateFrom, receive_date_to: receiveDateTo }) })"
+                  />
+                </div>
+                <div>
+                  <label :for="receiveDateToId" class="block text-sm font-medium text-slate-700">Receive date to</label>
+                  <input
+                    :id="receiveDateToId"
+                    v-model="receiveDateTo"
+                    type="date"
+                    :min="receiveDateFrom || undefined"
+                    :class="inputClass"
+                    data-receive-date-to
+                    @change="router.replace({ query: queryWith({ receive_date_from: receiveDateFrom, receive_date_to: receiveDateTo }) })"
+                  />
+                </div>
+              </template>
+              <!-- Flight pending + confirmed tabs: booking date range filter -->
+              <template v-if="stepKey === 'flight' && (isPendingTab || activeTab === 'confirmed')">
+                <div>
+                  <label :for="bookingDateFromId" class="block text-sm font-medium text-slate-700">Flight date from</label>
+                  <input
+                    :id="bookingDateFromId"
+                    v-model="bookingDateFrom"
+                    type="date"
+                    :max="bookingDateTo || undefined"
+                    :class="inputClass"
+                    data-booking-date-from
+                    @change="router.replace({ query: queryWith({ booking_date_from: bookingDateFrom, booking_date_to: bookingDateTo }) })"
+                  />
+                </div>
+                <div>
+                  <label :for="bookingDateToId" class="block text-sm font-medium text-slate-700">Flight date to</label>
+                  <input
+                    :id="bookingDateToId"
+                    v-model="bookingDateTo"
+                    type="date"
+                    :min="bookingDateFrom || undefined"
+                    :class="inputClass"
+                    data-booking-date-to
+                    @change="router.replace({ query: queryWith({ booking_date_from: bookingDateFrom, booking_date_to: bookingDateTo }) })"
+                  />
+                </div>
+              </template>
             </div>
             <button
               v-if="hasFilters"
@@ -1003,14 +1101,12 @@ const STICKY = STICKY_ACTIONS
                           {{ field.label }}
                         </th>
                       </template>
-                      <!-- Flight confirmed: the booking and confirmed dates -->
+                      <!-- Flight confirmed: the booking date only -->
                       <template v-else-if="isBookingStep">
                         <th scope="col" :class="th" data-column="booking_date">
                           {{ bookingField?.label }}
                         </th>
-                        <th scope="col" :class="th" data-column="confirmed_date">
-                          {{ confirmField?.label }}
-                        </th>
+                        <th scope="col" :class="th" data-column="passport_done">Flight done</th>
                       </template>
                       <template v-else>
                         <th
@@ -1191,7 +1287,7 @@ const STICKY = STICKY_ACTIONS
                           {{ isStarted(row) ? fieldValue(row, field) : '-' }}
                         </td>
                       </template>
-                      <!-- Flight confirmed: the booking and confirmed dates, read-only -->
+                      <!-- Flight confirmed: the booking date only, read-only -->
                       <template v-else-if="isBookingStep">
                         <td
                           class="py-3 pr-4 whitespace-nowrap text-slate-800"
@@ -1199,11 +1295,13 @@ const STICKY = STICKY_ACTIONS
                         >
                           {{ toDisplayDate(row.booking_date) || '-' }}
                         </td>
-                        <td
-                          class="py-3 pr-4 whitespace-nowrap text-slate-800"
-                          data-cell="confirmed_date"
-                        >
-                          {{ toDisplayDate(row.confirmed_date) || '-' }}
+                        <td class="py-3 pr-4 whitespace-nowrap" data-cell="passport_done">
+                          <span class="inline-flex items-center gap-1 font-medium text-green-700">
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                              <path d="M5 12l5 5L20 7" />
+                            </svg>
+                            Done
+                          </span>
                         </td>
                       </template>
                       <template v-else>

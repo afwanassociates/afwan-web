@@ -159,6 +159,12 @@ export interface PassportFilters {
   company_country_code?: string
   received_from?: string
   received_to?: string
+  /** Filter by medical centre ID. */
+  medical_center_id?: number
+  /** YYYY-MM-DD: medical date range start. */
+  medical_date_from?: string
+  /** YYYY-MM-DD: medical date range end. */
+  medical_date_to?: string
   /** Without it the API leaves out unfit passports; 'unfit' lists only them; 'all' lists every status. */
   medical_status?: MedicalStatus | 'all'
   sort?: PassportSort

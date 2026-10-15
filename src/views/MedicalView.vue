@@ -7,8 +7,11 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalDateCell from '@/components/MedicalDateCell.vue'
 import MedicalFitDialog from '@/components/MedicalFitDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
+import SearchSelect from '@/components/SearchSelect.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import type { PassportColumn } from '@/lib/passportColumns'
+import { searchCompanies } from '@/api/companies'
+import { searchMedicalCenters } from '@/api/medicalCenters'
 import { recordMedicalResult } from '@/api/medical'
 import { listPassports, updateEntryMode } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
@@ -17,9 +20,9 @@ import { errorMessage, errorStatus, firstFieldError } from '@/lib/errors'
 import { canAccessArea } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
-import type { MedicalResult, MedicalStatus } from '@/types/medical'
+import type { MedicalCenterSummary, MedicalResult, MedicalStatus } from '@/types/medical'
 import type { PassportPage } from '@/api/passports'
-import type { EntryMode, PassportEntry } from '@/types/passport'
+import type { CompanySummary, EntryMode, PassportEntry } from '@/types/passport'
 
 /**
  * Step 2: Medical. One tab per medical status. The tab and three searches (name / passport
@@ -46,10 +49,8 @@ const MARK_COLUMNS: PassportColumn[] = [
   'reference',
   'company',
   'medical_center',
-  'medical_date',
-  'slip_date',
   'issue_date',
-  'expiry_date',
+  'days_left',
 ]
 /** Tabs whose rows are marked Online. */
 const MARK_TABS: TabKey[] = ['fit', 'expiring_soon']
@@ -113,114 +114,121 @@ const tab = computed<Tab>(() => TABS.find((t) => t.key === route.query.tab) ?? T
 const PER_PAGE = 15
 
 /** Query keys of older versions of this page; ignored and dropped from the URL. */
-const OLD_KEYS = ['sort', 'company_id', 'company_name', 'company_country_code']
+const OLD_KEYS = ['sort', 'company_id', 'company_name', 'company_country_code', 'company']
 
 const searchId = useId()
-const companyId = useId()
 const referenceId = useId()
+const medicalDateFromId = useId()
+const medicalDateToId = useId()
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
 const filters = computed(() => {
   const page = Number(text(route.query.page))
+  const companyId = Number(text(route.query.company_id))
+  const medicalCenterId = Number(text(route.query.medical_center_id))
   return {
     q: text(route.query.q).trim(),
-    company: text(route.query.company).trim(),
+    company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
     reference: text(route.query.reference).trim(),
+    medical_center_id: Number.isInteger(medicalCenterId) && medicalCenterId > 0 ? medicalCenterId : null,
+    medical_date_from: text(route.query.medical_date_from).trim(),
+    medical_date_to: text(route.query.medical_date_to).trim(),
     page: Number.isInteger(page) && page > 1 ? page : 1,
   }
 })
 type Filters = typeof filters.value
 
-const hasFilters = computed(() =>
-  Boolean(filters.value.q || filters.value.company || filters.value.reference),
-)
+const hasFilters = computed(() => {
+  const f = filters.value
+  const base = Boolean(f.q || f.company_id)
+  const pendingOnly = tab.value.key === 'pending' &&
+    Boolean(f.medical_center_id || f.medical_date_from || f.medical_date_to)
+  const nonPendingOnly = tab.value.key !== 'pending' && Boolean(f.reference)
+  return base || pendingOnly || nonPendingOnly
+})
 
 /** The current query (the tab is kept) with `changes`; a search change goes back to page 1. */
 function queryWith(changes: Partial<Filters>): LocationQuery {
   const next = { ...filters.value, page: 1, ...changes }
   const query: LocationQuery = { ...route.query }
   for (const key of OLD_KEYS) delete query[key]
-  const set = (key: string, value: string | number) => {
-    if (value === '' || value === 1) delete query[key]
+  const set = (key: string, value: string | number | null) => {
+    if (!value || value === 1) delete query[key]
     else query[key] = String(value)
   }
   set('q', next.q)
-  set('company', next.company)
-  set('reference', next.reference)
+  set('company_id', next.company_id)
+  if (next.reference) query.reference = next.reference
+  else delete query.reference
+  set('medical_center_id', next.medical_center_id)
+  if (next.medical_date_from) query.medical_date_from = next.medical_date_from
+  else delete query.medical_date_from
+  if (next.medical_date_to) query.medical_date_to = next.medical_date_to
+  else delete query.medical_date_to
   set('page', next.page)
   return query
 }
 
-/* ---------- The three searches (debounced 300 ms) ---------- */
+/* ---------- The searches ---------- */
 
 const search = ref(filters.value.q)
-const company = ref(filters.value.company)
+const selectedCompany = ref<CompanySummary | null>(null)
 const reference = ref(filters.value.reference)
+const selectedMedicalCenter = ref<MedicalCenterSummary | null>(null)
+const medicalDateFrom = ref(filters.value.medical_date_from)
+const medicalDateTo = ref(filters.value.medical_date_to)
 
-/** All three at once, so quick typing in two boxes cannot lose one of them. */
-function applySearches() {
+const debouncedSearch = useDebounce(
+  () => router.replace({ query: queryWith({ q: search.value.trim() }) }),
+  300,
+)
+const debouncedReference = useDebounce(
+  () => router.replace({ query: queryWith({ reference: reference.value.trim() }) }),
+  300,
+)
+
+function onCompanySelected(value: CompanySummary | null) {
+  selectedCompany.value = value
+  router.replace({ query: queryWith({ company_id: value?.id ?? null }) })
+}
+
+function onMedicalCenterSelected(value: MedicalCenterSummary | null) {
+  selectedMedicalCenter.value = value
+  router.replace({ query: queryWith({ medical_center_id: value?.id ?? null }) })
+}
+
+function applyDateFilters() {
   router.replace({
     query: queryWith({
-      q: search.value.trim(),
-      company: company.value.trim(),
-      reference: reference.value.trim(),
+      medical_date_from: medicalDateFrom.value,
+      medical_date_to: medicalDateTo.value,
     }),
   })
-}
-const debouncedSearch = useDebounce(applySearches, 300)
-const debouncedCompany = useDebounce(applySearches, 300)
-const debouncedReference = useDebounce(applySearches, 300)
-
-function clearCompany() {
-  company.value = ''
-  debouncedCompany.cancel()
-  router.replace({ query: queryWith({ company: '' }) })
-}
-
-function clearReference() {
-  reference.value = ''
-  debouncedReference.cancel()
-  router.replace({ query: queryWith({ reference: '' }) })
 }
 
 function clearFilters() {
   search.value = ''
-  company.value = ''
+  selectedCompany.value = null
   reference.value = ''
+  selectedMedicalCenter.value = null
+  medicalDateFrom.value = ''
+  medicalDateTo.value = ''
   debouncedSearch.cancel()
-  debouncedCompany.cancel()
   debouncedReference.cancel()
-  router.replace({ query: queryWith({ q: '', company: '', reference: '' }) })
+  router.replace({
+    query: queryWith({ q: '', company_id: null, reference: '', medical_center_id: null, medical_date_from: '', medical_date_to: '' }),
+  })
 }
-
-/** "Search company" and "Search reference": same behaviour, different query key. */
-const searchBoxes = [
-  {
-    key: 'company',
-    id: companyId,
-    label: 'Search company',
-    placeholder: 'Company name',
-    model: company,
-    debounce: debouncedCompany,
-    clear: clearCompany,
-  },
-  {
-    key: 'reference',
-    id: referenceId,
-    label: 'Search reference',
-    placeholder: 'Reference name',
-    model: reference,
-    debounce: debouncedReference,
-    clear: clearReference,
-  },
-]
 
 // Back / forward: show what the URL says.
 watch(filters, (f) => {
   if (f.q !== search.value.trim()) search.value = f.q
-  if (f.company !== company.value.trim()) company.value = f.company
+  if (!f.company_id && selectedCompany.value) selectedCompany.value = null
   if (f.reference !== reference.value.trim()) reference.value = f.reference
+  if (!f.medical_center_id && selectedMedicalCenter.value) selectedMedicalCenter.value = null
+  if (f.medical_date_from !== medicalDateFrom.value) medicalDateFrom.value = f.medical_date_from
+  if (f.medical_date_to !== medicalDateTo.value) medicalDateTo.value = f.medical_date_to
 })
 
 /* ---------- Loading ---------- */
@@ -242,8 +250,14 @@ async function load() {
       mode: 'medical',
       medical_status: tab.value.status,
       q: f.q || undefined,
-      company: f.company || undefined,
-      reference: f.reference || undefined,
+      company_id: f.company_id ?? undefined,
+      ...(tab.value.key === 'pending' ? {
+        medical_center_id: f.medical_center_id ?? undefined,
+        medical_date_from: f.medical_date_from || undefined,
+        medical_date_to: f.medical_date_to || undefined,
+      } : {
+        reference: f.reference || undefined,
+      }),
       page: f.page,
       per_page: PER_PAGE,
     })
@@ -283,7 +297,7 @@ const emptyTitle = computed(() =>
 )
 const emptyText = computed(() =>
   hasFilters.value
-    ? 'Check the name or passport number, company and reference searches, or clear them.'
+    ? 'Check the name or passport number, company, medical centre and date searches, or clear them.'
     : undefined,
 )
 
@@ -318,11 +332,24 @@ const tabRefs = useTemplateRef<HTMLButtonElement[]>('tabButtons')
 
 function selectTab(key: TabKey) {
   if (key === tab.value.key) return
-  // Keep the searches; the page belongs to the tab.
-  const query: LocationQuery = { ...queryWith({}) }
-  if (key === 'pending') delete query.tab
-  else query.tab = key
-  router.push({ query })
+  const base: LocationQuery = { ...queryWith({}) }
+  if (key !== 'pending') {
+    // Clear pending-only filters when leaving pending.
+    delete base.medical_center_id
+    delete base.medical_date_from
+    delete base.medical_date_to
+    selectedMedicalCenter.value = null
+    medicalDateFrom.value = ''
+    medicalDateTo.value = ''
+  } else {
+    // Clear non-pending filters when entering pending.
+    delete base.reference
+    reference.value = ''
+    debouncedReference.cancel()
+  }
+  if (key === 'pending') delete base.tab
+  else base.tab = key
+  router.push({ query: base })
 }
 
 function onTabKeydown(event: KeyboardEvent, index: number) {
@@ -577,44 +604,85 @@ const actionClass =
                 @input="debouncedSearch.run()"
               />
             </div>
-            <div v-for="box in searchBoxes" :key="box.key">
-              <label :for="box.id" class="block text-sm font-medium text-slate-700">
-                {{ box.label }}
-              </label>
-              <div class="relative">
+            <SearchSelect
+              :model-value="selectedCompany"
+              :fetch="searchCompanies"
+              label="Filter by company"
+              placeholder="Search company…"
+              none-label="All companies"
+              clearable
+              data-company-filter
+              @update:model-value="onCompanySelected"
+            />
+            <template v-if="tab.key === 'pending'">
+              <SearchSelect
+                :model-value="selectedMedicalCenter"
+                :fetch="searchMedicalCenters"
+                label="Filter by medical centre"
+                placeholder="Search medical centre…"
+                none-label="All centres"
+                clearable
+                data-medical-center-filter
+                @update:model-value="onMedicalCenterSelected"
+              />
+              <div>
+                <label :for="medicalDateFromId" class="block text-sm font-medium text-slate-700">
+                  Medical date from
+                </label>
                 <input
-                  :id="box.id"
-                  v-model="box.model.value"
+                  :id="medicalDateFromId"
+                  v-model="medicalDateFrom"
+                  type="date"
+                  :max="medicalDateTo || undefined"
+                  :class="inputClass"
+                  data-medical-date-from
+                  @change="applyDateFilters"
+                />
+              </div>
+              <div>
+                <label :for="medicalDateToId" class="block text-sm font-medium text-slate-700">
+                  Medical date to
+                </label>
+                <input
+                  :id="medicalDateToId"
+                  v-model="medicalDateTo"
+                  type="date"
+                  :min="medicalDateFrom || undefined"
+                  :class="inputClass"
+                  data-medical-date-to
+                  @change="applyDateFilters"
+                />
+              </div>
+            </template>
+            <template v-else>
+              <div class="relative">
+                <label :for="referenceId" class="block text-sm font-medium text-slate-700">
+                  Search reference
+                </label>
+                <input
+                  :id="referenceId"
+                  v-model="reference"
                   type="text"
                   autocomplete="off"
-                  :placeholder="box.placeholder"
+                  placeholder="Reference name"
                   :class="[inputClass, 'pr-10']"
-                  :data-search-box="box.key"
-                  @input="box.debounce.run()"
-                  @keydown.esc="box.clear"
+                  data-reference-search
+                  @input="debouncedReference.run()"
                 />
                 <button
-                  v-if="box.model.value"
+                  v-if="reference"
                   type="button"
-                  class="absolute top-1/2 right-1.5 mt-0.5 -translate-y-1/2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                  :data-clear="box.key"
-                  @click="box.clear"
+                  class="absolute bottom-0 right-1.5 mb-2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                  data-clear-reference
+                  @click="reference = ''; debouncedReference.cancel(); router.replace({ query: queryWith({ reference: '' }) })"
                 >
-                  <svg
-                    class="h-4 w-4"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2.5"
-                    stroke-linecap="round"
-                    aria-hidden="true"
-                  >
+                  <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
                     <path d="M6 6l12 12M18 6L6 18" />
                   </svg>
-                  <span class="sr-only">Clear {{ box.label.toLowerCase() }}</span>
+                  <span class="sr-only">Clear reference search</span>
                 </button>
               </div>
-            </div>
+            </template>
           </div>
           <button
             v-if="hasFilters"

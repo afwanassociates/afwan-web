@@ -25,8 +25,8 @@ export interface AdminCountry extends CountryOption {
 export interface AppDefaults {
   default_company_country_code: string
   default_passport_country_code: string | null
-  /** A fit result's standard validity (prefills its expiry date). */
-  medical_validity_months?: number
+  /** A fit result's standard validity in days (prefills its expiry date). */
+  medical_validity_days?: number
   medical_expiring_soon_days?: number
 }
 

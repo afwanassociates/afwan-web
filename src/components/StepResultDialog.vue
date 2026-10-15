@@ -3,7 +3,7 @@ import { computed, reactive, ref, useId, watch } from 'vue'
 import TopModal from '@/components/TopModal.vue'
 import StepFields from '@/components/StepFields.vue'
 import { recordStepResult, type StepSaveResponse } from '@/api/steps'
-import { businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
+import { addMonthsNoOverflow, businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { statusLabel, stepResultPayload, stepWithPhase, validateStepForm } from '@/lib/workflow'
 import type { StepConfig, StepListRow, WorkflowWarning } from '@/types/workflow'
@@ -47,16 +47,34 @@ const banner = ref<string | null>(null)
 const warnings = ref<WorkflowWarning[]>([])
 const isSaving = ref(false)
 
+const RESULT_VALIDITY_MONTHS = 3
+
+/** Whether the user has manually edited valid_until (stops auto-fill). */
+const validUntilEdited = ref(false)
+
 watch(open, (isOpen) => {
   if (!isOpen) return
   today.value = businessToday()
   resultDate.value = today.value
   for (const key of Object.keys(values)) delete values[key]
   for (const field of resultFields.value) values[field.name] = ''
+  validUntilEdited.value = false
   errors.value = {}
   banner.value = null
   warnings.value = []
 })
+
+function onFieldUpdate(name: string, value: string) {
+  values[name] = value
+  if (name === 'valid_until') {
+    validUntilEdited.value = true
+    return
+  }
+  if (name === 'issue_date' && !validUntilEdited.value && 'valid_until' in values) {
+    const issue = toApiDate(value)
+    if (issue) values.valid_until = addMonthsNoOverflow(issue, RESULT_VALIDITY_MONTHS)
+  }
+}
 
 const label = computed(() => statusLabel(props.step, props.result))
 const title = computed(() =>
@@ -186,7 +204,7 @@ const inputClass =
           :errors="errors"
           :status="result"
           :today="today"
-          @update="(name, value) => (values[name] = value)"
+          @update="onFieldUpdate"
         />
 
         <div class="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">

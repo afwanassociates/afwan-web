@@ -8,6 +8,7 @@ import {
   reactive,
   ref,
   useTemplateRef,
+  watch,
 } from 'vue'
 import StepFields from '@/components/StepFields.vue'
 import TopModal from '@/components/TopModal.vue'
@@ -17,7 +18,7 @@ import {
   type CallingUpdatePayload,
   type StepSaveResponse,
 } from '@/api/steps'
-import { businessToday, toApiDate } from '@/lib/dates'
+import { addMonthsNoOverflow, businessToday, toApiDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { stepPayload, stepWithPhase, validateStepForm } from '@/lib/workflow'
 import type { StepConfig, StepListRow, WorkflowWarning } from '@/types/workflow'
@@ -65,8 +66,26 @@ const startStepConfig = computed(() => {
 /** The status the values are checked for: update completes the step (all required). */
 const checkStatus = computed(() => (isUpdate.value ? 'completed' : 'in_process'))
 
+const CALLING_VALIDITY_MONTHS = 3
+
 const values = reactive<Record<string, string>>(
-  Object.fromEntries(startStepConfig.value.fields.map((f) => [f.name, ''])),
+  Object.fromEntries(
+    startStepConfig.value.fields.map((f) => [
+      f.name,
+      // Prefill receive_date with today for the calling update modal.
+      isUpdate.value && f.name === 'receive_date' ? today : '',
+    ]),
+  ),
+)
+
+// When issue_date changes in the calling update modal, auto-set valid_until to +3 months.
+watch(
+  () => values.issue_date,
+  (issueRaw) => {
+    if (!isUpdate.value || !('valid_until' in values)) return
+    const issue = toApiDate(issueRaw ?? '')
+    if (issue) values.valid_until = addMonthsNoOverflow(issue, CALLING_VALIDITY_MONTHS)
+  },
 )
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)

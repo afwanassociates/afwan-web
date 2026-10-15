@@ -95,6 +95,8 @@ const receivedDate = ref(today)
 const expiryDate = ref('')
 /** The expiry date must be after the received date. */
 const minExpiryDate = computed(() => addDays(receivedDate.value, 1) || undefined)
+/** Date of birth max: must be at least 18 years before today. */
+const maxDateOfBirth = computed(() => addDays(today, -(18 * 365 + 4)))
 
 const errors = ref<PassportFormErrors>({})
 /** The passport scan copy: required on create, and on edit while the passport has none. */
@@ -601,10 +603,10 @@ const inputClass =
                 {{ errors.passport_expiry_date }}
               </p>
             </div>
-            <!-- 4. Passport date of birth -->
+            <!-- 4. Date of birth -->
             <div data-field="date_of_birth">
               <label :for="birthId" class="block text-sm font-medium text-slate-700">
-                Passport date of birth<span class="text-red-700" aria-hidden="true"> *</span>
+                Date of birth<span class="text-red-700" aria-hidden="true"> *</span>
               </label>
               <input
                 :id="birthId"
@@ -612,13 +614,13 @@ const inputClass =
                 v-model="dateOfBirth"
                 type="date"
                 required
-                :max="yesterday"
+                :max="maxDateOfBirth"
                 :class="[inputClass, errors.date_of_birth ? 'border-red-500' : 'border-slate-300']"
                 :aria-invalid="errors.date_of_birth ? 'true' : undefined"
                 :aria-describedby="`${birthId}-hint${errors.date_of_birth ? ` ${birthId}-error` : ''}`"
               />
               <p :id="`${birthId}-hint`" class="mt-1 text-xs text-muted">
-                {{ toDisplayDate(dateOfBirth) || 'DD-MM-YYYY' }}
+                {{ toDisplayDate(dateOfBirth) || 'DD-MM-YYYY' }} · must be at least 18 years old
               </p>
               <p
                 v-if="errors.date_of_birth"

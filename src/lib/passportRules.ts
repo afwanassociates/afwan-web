@@ -64,9 +64,15 @@ export function validatePassportForm(
 
   // YYYY-MM-DD strings compare correctly as text.
   const birth = toApiDate(values.date_of_birth)
+  const minAge18 = (() => {
+    const [y, m, d] = today.split('-').map(Number) as [number, number, number]
+    const date = new Date(y - 18, m - 1, d)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  })()
   if (!values.date_of_birth) errors.date_of_birth = 'Enter the date of birth.'
   else if (!birth) errors.date_of_birth = 'Enter a valid date.'
   else if (birth >= today) errors.date_of_birth = 'The date of birth must be in the past.'
+  else if (birth > minAge18) errors.date_of_birth = 'The person must be at least 18 years old.'
 
   const received = toApiDate(values.passport_received_date)
   if (!values.passport_received_date) errors.passport_received_date = 'Enter the received date.'

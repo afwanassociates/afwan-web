@@ -179,7 +179,12 @@ export interface StepListParams {
   tab: StepListTab
   search?: string
   company?: string
+  company_id?: number
   reference?: string
+  receive_date_from?: string
+  receive_date_to?: string
+  booking_date_from?: string
+  booking_date_to?: string
   page?: number
   per_page?: number
 }

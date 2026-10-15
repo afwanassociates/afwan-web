@@ -2,9 +2,8 @@
 import { computed, ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
 import { recordMedicalResult } from '@/api/medical'
-import { addMonthsNoOverflow, businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
+import { addDays, businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
-import { useCountriesStore } from '@/stores/countries'
 import type { MedicalSaveResponse } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
 
@@ -19,7 +18,6 @@ const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ passport: PassportEntry | null }>()
 const emit = defineEmits<{ saved: [response: MedicalSaveResponse] }>()
 
-const countries = useCountriesStore()
 const issueId = useId()
 const expiryId = useId()
 
@@ -32,25 +30,22 @@ const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
 
-/** Standard validity in months, from the settings (null until known). */
-const months = computed(() => countries.defaults?.medical_validity_months ?? null)
+const VALIDITY_DAYS = 90
 
 const standardExpiry = computed(() => {
   const issue = toApiDate(issueDate.value)
-  return issue && months.value ? addMonthsNoOverflow(issue, months.value) : ''
+  return issue ? addDays(issue, VALIDITY_DAYS) : ''
 })
 
 watch(open, async (isOpen) => {
   if (!isOpen) return
   today.value = businessToday()
-  // The medical date is when the medical was done: the usual issue date.
   const medicalDate = props.passport?.medical_date ?? ''
   issueDate.value = medicalDate && medicalDate <= today.value ? medicalDate : today.value
   expiryDate.value = ''
   expiryEdited.value = false
   errors.value = {}
   banner.value = null
-  await countries.refreshDefaults()
   if (!expiryEdited.value) expiryDate.value = standardExpiry.value
 })
 
@@ -68,9 +63,9 @@ function onExpiryInput(value: string) {
 /** Shown when the expiry is not the standard validity. */
 const validityHint = computed(() => {
   const expiry = toApiDate(expiryDate.value)
-  if (!months.value || !standardExpiry.value || !expiry || expiry === standardExpiry.value)
+  if (!standardExpiry.value || !expiry || expiry === standardExpiry.value)
     return null
-  return `The standard validity is ${months.value} months (${toDisplayDate(standardExpiry.value)}). This expiry date is different.`
+  return `The standard validity is ${VALIDITY_DAYS} days (${toDisplayDate(standardExpiry.value)}). This expiry date is different.`
 })
 
 async function save() {
@@ -172,8 +167,7 @@ const inputClass =
           @input="onExpiryInput(($event.target as HTMLInputElement).value)"
         />
         <p v-if="!errors.expiry_date" :id="`${expiryId}-hint`" class="mt-1 text-xs text-muted">
-          {{ toDisplayDate(toApiDate(expiryDate)) || 'DD-MM-YYYY' }} · after the issue date
-          <template v-if="months"> · standard {{ months }} months</template>
+          {{ toDisplayDate(toApiDate(expiryDate)) || 'DD-MM-YYYY' }} · after the issue date · standard {{ VALIDITY_DAYS }} days
         </p>
         <p v-else :id="`${expiryId}-error`" class="mt-1 text-sm text-red-700">
           {{ errors.expiry_date }}
