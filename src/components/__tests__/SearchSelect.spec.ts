@@ -105,7 +105,8 @@ describe('SearchSelect', () => {
       const add = listbox().get('[data-add-option]')
       expect(add.text()).toBe('+ Add new company')
       expect(add.classes()).toEqual(expect.arrayContaining(['sticky', 'bottom-0', 'bg-white']))
-      expect(options().at(-1)!.element).toBe(add.element)
+      const all = options()
+      expect(all[all.length - 1]!.element).toBe(add.element)
     })
 
     it('ignores a slow response that arrives after a newer one', async () => {
