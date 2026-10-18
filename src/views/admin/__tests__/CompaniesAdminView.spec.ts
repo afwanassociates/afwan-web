@@ -34,10 +34,6 @@ function company(overrides: Partial<Company> = {}): Company {
     id: 1,
     name: 'ABC Sdn Bhd',
     country: { code: 'MY', name: 'Malaysia' },
-    agent_name: 'Rahim',
-    agent_phone: '+60 12 345',
-    agent_email: 'rahim@abc.my',
-    bd_agency_name: 'Dhaka Overseas',
     quota: 10,
     is_active: true,
     passports_count: 4,
@@ -98,14 +94,14 @@ beforeEach(() => {
 afterEach(() => wrapper.unmount())
 
 describe('Admin › Companies', () => {
-  it('lists every company with its agent, quota, passports and status', async () => {
+  it('lists every company with its quota, passports and status (no agent columns)', async () => {
     await mountView()
 
+    const headers = wrapper.findAll('thead th').map((th) => th.text())
+    expect(headers).toEqual(['Company', 'Quota', 'Passports', 'Status', 'Actions'])
     const row = wrapper.get('[data-company="1"]')
     expect(row.text()).toContain('ABC Sdn Bhd')
-    expect(row.text()).toContain('Rahim')
-    expect(row.text()).toContain('rahim@abc.my')
-    expect(row.text()).toContain('Dhaka Overseas')
+    expect(row.text()).toContain('10')
     expect(row.get('[data-active]').text()).toBe('Active')
   })
 
@@ -121,14 +117,16 @@ describe('Admin › Companies', () => {
     expect(listAdminCompanies).toHaveBeenLastCalledWith(expect.objectContaining({ is_active: 1 }))
   })
 
-  it('creates a company with every field', async () => {
+  it('creates a company with only the name, country and quota', async () => {
     vi.mocked(createAdminCompany).mockResolvedValue(company({ id: 2, name: 'New Co' }))
     await mountView()
 
     await wrapper.get('button[data-create]').trigger('click')
     await flushPromises()
+    const fields = wrapper.findAll('form label').map((l) => l.text().replace(/\s+/g, ' ').trim())
+    expect(fields).toEqual(['Company name *', 'Quota *', 'Country *'])
+    expect(wrapper.find('[data-field="is_active"]').exists()).toBe(false)
     await wrapper.get('[data-field="name"] input').setValue('New Co')
-    await wrapper.get('[data-field="agent_name"] input').setValue('Karim')
     await wrapper.get('[data-field="quota"] input').setValue('5')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -136,13 +134,26 @@ describe('Admin › Companies', () => {
     expect(createAdminCompany).toHaveBeenCalledWith({
       name: 'New Co',
       country_code: 'MY',
-      agent_name: 'Karim',
-      agent_phone: null,
-      agent_email: null,
-      bd_agency_name: null,
       quota: 5,
-      is_active: true,
     })
+  })
+
+  it.each([
+    ['', 'Enter the quota (the number of workers the company needs).'],
+    ['0', 'The quota must be at least 1.'],
+    ['2.5', 'The quota must be a whole number.'],
+  ])('requires a valid quota (%j)', async (value, message) => {
+    await mountView()
+
+    await wrapper.get('button[data-create]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-field="name"] input').setValue('New Co')
+    await wrapper.get('[data-field="quota"] input').setValue(value)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('[data-field="quota"]').text()).toContain(message)
+    expect(createAdminCompany).not.toHaveBeenCalled()
   })
 
   it('deactivates a company', async () => {

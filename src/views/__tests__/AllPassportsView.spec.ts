@@ -3,13 +3,21 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import AllPassportsView from '../AllPassportsView.vue'
+import SearchSelect from '@/components/SearchSelect.vue'
+import { searchCompanies } from '@/api/companies'
 import { listPassportOverview } from '@/api/passports'
+import { fetchCompanyReport, fetchReportReferences } from '@/api/reports'
+import { searchReferences } from '@/api/references'
 import { useAuthStore } from '@/stores/auth'
 import { makeUser } from '@/test/helpers'
 import type { Role } from '@/types/auth'
 import type { PassportFilters, PassportOverview } from '@/types/passport'
 
-vi.mock('@/api/passports', () => ({ listPassportOverview: vi.fn(), listPassports: vi.fn() }))
+vi.mock('@/api/passports', () => ({
+  listPassportOverview: vi.fn(),
+  listPassports: vi.fn(),
+  downloadPassportOverviewCsv: vi.fn(async () => 'all-passports-01-05-2026.csv'),
+}))
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowSummary: vi.fn(async () => ({
     steps: [
@@ -21,6 +29,8 @@ vi.mock('@/api/workflow', () => ({
     step2: { pending: 7, fit: 5, expiring_soon: 1, expired: 2, unfit: 4 },
     step3: { enabled: false, ready: 0 },
   })),
+  // The step bar loads the tab labels for its chips.
+  fetchWorkflowConfig: vi.fn(async () => ({ steps: [] })),
 }))
 vi.mock('@/api/countries', () => ({
   fetchCountries: vi.fn(async () => []),
@@ -30,6 +40,11 @@ vi.mock('@/api/countries', () => ({
   })),
 }))
 vi.mock('@/api/companies', () => ({ searchCompanies: vi.fn(async () => []) }))
+vi.mock('@/api/reports', () => ({
+  fetchCompanyReport: vi.fn(),
+  fetchReportReferences: vi.fn(async () => []),
+}))
+vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 
 function overview(overrides: Partial<PassportOverview> = {}): PassportOverview {
   return {
@@ -99,7 +114,87 @@ beforeEach(() => {
 })
 afterEach(() => wrapper.unmount())
 
+/** A Filter by dropdown by its label (SearchSelect is generic, so props are read untyped). */
+const filterSelect = (label: string) =>
+  wrapper
+    .findAllComponents(SearchSelect)
+    .find((c) => (c.props() as Record<string, unknown>).label === label)!
+
 describe('All Passports (read-only overview)', () => {
+  describe('Export CSV', () => {
+    it('sits in the page header, outside the card', async () => {
+      await mountPage()
+
+      const header = wrapper.get('[data-page-header]')
+      expect(header.find('h1').text()).toBe('All Passports')
+      expect(header.find('button[data-export]').text()).toContain('Export CSV')
+      expect(wrapper.get('section.glass-card').find('[data-export]').exists()).toBe(false)
+    })
+
+    it('downloads every passport with the current searches (accounts too)', async () => {
+      const { downloadPassportOverviewCsv } = await import('@/api/passports')
+      const { useToast } = await import('@/composables/useToast')
+      useToast().toasts.value = []
+      await mountPage('accounts', '/all-passports?q=rahim&reference_id=8&company_id=3')
+
+      await wrapper.get('button[data-export]').trigger('click')
+      await flushPromises()
+
+      expect(downloadPassportOverviewCsv).toHaveBeenCalledWith({
+        view: 'overview',
+        medical_status: 'all',
+        q: 'rahim',
+        reference_id: 8,
+        company_id: 3,
+      })
+      expect(useToast().toasts.value.map((t) => t.message)).toContain(
+        'Downloaded all-passports-01-05-2026.csv.',
+      )
+    })
+
+    it('shows an error toast when the download fails', async () => {
+      const { downloadPassportOverviewCsv } = await import('@/api/passports')
+      const { useToast } = await import('@/composables/useToast')
+      useToast().toasts.value = []
+      vi.mocked(downloadPassportOverviewCsv).mockRejectedValueOnce(new Error('boom'))
+      await mountPage()
+
+      await wrapper.get('button[data-export]').trigger('click')
+      await flushPromises()
+
+      expect(useToast().toasts.value.some((t) => t.message.includes('Could not export'))).toBe(true)
+    })
+  })
+
+  describe('accounts (read only)', () => {
+    it('links names to the passport page for data entry, but not for accounts', async () => {
+      await mountPage('data_entry')
+      expect(wrapper.find('[data-row] a[href="/passports/7"]').exists()).toBe(true)
+      wrapper.unmount()
+
+      await mountPage('accounts')
+      expect(wrapper.find('[data-row] a').exists()).toBe(false)
+      expect(wrapper.get('[data-name]').text()).toBe(overview().passport_name)
+    })
+
+    it('searches companies through the company report for accounts', async () => {
+      vi.mocked(fetchCompanyReport).mockResolvedValue({
+        data: [{ id: 3, name: 'Gulf Builders', country_code: 'MY' }],
+      } as Awaited<ReturnType<typeof fetchCompanyReport>>)
+      await mountPage('accounts')
+
+      // SearchSelect is generic, so its props are read untyped.
+      const { fetch } = filterSelect('Filter by company').props() as {
+        fetch: (q: string) => Promise<unknown>
+      }
+      expect(await fetch('gulf')).toEqual([
+        { id: 3, name: 'Gulf Builders', country: { code: 'MY', name: 'Malaysia' } },
+      ])
+      expect(fetchCompanyReport).toHaveBeenCalledWith({ search: 'gulf', per_page: 20 })
+      expect(searchCompanies).not.toHaveBeenCalled()
+    })
+  })
+
   it('shows no scan copy UI (lists only ever get has_scan)', async () => {
     await mountPage()
 
@@ -211,60 +306,56 @@ describe('All Passports (read-only overview)', () => {
     expect(lastFilters()!.company_id).toBeUndefined()
   })
 
-  describe('reference search', () => {
-    it('is debounced (300 ms) and sends ?reference= with the general search', async () => {
-      vi.useFakeTimers()
-      try {
-        await mountPage('admin', '/all-passports?q=rahim')
+  describe('Filter by reference', () => {
+    const SEA = { id: 8, type: 'agency', type_label: 'Agency', name: 'Sea Star' } as const
 
-        await wrapper.get('input[data-reference-search]').setValue('green f')
-        await vi.advanceTimersByTimeAsync(200)
-        expect(router.currentRoute.value.query.reference).toBeUndefined()
+    it('is a searchable dropdown like Filter by company, with "All references"', async () => {
+      await mountPage()
 
-        await vi.advanceTimersByTimeAsync(150)
-        await flushPromises()
-        expect(router.currentRoute.value.query).toEqual({ q: 'rahim', reference: 'green f' })
-        expect(lastFilters()).toEqual(
-          expect.objectContaining({ q: 'rahim', reference: 'green f', page: 1 }),
-        )
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
-    it('is read from the URL, so a refresh or shared link keeps it', async () => {
-      await mountPage('admin', '/all-passports?reference=Green&q=PR82')
-
-      expect(wrapper.get<HTMLInputElement>('input[data-reference-search]').element.value).toBe(
-        'Green',
-      )
-      expect(wrapper.get<HTMLInputElement>('input[data-search]').element.value).toBe('PR82')
-      expect(lastFilters()).toEqual(expect.objectContaining({ reference: 'Green', q: 'PR82' }))
-    })
-
-    it('has a clear (x) button that keeps the general search', async () => {
-      await mountPage('admin', '/all-passports?reference=Green&q=rahim&page=2')
-
-      const clear = wrapper.get('button[data-clear-reference]')
-      expect(clear.text()).toBe('Clear reference search')
-      await clear.trigger('click')
-      await flushPromises()
-
-      expect(router.currentRoute.value.query).toEqual({ q: 'rahim' })
-      expect(wrapper.find('button[data-clear-reference]').exists()).toBe(false)
-      expect(lastFilters()!.reference).toBeUndefined()
-    })
-
-    it('mentions both searches in the empty state', async () => {
-      vi.mocked(listPassportOverview).mockResolvedValue({
-        ...page([]),
-        meta: { current_page: 1, last_page: 1, per_page: 15, total: 0, from: null, to: null },
+      expect(wrapper.find('input[data-reference-search]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Search reference')
+      expect(filterSelect('Filter by reference').props()).toMatchObject({
+        placeholder: 'Search reference…',
+        noneLabel: 'All references',
+        clearable: true,
       })
-      await mountPage('admin', '/all-passports?reference=nobody')
+    })
 
-      const empty = wrapper.get('[data-empty]').text()
-      expect(empty).toContain('No passports match these searches.')
-      expect(empty).toContain('name or passport number, reference and company searches')
+    it('choosing a reference sends ?reference_id= with the general search; clearing removes it', async () => {
+      await mountPage('admin', '/all-passports?q=rahim&page=2')
+
+      filterSelect('Filter by reference').vm.$emit('update:modelValue', SEA)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({ q: 'rahim', reference_id: '8' })
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ q: 'rahim', reference_id: 8, page: 1 }),
+      )
+
+      filterSelect('Filter by reference').vm.$emit('update:modelValue', null)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({ q: 'rahim' })
+      expect(lastFilters()!.reference_id).toBeUndefined()
+    })
+
+    it('is read from the URL, and the old ?reference= text search is dropped', async () => {
+      await mountPage('admin', '/all-passports?reference_id=8&reference=Green')
+
+      expect(lastFilters()).toEqual(expect.objectContaining({ reference_id: 8 }))
+      expect(router.currentRoute.value.query.reference).toBeUndefined()
+    })
+
+    it('lists references from the lookup (data entry) or the reports (accounts), limited to the chosen company', async () => {
+      await mountPage('admin', '/all-passports?company_id=3')
+      const fetchOf = () =>
+        (filterSelect('Filter by reference').props() as { fetch: (q: string) => Promise<unknown> })
+          .fetch
+      await fetchOf()('sea')
+      expect(searchReferences).toHaveBeenCalledWith({ q: 'sea', company_id: 3 })
+      wrapper.unmount()
+
+      await mountPage('accounts')
+      await fetchOf()('sea')
+      expect(fetchReportReferences).toHaveBeenCalledWith({ q: 'sea', company_id: undefined })
     })
   })
 

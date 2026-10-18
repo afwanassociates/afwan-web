@@ -2,23 +2,16 @@
 import { computed, ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
 import CountrySelect from '@/components/CountrySelect.vue'
-import ToggleSwitch from '@/components/ToggleSwitch.vue'
 import { createAdminCompany, updateAdminCompany } from '@/api/companies'
-import {
-  AGENT_FIELDS,
-  COMPANY_NAME_MAX,
-  emptyAgentValues,
-  validateAgentValues,
-  type AgentFormValues,
-} from '@/lib/companyForm'
+import { COMPANY_NAME_MAX, validateQuota } from '@/lib/companyForm'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { useCountriesStore } from '@/stores/countries'
 import type { CountrySummary } from '@/types/country'
 import type { Company } from '@/types/passport'
 
 /**
- * Admin create / edit form for a company: name, country, agent details, Bangladesh agency,
- * quota and active. `company` null creates a new one.
+ * Admin create / edit form for a company: name, country and quota, all required. `company`
+ * null creates a new one (always active; companies are (de)activated from the list).
  */
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ company: Company | null }>()
@@ -31,8 +24,7 @@ const fieldId = useId()
 
 const name = ref('')
 const country = ref<CountrySummary | null>(null)
-const agent = ref<AgentFormValues>(emptyAgentValues())
-const isActive = ref(true)
+const quota = ref<string | number>('')
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
@@ -43,8 +35,7 @@ watch(open, async (isOpen) => {
   if (!isOpen) return
   const c = props.company
   name.value = c?.name ?? ''
-  agent.value = emptyAgentValues(c)
-  isActive.value = c?.is_active ?? true
+  quota.value = c?.quota ?? ''
   errors.value = {}
   banner.value = null
   country.value = c?.country ?? null
@@ -61,15 +52,15 @@ async function save() {
   else if (trimmedName.length > COMPANY_NAME_MAX)
     e.name = `The company name must be at most ${COMPANY_NAME_MAX} characters.`
   if (!country.value) e.country_code = 'Select a country.'
-  const { values, errors: agentErrors } = validateAgentValues(agent.value)
-  errors.value = { ...e, ...agentErrors }
+  const checked = validateQuota(quota.value)
+  if (checked.error) e.quota = checked.error
+  errors.value = e
   if (Object.keys(errors.value).length > 0) return
 
   const payload = {
     name: trimmedName,
     country_code: country.value!.code,
-    ...values,
-    is_active: isActive.value,
+    quota: checked.quota!,
   }
   isSaving.value = true
   try {
@@ -126,6 +117,27 @@ const inputClass =
         </p>
       </div>
 
+      <div data-field="quota">
+        <label :for="`${fieldId}-quota`" class="block text-sm font-medium text-slate-700">
+          Quota<span class="text-red-700" aria-hidden="true"> *</span>
+        </label>
+        <input
+          :id="`${fieldId}-quota`"
+          v-model="quota"
+          type="number"
+          inputmode="numeric"
+          min="1"
+          step="1"
+          required
+          :class="[inputClass, errors.quota ? 'border-red-500' : 'border-slate-300']"
+          :aria-invalid="errors.quota ? 'true' : undefined"
+          :aria-describedby="errors.quota ? `${fieldId}-quota-error` : undefined"
+        />
+        <p v-if="errors.quota" :id="`${fieldId}-quota-error`" class="mt-1 text-sm text-red-700">
+          {{ errors.quota }}
+        </p>
+      </div>
+
       <CountrySelect
         v-model="country"
         label="Country"
@@ -133,58 +145,6 @@ const inputClass =
         :keep="company?.country ?? null"
         required
       />
-
-      <div class="grid gap-4 sm:grid-cols-2">
-        <div v-for="f in AGENT_FIELDS" :key="f.name" :data-field="f.name">
-          <label :for="`${fieldId}-${f.name}`" class="block text-sm font-medium text-slate-700">
-            {{ f.label }} <span class="font-normal text-muted">(optional)</span>
-          </label>
-          <input
-            :id="`${fieldId}-${f.name}`"
-            v-model="agent[f.name]"
-            :type="f.type"
-            autocomplete="off"
-            :maxlength="f.max"
-            :class="[inputClass, errors[f.name] ? 'border-red-500' : 'border-slate-300']"
-            :aria-invalid="errors[f.name] ? 'true' : undefined"
-            :aria-describedby="errors[f.name] ? `${fieldId}-${f.name}-error` : undefined"
-          />
-          <p
-            v-if="errors[f.name]"
-            :id="`${fieldId}-${f.name}-error`"
-            class="mt-1 text-sm text-red-700"
-          >
-            {{ errors[f.name] }}
-          </p>
-        </div>
-        <div data-field="quota">
-          <label :for="`${fieldId}-quota`" class="block text-sm font-medium text-slate-700">
-            Quota <span class="font-normal text-muted">(optional)</span>
-          </label>
-          <input
-            :id="`${fieldId}-quota`"
-            v-model="agent.quota"
-            type="number"
-            inputmode="numeric"
-            min="0"
-            step="1"
-            :class="[inputClass, errors.quota ? 'border-red-500' : 'border-slate-300']"
-            :aria-invalid="errors.quota ? 'true' : undefined"
-            :aria-describedby="errors.quota ? `${fieldId}-quota-error` : undefined"
-          />
-          <p v-if="errors.quota" :id="`${fieldId}-quota-error`" class="mt-1 text-sm text-red-700">
-            {{ errors.quota }}
-          </p>
-        </div>
-      </div>
-
-      <div class="flex items-center gap-3 rounded-xl bg-surface p-3" data-field="is_active">
-        <ToggleSwitch v-model="isActive" label="Active" />
-        <span class="text-sm text-slate-700">
-          <strong>{{ isActive ? 'Active' : 'Inactive' }}</strong>
-          · inactive companies cannot be chosen for new passports.
-        </span>
-      </div>
 
       <div class="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
         <button

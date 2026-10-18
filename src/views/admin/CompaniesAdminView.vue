@@ -201,12 +201,7 @@ const actionClass =
       <div>
         <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Companies</h1>
         <p class="mt-1 text-sm text-muted">
-          Create, edit and deactivate employer companies. For passport counts see the
-          <RouterLink
-            :to="{ name: 'companies' }"
-            class="font-semibold text-primary-700 underline underline-offset-2"
-            >Company report</RouterLink
-          >.
+          Create, edit and deactivate employer companies.
         </p>
       </div>
       <button type="button" class="btn btn-accent" data-create @click="openCreate">
@@ -223,7 +218,7 @@ const actionClass =
             v-model="search"
             type="search"
             autocomplete="off"
-            placeholder="Company, agent or agency"
+            placeholder="Company name"
             :class="inputClass"
             data-search
             @input="debounced.run()"
@@ -282,8 +277,6 @@ const actionClass =
               <thead class="border-b border-stroke text-xs tracking-wider text-muted uppercase">
                 <tr>
                   <th scope="col" class="py-3 pr-4 font-semibold">Company</th>
-                  <th scope="col" class="py-3 pr-4 font-semibold">Agent</th>
-                  <th scope="col" class="py-3 pr-4 font-semibold">Bangladesh agency</th>
                   <th scope="col" class="py-3 pr-4 text-right font-semibold">Quota</th>
                   <th scope="col" class="py-3 pr-4 text-right font-semibold">Passports</th>
                   <th scope="col" class="py-3 pr-4 font-semibold">Status</th>
@@ -298,16 +291,6 @@ const actionClass =
                     {{ c.name }}
                     <span class="block text-xs font-normal text-muted">{{ c.country.name }}</span>
                   </th>
-                  <td class="py-3 pr-4 text-slate-700">
-                    {{ c.agent_name || '—' }}
-                    <span v-if="c.agent_phone" class="block text-xs text-muted">{{
-                      c.agent_phone
-                    }}</span>
-                    <span v-if="c.agent_email" class="block text-xs break-all text-muted">{{
-                      c.agent_email
-                    }}</span>
-                  </td>
-                  <td class="py-3 pr-4 text-slate-700">{{ c.bd_agency_name || '—' }}</td>
                   <td class="py-3 pr-4 text-right tabular-nums">{{ c.quota ?? '—' }}</td>
                   <td class="py-3 pr-4 text-right tabular-nums">{{ c.passports_count ?? '—' }}</td>
                   <td class="py-3 pr-4">

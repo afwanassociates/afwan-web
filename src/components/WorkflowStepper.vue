@@ -9,7 +9,8 @@ import type { StepState, WorkflowStep } from '@/types/medical'
 /**
  * The workflow step bar, built from the API's step list (no step names in this code):
  *
- * - Summary (no `steps`): counts from /workflow/summary per stage, status chips, "Final" on
+ * - Summary (no `steps`): counts from /workflow/summary per stage, status chips (a step page's
+ *   chips are its tabs: "3 pending", "4 permitted", as on the page), "Final" on
  *   the last step and "Completed (N)" at the end. `activeStep` highlights a step; without it
  *   the bar is an overview. Steps link to their pages.
  * - One passport (`steps` from the passport's workflow): each step's state with an icon and
@@ -30,7 +31,10 @@ const props = withDefaults(
 
 const workflow = useWorkflowStore()
 onMounted(() => {
-  if (!props.steps) workflow.load()
+  if (props.steps) return
+  workflow.load()
+  // The step pages' tab labels for the chips.
+  workflow.loadConfig()
 })
 
 /* ---------- Summary mode ---------- */
@@ -61,16 +65,44 @@ function linkFor(key: string, index: number): RouteLocationRaw {
   return { name: 'step-page', params: { step: key } }
 }
 
-/** Chip words that read better than the status key ("fit" waits for its Online mark). */
-const CHIP_LABEL: Record<string, string> = { fit: 'fit, not marked' }
+/** Stage counts left out of the chips. */
+const HIDDEN_CHIPS = new Set(['total'])
+
+/** Chips listed first, in this order (medical: pending, fit, then unfit); others follow. */
+const CHIP_ORDER = ['pending', 'fit', 'unfit']
+const chipRank = (key: string) => {
+  const i = CHIP_ORDER.indexOf(key)
+  return i < 0 ? CHIP_ORDER.length : i
+}
 
 const CHIP_TONE: Record<string, StepTone> = {
-  fit: 'warning',
+  fit: 'success',
   pending: 'warning',
   waiting: 'warning',
   in_process: 'info',
   rejected: 'danger',
   unfit: 'danger',
+}
+
+/**
+ * A step page's chips: one per tab with its count, labelled like the tab. Pending is amber,
+ * rejected red, and the other ("done") tabs green.
+ */
+function tabChips(stepKey: string, tabs: Record<string, number>): Chip[] {
+  const labels = workflow.stepConfig(stepKey)?.tabs ?? []
+  const order = labels.map((t) => t.key)
+  return Object.entries(tabs)
+    .sort(([a], [b]) => {
+      const ia = order.indexOf(a)
+      const ib = order.indexOf(b)
+      return (ia < 0 ? order.length : ia) - (ib < 0 ? order.length : ib)
+    })
+    .map(([key, value]) => ({
+      key,
+      label: (labels.find((t) => t.key === key)?.label ?? humanize(key)).toLowerCase(),
+      value,
+      tone: key === 'pending' ? 'warning' : key === 'rejected' ? 'danger' : 'success',
+    }))
 }
 
 /** The "Completed (N)" card opens the final step's completed tab. */
@@ -94,16 +126,20 @@ const summarySteps = computed<SummaryStep[]>(() => {
         : s.step_tabs?.[step.key]
           ? (stepPendingCount(s, step.key) ?? null)
           : (stage?.total ?? null)
-    const chips: Chip[] = stage
-      ? Object.entries(stage)
-          .filter(([key]) => key !== 'total')
-          .map(([key, value]) => ({
-            key,
-            label: CHIP_LABEL[key] ?? humanize(key).toLowerCase(),
-            value,
-            tone: CHIP_TONE[key] ?? 'muted',
-          }))
-      : []
+    const tabs = s.step_tabs?.[step.key]
+    const chips: Chip[] = tabs
+      ? tabChips(step.key, tabs)
+      : stage
+        ? Object.entries(stage)
+            .filter(([key]) => !HIDDEN_CHIPS.has(key))
+            .sort(([a], [b]) => chipRank(a) - chipRank(b))
+            .map(([key, value]) => ({
+              key,
+              label: humanize(key).toLowerCase(),
+              value,
+              tone: CHIP_TONE[key] ?? 'muted',
+            }))
+        : []
     return {
       key: step.key,
       number: i + 1,

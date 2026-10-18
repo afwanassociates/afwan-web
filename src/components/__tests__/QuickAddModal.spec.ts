@@ -89,6 +89,7 @@ describe('QuickAddModal (company)', () => {
       phone: null,
       country_code: 'MY',
       quota: 25,
+      type: null,
     })
     expect(wrapper.emitted('saved')).toEqual([[{ id: 9, name: 'ABC Sdn Bhd' }]])
     expect(isOpen()).toBe(false)

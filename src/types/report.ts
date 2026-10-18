@@ -1,6 +1,9 @@
-/** The company-wise report (afwan-api /api/reports/...): data_entry, accounts and admins. */
+/**
+ * The company-wise report (afwan-api /api/reports/...): data_entry,
+ * accounts and admins.
+ */
 
-import type { LatestStatus, PassportEntry } from '@/types/passport'
+import type { LatestStatus, PassportEntry, ReferenceSummary } from '@/types/passport'
 
 /** Passport counts of one company (or of all companies, in the totals row). */
 export interface CompanyCounts {
@@ -23,8 +26,6 @@ export interface CompanyReportRow extends CompanyCounts {
   id: number
   name: string
   country_code: string
-  agent_name: string | null
-  bd_agency_name: string | null
   quota: number | null
   /** quota − total; null when the company has no quota. Negative means over quota. */
   balance: number | null
@@ -40,6 +41,11 @@ export interface CompanyReportTotals extends CompanyCounts {
 export interface CompanyReport {
   data: CompanyReportRow[]
   totals: CompanyReportTotals
+  /** The chosen company / reference filter, with names (null when not filtered). */
+  filters?: {
+    company: { id: number; name: string; country_code: string } | null
+    reference: ReferenceSummary | null
+  }
   meta: { current_page: number; last_page: number; per_page: number; total: number }
 }
 
@@ -47,7 +53,12 @@ export interface CompanyReport {
 export type CompanyReportSortKey = 'name' | 'quota' | keyof CompanyCounts | 'balance'
 
 export interface CompanyReportParams {
+  /** Part of the company name (the dropdowns' option search). */
   search?: string
+  /** Only this company. */
+  company_id?: number
+  /** Count only this reference's passports (and list only companies that have some). */
+  reference_id?: number
   country_code?: string
   /** A sortable column, '-' prefixed for descending. */
   sort?: string

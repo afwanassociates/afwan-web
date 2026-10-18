@@ -3,13 +3,16 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import PassportListView from '../PassportListView.vue'
+import SearchSelect from '@/components/SearchSelect.vue'
 import { listPassports } from '@/api/passports'
+import { searchReferences } from '@/api/references'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser, notStartedPassport } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { PassportEntry, PassportFilters } from '@/types/passport'
 
 vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), deletePassport: vi.fn() }))
+vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 vi.mock('@/api/medical', () => ({ updateMedicalSlip: vi.fn() }))
 vi.mock('@/api/medicalCenters', () => ({
   searchMedicalCenters: vi.fn(async () => []),
@@ -105,81 +108,55 @@ describe('Passport List ("Passport entered" only)', () => {
       expect(wrapper.text()).not.toMatch(/Reference type|Company country|Received date|All stages/)
     })
 
-    it('sends ?reference= and ?company= together with the general search (debounced 300 ms)', async () => {
-      vi.useFakeTimers()
-      try {
-        await mountList('/passports?q=karim')
+    describe('Filter by reference', () => {
+      const SEA = { id: 8, type: 'agency', type_label: 'Agency', name: 'Sea Star' } as const
+      const referenceFilter = () =>
+        wrapper
+          .findAllComponents(SearchSelect)
+          .find((c) => (c.props() as Record<string, unknown>).label === 'Filter by reference')!
 
-        await wrapper.get('input[data-search-box="reference"]').setValue('green')
-        await wrapper.get('input[data-search-box="company"]').setValue('Desert')
-        await vi.advanceTimersByTimeAsync(200)
-        expect(router.currentRoute.value.query).toEqual({ q: 'karim' })
+      it('is a searchable dropdown with "All references" (no reference text search)', async () => {
+        await mountList()
 
-        await vi.advanceTimersByTimeAsync(150)
-        await flushPromises()
-        expect(router.currentRoute.value.query).toEqual({
-          q: 'karim',
-          reference: 'green',
-          company: 'Desert',
+        expect(wrapper.find('input[data-search-box="reference"]').exists()).toBe(false)
+        expect(wrapper.text()).not.toContain('Search reference')
+        expect(referenceFilter().props()).toMatchObject({
+          placeholder: 'Search reference…',
+          noneLabel: 'All references',
+          clearable: true,
         })
+      })
+
+      it('sends ?reference_id= with the general search; clearing removes it', async () => {
+        await mountList('/passports?q=karim&page=2')
+
+        referenceFilter().vm.$emit('update:modelValue', SEA)
+        await flushPromises()
+        expect(router.currentRoute.value.query).toEqual({ q: 'karim', reference_id: '8' })
         expect(lastFilters()).toEqual(
-          expect.objectContaining({
-            q: 'karim',
-            reference: 'green',
-            company: 'Desert',
-            stage: 'passport',
-            page: 1,
-          }),
+          expect.objectContaining({ q: 'karim', reference_id: 8, stage: 'passport', page: 1 }),
         )
-        // The removed filters' params are never sent.
-        for (const key of [
-          'reference_id',
-          'reference_type',
-          'company_id',
-          'company_country_code',
-          'received_from',
-          'received_to',
-        ])
-          expect(lastFilters()).not.toHaveProperty(key)
-      } finally {
-        vi.useRealTimers()
-      }
-    })
 
-    it('reads the searches from the URL, so refresh and shared links keep them', async () => {
-      await mountList('/passports?reference=green&company=desert&q=NW50')
+        referenceFilter().vm.$emit('update:modelValue', null)
+        await flushPromises()
+        expect(router.currentRoute.value.query).toEqual({ q: 'karim' })
+      })
 
-      expect(
-        wrapper.get<HTMLInputElement>('input[data-search-box="reference"]').element.value,
-      ).toBe('green')
-      expect(wrapper.get<HTMLInputElement>('input[data-search-box="company"]').element.value).toBe(
-        'desert',
-      )
-      expect(wrapper.get<HTMLInputElement>('input[data-search]').element.value).toBe('NW50')
-      expect(lastFilters()).toEqual(
-        expect.objectContaining({ reference: 'green', company: 'desert', q: 'NW50' }),
-      )
-    })
-
-    it.each(['reference', 'company'])(
-      'clears the %s search with its (x) button only',
-      async (key) => {
-        await mountList('/passports?reference=green&company=desert&q=karim&page=2')
-
-        const clear = wrapper.get(`button[data-clear="${key}"]`)
-        expect(clear.text()).toBe(`Clear search ${key}`)
-        await clear.trigger('click')
+      it('reads ?reference_id= from the URL and drops the old ?reference= text search', async () => {
+        await mountList('/passports?reference_id=8&reference=green')
         await flushPromises()
 
-        const expected: Record<string, string> = {
-          q: 'karim',
-          reference: 'green',
-          company: 'desert',
-        }
-        delete expected[key]
-        expect(router.currentRoute.value.query).toEqual(expected)
-      },
-    )
+        expect(router.currentRoute.value.query).toEqual({ reference_id: '8' })
+        expect(lastFilters()).toEqual(expect.objectContaining({ reference_id: 8 }))
+      })
+
+      it('lists the references of the chosen company only', async () => {
+        await mountList('/passports?company_id=3')
+
+        await (referenceFilter().props() as { fetch: (q: string) => Promise<unknown> }).fetch('se')
+        expect(searchReferences).toHaveBeenCalledWith({ q: 'se', company_id: 3 })
+      })
+    })
 
     it('drops the old filter and stage parameters from the URL', async () => {
       await mountList(

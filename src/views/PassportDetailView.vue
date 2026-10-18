@@ -2,27 +2,24 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import MedicalHistoryTable from '@/components/MedicalHistoryTable.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
+import PassportHistoryTable from '@/components/PassportHistoryTable.vue'
 import PassportScanCard from '@/components/PassportScanCard.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
-import RecordStepModal from '@/components/RecordStepModal.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
-import { deleteMedical, listMedicals } from '@/api/medical'
 import { deleteStepRecord, listStepRecords } from '@/api/steps'
-import { getPassport } from '@/api/passports'
+import { getPassport, getPassportHistory } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { businessToday, daysLeft, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { EXPIRING_SOON_DAYS } from '@/lib/medical'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
-import type { MedicalRecord } from '@/types/medical'
-import type { PassportEntry } from '@/types/passport'
-import type { StepRecord, StepRecordSummary } from '@/types/workflow'
+import type { PassportEntry, PassportHistoryEvent } from '@/types/passport'
+import type { StepRecord } from '@/types/workflow'
 
-/** One passport: its progress, details, current medical and medical history. */
+/** One passport: its progress, details, current medical and its history (entry to flight). */
 const route = useRoute()
 const auth = useAuthStore()
 const toast = useToast()
@@ -32,7 +29,7 @@ const today = businessToday()
 const passportId = computed(() => Number(route.params.id))
 
 const passport = ref<PassportEntry | null>(null)
-const history = ref<MedicalRecord[]>([])
+const history = ref<PassportHistoryEvent[]>([])
 /** Steps 3+ history, grouped by step key. */
 const stepHistory = ref<Record<string, StepRecord[]>>({})
 workflow.loadConfig()
@@ -45,14 +42,14 @@ async function load() {
   isLoading.value = true
   loadError.value = null
   try {
-    const [entry, records, steps] = await Promise.all([
+    const [entry, events, steps] = await Promise.all([
       getPassport(id),
-      listMedicals(id),
+      getPassportHistory(id),
       listStepRecords(id),
     ])
     if (passportId.value !== id) return
     passport.value = entry
-    history.value = records
+    history.value = events
     stepHistory.value = steps
   } catch (error) {
     loadError.value =
@@ -72,17 +69,7 @@ function afterChange() {
   workflow.refresh()
 }
 
-/* ---------- Steps 3+: record, update, edit, undo ---------- */
-
-const stepModalOpen = ref(false)
-const stepModalKey = ref<string | null>(null)
-const stepModalRecord = ref<StepRecordSummary | null>(null)
-
-function openStep(stepKey: string, record: StepRecordSummary | null) {
-  stepModalKey.value = stepKey
-  stepModalRecord.value = record
-  stepModalOpen.value = true
-}
+/* ---------- Steps 3+: undo (recording is on the step pages) ---------- */
 
 const undoTarget = ref<StepRecord | null>(null)
 const undoOpen = ref(false)
@@ -151,46 +138,12 @@ const backLink = computed(() =>
     : { to: { name: 'passports' }, label: 'Passport list' },
 )
 
-/* ---------- Medical slip / delete medical ---------- */
+/* ---------- Medical slip ---------- */
 
 const slipModalOpen = ref(false)
 
 function openRecord() {
   slipModalOpen.value = true
-}
-
-const deleteTarget = ref<MedicalRecord | null>(null)
-const deleteOpen = ref(false)
-const deleteBusy = ref(false)
-const deleteError = ref<string | null>(null)
-
-function askDelete(record: MedicalRecord) {
-  deleteTarget.value = record
-  deleteError.value = null
-  deleteOpen.value = true
-}
-
-async function confirmDelete() {
-  const record = deleteTarget.value
-  if (!record) return
-  deleteBusy.value = true
-  deleteError.value = null
-  try {
-    await deleteMedical(record.id)
-    deleteOpen.value = false
-    toast.success(`Medical of ${toDisplayDate(record.medical_date)} deleted.`)
-    afterChange()
-  } catch (error) {
-    const status = errorStatus(error)
-    if (status === 403) deleteError.value = 'Only admins can delete medical records.'
-    else if (status === 404) {
-      deleteOpen.value = false
-      afterChange()
-    } else if (status !== 401)
-      deleteError.value = errorMessage(error, 'Could not delete the record. Please try again.')
-  } finally {
-    deleteBusy.value = false
-  }
 }
 
 const dt = 'text-muted'
@@ -199,7 +152,7 @@ const dd = 'font-medium text-ink'
 
 <template>
   <div class="mx-auto max-w-6xl">
-    <WorkflowStepper :active-step="passport?.current_stage ?? null" />
+    <WorkflowStepper :active-step="passport?.current_stage ?? null" hide-completed />
 
     <RouterLink
       :to="backLink.to"
@@ -224,13 +177,6 @@ const dd = 'font-medium text-ink'
           <p class="font-mono tracking-wider text-slate-700">{{ passport.passport_number }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
-          <RouterLink
-            v-if="passport.can.update"
-            :to="{ name: 'passport-edit', params: { id: passport.id } }"
-            class="btn btn-white text-sm"
-          >
-            Edit passport
-          </RouterLink>
           <button
             v-if="medicalAction"
             type="button"
@@ -270,8 +216,6 @@ const dd = 'font-medium text-ink'
             :history="stepHistory"
             :role="auth.user?.role"
             :user-id="auth.user?.id ?? null"
-            @record="openStep"
-            @edit="openStep"
             @undo="askUndo"
           />
         </div>
@@ -385,27 +329,15 @@ const dd = 'font-medium text-ink'
 
       <!-- History -->
       <section class="glass-card mt-6 p-5 sm:p-6" aria-labelledby="history-heading">
-        <h2 id="history-heading" class="text-lg font-semibold text-ink">Medical history</h2>
+        <h2 id="history-heading" class="text-lg font-semibold text-ink">Passport history</h2>
+        <p class="mt-1 text-sm text-muted">Everything recorded, from entry to flight.</p>
         <div class="mt-2">
-          <MedicalHistoryTable
-            :records="history"
-            :role="auth.user?.role"
-            :editable="false"
-            @delete="askDelete"
-          />
+          <PassportHistoryTable :events="history" />
         </div>
       </section>
     </template>
 
     <MedicalSlipModal v-model:open="slipModalOpen" :passport="passport" @saved="afterChange" />
-
-    <RecordStepModal
-      v-model:open="stepModalOpen"
-      :passport="passport"
-      :step-key="stepModalKey"
-      :record="stepModalRecord"
-      @saved="afterChange"
-    />
 
     <ConfirmDialog
       v-model:open="undoOpen"
@@ -420,22 +352,6 @@ const dd = 'font-medium text-ink'
         Remove the <strong>{{ undoTarget.step_label }}</strong> record “{{
           undoTarget.status_label
         }}” of {{ toDisplayDate(undoTarget.step_date) }}? The passport goes back to that step.
-      </p>
-    </ConfirmDialog>
-
-    <ConfirmDialog
-      v-model:open="deleteOpen"
-      title="Delete medical record"
-      confirm-label="Delete"
-      danger
-      :busy="deleteBusy"
-      :error="deleteError"
-      @confirm="confirmDelete"
-    >
-      <p v-if="deleteTarget">
-        Delete the {{ deleteTarget.result === 'fit' ? 'fit' : 'unfit' }} medical of
-        <strong>{{ toDisplayDate(deleteTarget.medical_date) }}</strong
-        >? The passport's medical status will follow its remaining records.
       </p>
     </ConfirmDialog>
   </div>

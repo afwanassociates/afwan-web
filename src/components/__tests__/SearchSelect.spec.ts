@@ -96,6 +96,18 @@ describe('SearchSelect', () => {
       expect(options().map((o) => o.text())).toEqual(['+ Add new company'])
     })
 
+    it('pins the "add new" option to the bottom of the list, so it shows without scrolling', async () => {
+      mountSelect()
+
+      await input().trigger('click')
+      await flushPromises()
+
+      const add = listbox().get('[data-add-option]')
+      expect(add.text()).toBe('+ Add new company')
+      expect(add.classes()).toEqual(expect.arrayContaining(['sticky', 'bottom-0', 'bg-white']))
+      expect(options().at(-1)!.element).toBe(add.element)
+    })
+
     it('ignores a slow response that arrives after a newer one', async () => {
       mountSelect()
       let resolveSlow: (items: Item[]) => void = () => {}

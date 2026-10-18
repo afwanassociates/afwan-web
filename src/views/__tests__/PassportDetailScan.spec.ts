@@ -11,7 +11,11 @@ import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { Role } from '@/types/auth'
 import type { PassportEntry } from '@/types/passport'
 
-vi.mock('@/api/passports', () => ({ getPassport: vi.fn(), listPassports: vi.fn() }))
+vi.mock('@/api/passports', () => ({
+  getPassport: vi.fn(),
+  getPassportHistory: vi.fn(async () => []),
+  listPassports: vi.fn(),
+}))
 vi.mock('@/api/medical', () => ({
   listMedicals: vi.fn(async () => []),
   deleteMedical: vi.fn(),

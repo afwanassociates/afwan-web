@@ -6,11 +6,17 @@ import PassportOverviewTable from '@/components/PassportOverviewTable.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import { searchCompanies } from '@/api/companies'
-import { listPassportOverview } from '@/api/passports'
+import { downloadPassportOverviewCsv, listPassportOverview } from '@/api/passports'
+import { fetchCompanyReport } from '@/api/reports'
 import { useDebounce } from '@/composables/useDebounce'
+import { useToast } from '@/composables/useToast'
+import { countryName } from '@/lib/companyReport'
+import { referenceSubtitle, searchReferenceOptions } from '@/lib/referenceOptions'
 import { errorMessage, errorStatus } from '@/lib/errors'
+import { canAccessArea } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth'
 import type { Paginated } from '@/types/auth'
-import type { CompanySummary, PassportOverview } from '@/types/passport'
+import type { CompanySummary, PassportOverview, ReferenceSummary } from '@/types/passport'
 
 /**
  * All Passports: a read-only overview of every passport in every status (unfit included),
@@ -32,22 +38,50 @@ const OLD_KEYS = [
   'company_name',
   'company_country_code',
   'company',
+  // The old reference text search (now Filter by reference, ?reference_id=).
+  'reference',
 ]
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
+const toast = useToast()
+
+/**
+ * Data-entry users and admins open passports and search the company lookup. Accounts read
+ * this page only: no passport links, and companies come from the company report.
+ */
+const isDataEntry = computed(() => {
+  const role = auth.user?.role
+  return role !== undefined && canAccessArea(role, 'data_entry')
+})
+
+async function searchReportCompanies(query: string): Promise<CompanySummary[]> {
+  const { data } = await fetchCompanyReport({ search: query || undefined, per_page: 20 })
+  return data.map((c) => ({
+    id: c.id,
+    name: c.name,
+    country: { code: c.country_code, name: countryName(c.country_code) },
+  }))
+}
+const fetchCompanies = (query: string) =>
+  isDataEntry.value ? searchCompanies(query) : searchReportCompanies(query)
 
 const searchId = useId()
-const referenceId = useId()
+
+/** With a company chosen, only references that have passports of that company. */
+const fetchReferences = (query: string) =>
+  searchReferenceOptions(query, isDataEntry.value, filters.value.company_id ?? undefined)
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
 const filters = computed(() => {
   const page = Number(text(route.query.page))
   const companyId = Number(text(route.query.company_id))
+  const referenceId = Number(text(route.query.reference_id))
   return {
     q: text(route.query.q).trim(),
-    reference: text(route.query.reference).trim(),
+    reference_id: Number.isInteger(referenceId) && referenceId > 0 ? referenceId : null,
     company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
     page: Number.isInteger(page) && page > 1 ? page : 1,
   }
@@ -55,7 +89,7 @@ const filters = computed(() => {
 type Filters = typeof filters.value
 
 const hasFilters = computed(() =>
-  Boolean(filters.value.q || filters.value.reference || filters.value.company_id),
+  Boolean(filters.value.q || filters.value.reference_id || filters.value.company_id),
 )
 
 /** The current query with `changes` applied; a search change goes back to page 1. */
@@ -68,7 +102,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
     else query[key] = String(value)
   }
   set('q', next.q)
-  set('reference', next.reference)
+  set('reference_id', next.reference_id)
   set('company_id', next.company_id)
   set('page', next.page)
   return query
@@ -77,22 +111,16 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
 /* ---------- The searches (debounced, 300 ms) ---------- */
 
 const search = ref(filters.value.q)
-const reference = ref(filters.value.reference)
+const selectedReference = ref<ReferenceSummary | null>(null)
 const selectedCompany = ref<CompanySummary | null>(null)
 
 const searchDebounce = useDebounce(
   () => router.replace({ query: queryWith({ q: search.value.trim() }) }),
   300,
 )
-const referenceDebounce = useDebounce(
-  () => router.replace({ query: queryWith({ reference: reference.value.trim() }) }),
-  300,
-)
-
-function clearReference() {
-  reference.value = ''
-  referenceDebounce.cancel()
-  router.replace({ query: queryWith({ reference: '' }) })
+function onReferenceSelected(value: ReferenceSummary | null) {
+  selectedReference.value = value
+  router.replace({ query: queryWith({ reference_id: value?.id ?? null }) })
 }
 
 function onCompanySelected(value: CompanySummary | null) {
@@ -102,17 +130,16 @@ function onCompanySelected(value: CompanySummary | null) {
 
 function clearFilters() {
   search.value = ''
-  reference.value = ''
+  selectedReference.value = null
   selectedCompany.value = null
   searchDebounce.cancel()
-  referenceDebounce.cancel()
-  router.replace({ query: queryWith({ q: '', reference: '', company_id: null }) })
+  router.replace({ query: queryWith({ q: '', reference_id: null, company_id: null }) })
 }
 
 // Back / forward: show what the URL says.
 watch(filters, (f) => {
   if (f.q !== search.value.trim()) search.value = f.q
-  if (f.reference !== reference.value.trim()) reference.value = f.reference
+  if (!f.reference_id && selectedReference.value) selectedReference.value = null
   if (!f.company_id && selectedCompany.value) selectedCompany.value = null
 })
 
@@ -122,6 +149,31 @@ const list = shallowRef<Paginated<PassportOverview> | null>(null)
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
 let requestId = 0
+
+/* ---------- Export ---------- */
+
+const isExporting = ref(false)
+
+/** Downloads every passport with the current searches as CSV. */
+async function exportCsv() {
+  if (isExporting.value) return
+  isExporting.value = true
+  const f = filters.value
+  try {
+    const fileName = await downloadPassportOverviewCsv({
+      view: 'overview',
+      medical_status: 'all',
+      q: f.q || undefined,
+      reference_id: f.reference_id ?? undefined,
+      company_id: f.company_id ?? undefined,
+    })
+    toast.success(`Downloaded ${fileName}.`)
+  } catch (error) {
+    toast.error(errorMessage(error, 'Could not export the passports. Please try again.'))
+  } finally {
+    isExporting.value = false
+  }
+}
 
 async function load() {
   const id = ++requestId
@@ -133,7 +185,7 @@ async function load() {
       view: 'overview',
       medical_status: 'all',
       q: f.q || undefined,
-      reference: f.reference || undefined,
+      reference_id: f.reference_id ?? undefined,
       company_id: f.company_id ?? undefined,
       page: f.page,
       per_page: PER_PAGE,
@@ -186,10 +238,36 @@ const inputClass =
     <!-- Overview: no step is highlighted, and no "Completed" bucket. -->
     <WorkflowStepper hide-completed />
 
-    <h1 class="mt-6 text-2xl font-bold text-primary-900 sm:text-3xl">All Passports</h1>
-    <p class="mt-1 text-sm text-muted">
-      Every passport in every status, including unfit. Newest entered first.
-    </p>
+    <div class="mt-6 flex flex-wrap items-end justify-between gap-4" data-page-header>
+      <div>
+        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">All Passports</h1>
+        <p class="mt-1 text-sm text-muted">
+          Every passport in every status, including unfit. Newest entered first.
+        </p>
+      </div>
+      <!-- Every passport with the same searches, newest first. -->
+      <button
+        type="button"
+        class="btn btn-white text-sm"
+        :disabled="isExporting || !list"
+        data-export
+        @click="exportCsv"
+      >
+        <svg
+          class="h-4 w-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14" />
+        </svg>
+        {{ isExporting ? 'Exporting…' : 'Export CSV' }}
+      </button>
+    </div>
 
     <section class="glass-card mt-6 p-4 sm:p-6" aria-label="All passports">
       <div role="search" class="space-y-4">
@@ -207,47 +285,20 @@ const inputClass =
               @input="searchDebounce.run()"
             />
           </div>
-          <div>
-            <label :for="referenceId" class="block text-sm font-medium text-slate-700">
-              Search reference
-            </label>
-            <div class="relative">
-              <input
-                :id="referenceId"
-                v-model="reference"
-                type="text"
-                autocomplete="off"
-                placeholder="Reference name"
-                :class="[inputClass, 'pr-10']"
-                data-reference-search
-                @input="referenceDebounce.run()"
-                @keydown.esc="clearReference"
-              />
-              <button
-                v-if="reference"
-                type="button"
-                class="absolute top-1/2 right-1.5 mt-0.5 -translate-y-1/2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                data-clear-reference
-                @click="clearReference"
-              >
-                <svg
-                  class="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-                <span class="sr-only">Clear reference search</span>
-              </button>
-            </div>
-          </div>
+          <SearchSelect
+            :model-value="selectedReference"
+            :fetch="fetchReferences"
+            :subtitle-of="referenceSubtitle"
+            label="Filter by reference"
+            placeholder="Search reference…"
+            none-label="All references"
+            clearable
+            data-reference-filter
+            @update:model-value="onReferenceSelected"
+          />
           <SearchSelect
             :model-value="selectedCompany"
-            :fetch="searchCompanies"
+            :fetch="fetchCompanies"
             label="Filter by company"
             placeholder="Search company…"
             none-label="All companies"
@@ -276,7 +327,7 @@ const inputClass =
           :empty-text="emptyText"
           @retry="load"
         >
-          <PassportOverviewTable :entries="list?.data ?? []" />
+          <PassportOverviewTable :entries="list?.data ?? []" :linked="isDataEntry" />
         </PassportListBody>
       </div>
     </section>

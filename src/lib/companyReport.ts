@@ -23,19 +23,29 @@ export const SORTABLE: readonly CompanyReportSortKey[] = [
   'balance',
 ]
 
-/** Parses ?sort= ('-total' → total, descending). Unknown values fall back to name A–Z. */
-export function parseSort(value: unknown): { key: CompanyReportSortKey; desc: boolean } {
+/**
+ * Parses ?sort= ('-total' → total, descending) against a report's sortable columns (the
+ * company report's by default). Unknown values fall back to name A–Z.
+ */
+export function parseSort<K extends string = CompanyReportSortKey>(
+  value: unknown,
+  sortable: readonly K[] = SORTABLE as readonly K[],
+): { key: K; desc: boolean } {
   const text = typeof value === 'string' ? value : ''
   const desc = text.startsWith('-')
-  const key = text.replace(/^-/, '') as CompanyReportSortKey
-  return SORTABLE.includes(key) ? { key, desc } : { key: 'name', desc: false }
+  const key = text.replace(/^-/, '') as K
+  return sortable.includes(key) ? { key, desc } : { key: 'name' as K, desc: false }
 }
 
-/** Next sort when a header is clicked: names start A–Z, numbers start largest first. */
-export function nextSort(current: string, key: CompanyReportSortKey): string {
-  const { key: active, desc } = parseSort(current)
+/** Next sort when a header is clicked: names and types start A–Z, numbers largest first. */
+export function nextSort<K extends string = CompanyReportSortKey>(
+  current: string,
+  key: K,
+  sortable: readonly K[] = SORTABLE as readonly K[],
+): string {
+  const { key: active, desc } = parseSort(current, sortable)
   if (active === key) return desc ? key : `-${key}`
-  return key === 'name' ? key : `-${key}`
+  return key === 'name' || key === 'type' ? key : `-${key}`
 }
 
 /** Colour of a count cell: zero is muted, "in process" is amber. */

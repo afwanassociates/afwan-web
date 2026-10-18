@@ -21,13 +21,37 @@ vi.mock('@/api/workflow', () => ({
     step2: { pending: 7, fit: 5, expiring_soon: 1, expired: 2, unfit: 4 },
     step3: { enabled: true, ready: 3 },
     stages: {
-      beta: { total: 11, pending: 7, unfit: 4 },
+      beta: { total: 14, pending: 7, unfit: 4, fit: 3 },
       gamma: { total: 6, waiting: 3, in_process: 2, rejected: 1 },
       delta: { total: 4, waiting: 1, in_process: 3, rejected: 0 },
       epsilon: { total: 2, waiting: 2, in_process: 0, rejected: 0 },
       zeta: { total: 1, waiting: 0, in_process: 1, rejected: 0 },
     },
     completed: 9,
+    // Step pages' tab counts: their chips show these instead of the stage's.
+    step_tabs: {
+      epsilon: { pending: 2, approved: 5 },
+      zeta: { done_tab: 4, pending: 1, rejected: 0 },
+    },
+  })),
+  fetchWorkflowConfig: vi.fn(async () => ({
+    steps: [
+      {
+        key: 'epsilon',
+        tabs: [
+          { key: 'pending', label: 'Pending' },
+          { key: 'approved', label: 'Approved' },
+        ],
+      },
+      {
+        key: 'zeta',
+        tabs: [
+          { key: 'pending', label: 'Pending' },
+          { key: 'done_tab', label: 'Zeta Done' },
+          { key: 'rejected', label: 'Rejected' },
+        ],
+      },
+    ],
   })),
 }))
 
@@ -71,6 +95,40 @@ describe('WorkflowStepper (summary bar)', () => {
     expect(step('gamma').get('[data-chip="waiting"]').text()).toBe('3 waiting')
     expect(step('gamma').get('[data-chip="in_process"]').text()).toBe('2 in process')
     expect(step('gamma').get('[data-chip="rejected"]').text()).toBe('1 rejected')
+  })
+
+  it('shows the medical chips with a plain "fit" (no "not marked")', async () => {
+    await mountStepper()
+
+    expect(
+      step('beta')
+        .findAll('[data-chip]')
+        .map((c) => c.text()),
+    ).toEqual(['7 pending', '3 fit', '4 unfit'])
+    expect(step('beta').get('[data-chip="fit"]').classes()).toContain('bg-green-50')
+    expect(step('beta').text()).not.toContain('not marked')
+  })
+
+  it('shows a step page\'s tabs as chips ("2 pending", "5 approved"), in the tab order', async () => {
+    await mountStepper()
+
+    const chips = (key: string) =>
+      step(key)
+        .findAll('[data-chip]')
+        .map((c) => [c.attributes('data-chip'), c.text()])
+    expect(chips('epsilon')).toEqual([
+      ['pending', '2 pending'],
+      ['approved', '5 approved'],
+    ])
+    expect(chips('zeta')).toEqual([
+      ['pending', '1 pending'],
+      ['done_tab', '4 zeta done'],
+      ['rejected', '0 rejected'],
+    ])
+    expect(step('epsilon').find('[data-chip="waiting"]').exists()).toBe(false)
+    expect(step('epsilon').get('[data-chip="pending"]').classes()).toContain('bg-amber-50')
+    expect(step('epsilon').get('[data-chip="approved"]').classes()).toContain('bg-green-50')
+    expect(step('zeta').get('[data-chip="rejected"]').classes()).toContain('bg-red-50')
   })
 
   it('marks only the last step as Final and shows the completed count at the end', async () => {

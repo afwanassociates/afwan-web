@@ -11,10 +11,11 @@ import { deletePassport, listPassports } from '@/api/passports'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus } from '@/lib/errors'
+import { referenceSubtitle, searchReferenceOptions } from '@/lib/referenceOptions'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { Paginated } from '@/types/auth'
-import type { CompanySummary, PassportEntry } from '@/types/passport'
+import type { CompanySummary, PassportEntry, ReferenceSummary } from '@/types/passport'
 
 const PER_PAGE = 15
 
@@ -26,7 +27,6 @@ const workflow = useWorkflowStore()
 workflow.load()
 
 const searchId = useId()
-const referenceId = useId()
 
 /**
  * This page lists only passports at the "Passport entered" stage: no medical slip date yet
@@ -39,7 +39,8 @@ const STAGE = 'passport'
 /** Query keys of older versions of this page; ignored and dropped from the URL. */
 const OLD_KEYS = [
   'reference_type',
-  'reference_id',
+  // The old reference text search (now Filter by reference, ?reference_id=).
+  'reference',
   'reference_name',
   'company_name',
   'company_country_code',
@@ -50,8 +51,8 @@ const OLD_KEYS = [
 interface Filters {
   /** Name or passport number */
   q: string
-  /** Part of the reference's name */
-  reference: string
+  /** Selected reference ID (Filter by reference) */
+  reference_id: number | null
   /** Selected company ID */
   company_id: number | null
   /** YYYY-MM-DD: received date range start */
@@ -69,7 +70,7 @@ const positiveInt = (value: unknown) => {
 
 const filters = computed<Filters>(() => ({
   q: text(route.query.q).trim(),
-  reference: text(route.query.reference).trim(),
+  reference_id: positiveInt(route.query.reference_id),
   company_id: positiveInt(route.query.company_id),
   received_from: text(route.query.received_from).trim(),
   received_to: text(route.query.received_to).trim(),
@@ -79,7 +80,7 @@ const filters = computed<Filters>(() => ({
 const hasFilters = computed(() =>
   Boolean(
     filters.value.q ||
-      filters.value.reference ||
+      filters.value.reference_id ||
       filters.value.company_id ||
       filters.value.received_from ||
       filters.value.received_to,
@@ -91,7 +92,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   const next = { ...filters.value, page: 1, ...changes }
   const query: LocationQuery = {}
   if (next.q) query.q = next.q
-  if (next.reference) query.reference = next.reference
+  if (next.reference_id) query.reference_id = String(next.reference_id)
   if (next.company_id) query.company_id = String(next.company_id)
   if (next.received_from) query.received_from = next.received_from
   if (next.received_to) query.received_to = next.received_to
@@ -101,7 +102,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
 
 // The searches: debounced, and `replace` so typing does not flood the browser history.
 const search = ref(filters.value.q)
-const reference = ref(filters.value.reference)
+const selectedReference = ref<ReferenceSummary | null>(null)
 const selectedCompany = ref<CompanySummary | null>(null)
 const receivedFrom = ref(filters.value.received_from)
 const receivedTo = ref(filters.value.received_to)
@@ -115,7 +116,6 @@ function applySearches() {
   router.replace({
     query: queryWith({
       q: search.value.trim(),
-      reference: reference.value.trim(),
       received_from: receivedFrom.value,
       received_to: receivedTo.value,
     }),
@@ -123,12 +123,13 @@ function applySearches() {
 }
 
 const debouncedSearch = useDebounce(applySearches, 300)
-const debouncedReference = useDebounce(applySearches, 300)
+/** With a company chosen, only references that have passports of that company. */
+const fetchReferences = (query: string) =>
+  searchReferenceOptions(query, true, filters.value.company_id ?? undefined)
 
-function clearReference() {
-  reference.value = ''
-  debouncedReference.cancel()
-  router.replace({ query: queryWith({ reference: '' }) })
+function onReferenceSelected(value: ReferenceSummary | null) {
+  selectedReference.value = value
+  router.replace({ query: queryWith({ reference_id: value?.id ?? null }) })
 }
 
 function onCompanySelected(value: CompanySummary | null) {
@@ -139,7 +140,7 @@ function onCompanySelected(value: CompanySummary | null) {
 // Back / forward: show what the URL says.
 watch(filters, (f) => {
   if (f.q !== search.value.trim()) search.value = f.q
-  if (f.reference !== reference.value.trim()) reference.value = f.reference
+  if (!f.reference_id && selectedReference.value) selectedReference.value = null
   if (!f.company_id && selectedCompany.value) selectedCompany.value = null
   if (f.received_from !== receivedFrom.value) receivedFrom.value = f.received_from
   if (f.received_to !== receivedTo.value) receivedTo.value = f.received_to
@@ -147,12 +148,11 @@ watch(filters, (f) => {
 
 function clearFilters() {
   search.value = ''
-  reference.value = ''
+  selectedReference.value = null
   selectedCompany.value = null
   receivedFrom.value = ''
   receivedTo.value = ''
   debouncedSearch.cancel()
-  debouncedReference.cancel()
   router.push({ query: {} })
 }
 
@@ -190,7 +190,7 @@ async function load() {
   try {
     const result = await listPassports({
       q: f.q || undefined,
-      reference: f.reference || undefined,
+      reference_id: f.reference_id ?? undefined,
       company_id: f.company_id ?? undefined,
       received_from: f.received_from || undefined,
       received_to: f.received_to || undefined,
@@ -336,44 +336,17 @@ const inputClass =
               @input="debouncedSearch.run()"
             />
           </div>
-          <div>
-            <label :for="referenceId" class="block text-sm font-medium text-slate-700">
-              Search reference
-            </label>
-            <div class="relative">
-              <input
-                :id="referenceId"
-                v-model="reference"
-                type="text"
-                autocomplete="off"
-                placeholder="Reference name"
-                :class="[inputClass, 'pr-10']"
-                data-search-box="reference"
-                @input="debouncedReference.run()"
-                @keydown.esc="clearReference"
-              />
-              <button
-                v-if="reference"
-                type="button"
-                class="absolute top-1/2 right-1.5 mt-0.5 -translate-y-1/2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                data-clear="reference"
-                @click="clearReference"
-              >
-                <svg
-                  class="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2.5"
-                  stroke-linecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M6 6l12 12M18 6L6 18" />
-                </svg>
-                <span class="sr-only">Clear search reference</span>
-              </button>
-            </div>
-          </div>
+          <SearchSelect
+            :model-value="selectedReference"
+            :fetch="fetchReferences"
+            :subtitle-of="referenceSubtitle"
+            label="Filter by reference"
+            placeholder="Search reference…"
+            none-label="All references"
+            clearable
+            data-reference-filter
+            @update:model-value="onReferenceSelected"
+          />
           <SearchSelect
             :model-value="selectedCompany"
             :fetch="searchCompanies"

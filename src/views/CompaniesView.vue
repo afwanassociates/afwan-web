@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
-import { downloadCompanyReportCsv, fetchCompanyReport } from '@/api/reports'
-import { useDebounce } from '@/composables/useDebounce'
+import SearchSelect from '@/components/SearchSelect.vue'
+import { searchCompanies } from '@/api/companies'
+import { searchReferences } from '@/api/references'
+import { downloadCompanyReportCsv, fetchCompanyReport, fetchReportReferences } from '@/api/reports'
 import { useToast } from '@/composables/useToast'
 import {
   COUNT_COLUMNS,
@@ -18,12 +20,16 @@ import { errorMessage } from '@/lib/errors'
 import { canAccessArea } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import { useCountriesStore } from '@/stores/countries'
+import type { CompanySummary, ReferenceSummary } from '@/types/passport'
 import type { CompanyReport, CompanyReportParams, CompanyReportSortKey } from '@/types/report'
 
 /**
  * Companies: one row per company with its passport counts, quota and balance, plus a
  * totals row over every filtered company. Read-only for everyone (accounts included).
- * Search, country, sort and page live in the URL.
+ * Always one country at a time: the default company country (settings, else Malaysia) unless
+ * another is chosen. The company and reference filters (searchable dropdowns), country, sort and
+ * page live in the URL. The reference filter counts only that reference's passports and lists only
+ * companies that have some.
  */
 const route = useRoute()
 const router = useRouter()
@@ -31,7 +37,6 @@ const auth = useAuthStore()
 const countries = useCountriesStore()
 const toast = useToast()
 
-const searchId = useId()
 const countryId = useId()
 
 /** Only data-entry users and admins may load the country list (and open passports). */
@@ -39,7 +44,40 @@ const isDataEntry = computed(() => {
   const role = auth.user?.role
   return role !== undefined && canAccessArea(role, 'data_entry')
 })
-if (isDataEntry.value) countries.load()
+
+/** Used when the settings cannot be read (accounts) or have no default company country. */
+const FALLBACK_COUNTRY = 'MY'
+/** The default company country; null until known, so the first request already uses it. */
+const defaultCountry = ref<string | null>(isDataEntry.value ? null : FALLBACK_COUNTRY)
+if (isDataEntry.value) {
+  countries.load().finally(() => {
+    defaultCountry.value = countries.defaults?.default_company_country_code || FALLBACK_COUNTRY
+  })
+}
+
+/*
+ * The dropdowns' options. Data-entry users and admins use the lookups; accounts cannot, so
+ * they use the company report and the reports' reference options instead.
+ */
+async function searchReportCompanies(query: string): Promise<CompanySummary[]> {
+  const { data } = await fetchCompanyReport({ search: query || undefined, per_page: 20 })
+  return data.map((c) => ({
+    id: c.id,
+    name: c.name,
+    country: { code: c.country_code, name: countryName(c.country_code) },
+  }))
+}
+const fetchCompanies = (query: string) =>
+  isDataEntry.value ? searchCompanies(query) : searchReportCompanies(query)
+/** With a company chosen, only references that have passports of that company. */
+const fetchReferences = (query: string) => {
+  const companyId = params.value.company_id
+  return isDataEntry.value
+    ? searchReferences({ q: query, company_id: companyId })
+    : fetchReportReferences({ q: query, company_id: companyId })
+}
+const companySubtitle = (item: CompanySummary) => item.country?.name
+const referenceSubtitle = (item: ReferenceSummary) => item.type_label
 
 const report = shallowRef<CompanyReport | null>(null)
 const isLoading = ref(false)
@@ -50,21 +88,32 @@ const isExporting = ref(false)
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
 
+/** A positive whole number from the URL, else undefined. */
+const idFrom = (value: unknown) => {
+  const id = Number(text(value))
+  return Number.isInteger(id) && id > 0 ? id : undefined
+}
+
 const params = computed<CompanyReportParams>(() => {
   const page = Number(text(route.query.page)) || 1
   return {
-    search: text(route.query.search).trim() || undefined,
-    country_code: text(route.query.country) || undefined,
+    company_id: idFrom(route.query.company_id),
+    reference_id: idFrom(route.query.reference_id),
+    country_code: text(route.query.country) || defaultCountry.value || undefined,
     sort: text(route.query.sort) || undefined,
     page: page > 1 ? page : undefined,
   }
 })
 
 const sort = computed(() => parseSort(route.query.sort))
-const hasFilters = computed(() => Boolean(params.value.search || params.value.country_code))
+const hasFilters = computed(() =>
+  Boolean(params.value.company_id || params.value.reference_id || text(route.query.country)),
+)
 
-const search = ref(text(route.query.search))
-const country = ref(text(route.query.country))
+/** The chosen company and reference; after a reload their names come from the report. */
+const selectedCompany = ref<CompanySummary | null>(null)
+const selectedReference = ref<ReferenceSummary | null>(null)
+const country = ref(params.value.country_code ?? '')
 
 function queryWith(changes: Record<string, string | number | undefined>): LocationQuery {
   const query: LocationQuery = { ...route.query }
@@ -80,15 +129,29 @@ function setFilter(changes: Record<string, string | undefined>) {
   router.replace({ query: queryWith({ ...changes, page: undefined }) })
 }
 
-const { run: onSearchInput } = useDebounce(() => setFilter({ search: search.value.trim() }), 300)
+function onCompanySelected(value: CompanySummary | null) {
+  selectedCompany.value = value
+  setFilter({ company_id: value ? String(value.id) : undefined })
+}
+
+function onReferenceSelected(value: ReferenceSummary | null) {
+  selectedReference.value = value
+  setFilter({ reference_id: value ? String(value.id) : undefined })
+}
+
 watch(country, (code) => {
-  if (code !== text(route.query.country)) setFilter({ country: code })
+  if (code !== params.value.country_code) {
+    // A company of another country would leave the list empty.
+    selectedCompany.value = null
+    setFilter({ country: code === defaultCountry.value ? undefined : code, company_id: undefined })
+  }
 })
 
+/** Clears the company and reference filters and goes back to the default country. */
 function clearFilters() {
-  search.value = ''
-  country.value = ''
-  setFilter({ search: undefined, country: undefined })
+  selectedCompany.value = null
+  selectedReference.value = null
+  setFilter({ company_id: undefined, reference_id: undefined, country: undefined })
 }
 
 function sortBy(key: CompanyReportSortKey) {
@@ -129,6 +192,15 @@ async function load() {
     if (id !== requestId) return
     report.value = result
     rememberRows(result.data)
+    const { company, reference } = result.filters ?? {}
+    if (company && selectedCompany.value?.id !== company.id)
+      selectedCompany.value = {
+        id: company.id,
+        name: company.name,
+        country: { code: company.country_code, name: countryName(company.country_code) },
+      }
+    if (reference && selectedReference.value?.id !== reference.id)
+      selectedReference.value = reference
     const codes = new Set(seenCountries.value)
     for (const row of result.data) codes.add(row.country_code)
     seenCountries.value = codes
@@ -143,9 +215,12 @@ async function load() {
 watch(
   () => JSON.stringify(params.value),
   () => {
-    search.value = text(route.query.search)
-    country.value = text(route.query.country)
-    load()
+    // Back / forward: drop a selection the URL no longer has.
+    if (!params.value.company_id) selectedCompany.value = null
+    if (!params.value.reference_id) selectedReference.value = null
+    country.value = params.value.country_code ?? ''
+    // Wait for the default country, so the list never shows every country.
+    if (params.value.country_code) load()
   },
   { immediate: true },
 )
@@ -154,8 +229,13 @@ async function exportCsv() {
   if (isExporting.value) return
   isExporting.value = true
   try {
-    const { search: q, country_code, sort: s } = params.value
-    const fileName = await downloadCompanyReportCsv({ search: q, country_code, sort: s })
+    const { company_id, reference_id, country_code, sort: s } = params.value
+    const fileName = await downloadCompanyReportCsv({
+      company_id,
+      reference_id,
+      country_code,
+      sort: s,
+    })
     toast.success(`Downloaded ${fileName}.`)
   } catch (error) {
     toast.error(errorMessage(error, 'Could not export the companies. Please try again.'))
@@ -218,22 +298,34 @@ const sortButton =
       <!-- Filters -->
       <div role="search" class="flex flex-wrap items-end gap-4">
         <div class="w-full sm:w-72">
-          <label :for="searchId" class="block text-sm font-medium text-slate-700">Search</label>
-          <input
-            :id="searchId"
-            v-model="search"
-            type="search"
-            autocomplete="off"
-            placeholder="Company, agent or agency"
-            :class="inputClass"
-            data-search
-            @input="onSearchInput"
+          <SearchSelect
+            :model-value="selectedCompany"
+            :fetch="fetchCompanies"
+            :subtitle-of="companySubtitle"
+            label="Filter by company"
+            placeholder="Search company…"
+            none-label="All companies"
+            clearable
+            data-company-filter
+            @update:model-value="onCompanySelected"
+          />
+        </div>
+        <div class="w-full sm:w-72">
+          <SearchSelect
+            :model-value="selectedReference"
+            :fetch="fetchReferences"
+            :subtitle-of="referenceSubtitle"
+            label="Filter by reference"
+            placeholder="Search reference…"
+            none-label="All references"
+            clearable
+            data-reference-filter
+            @update:model-value="onReferenceSelected"
           />
         </div>
         <div class="w-full sm:w-56">
           <label :for="countryId" class="block text-sm font-medium text-slate-700">Country</label>
           <select :id="countryId" v-model="country" :class="inputClass" data-country>
-            <option value="">All countries</option>
             <option v-for="c in countryOptions" :key="c.code" :value="c.code">{{ c.name }}</option>
           </select>
         </div>
@@ -241,6 +333,7 @@ const sortButton =
           v-if="hasFilters"
           type="button"
           class="pb-3 text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
+          data-clear-filters
           @click="clearFilters"
         >
           Clear filters
@@ -291,7 +384,6 @@ const sortButton =
                       }}</span>
                     </button>
                   </th>
-                  <th scope="col" :class="[th, 'tracking-wider uppercase']">Agent</th>
                   <th scope="col" :class="[th, 'text-right']" :aria-sort="ariaSort('quota')">
                     <button type="button" :class="sortButton" @click="sortBy('quota')">
                       Quota
@@ -354,12 +446,6 @@ const sortButton =
                       {{ countryName(row.country_code) }}
                     </span>
                   </th>
-                  <td class="px-3 py-3 text-slate-700">
-                    {{ row.agent_name || '—' }}
-                    <span v-if="row.bd_agency_name" class="block text-xs text-muted">
-                      {{ row.bd_agency_name }}
-                    </span>
-                  </td>
                   <td
                     class="px-3 py-3 text-right tabular-nums"
                     :class="row.quota ? 'text-ink' : 'text-slate-400'"
@@ -389,7 +475,7 @@ const sortButton =
               </tbody>
               <tfoot v-if="report.totals" class="border-t-2 border-primary-200 bg-primary-50/70">
                 <tr class="font-semibold" data-totals>
-                  <th scope="row" class="px-3 py-3 text-left text-ink" colspan="2">
+                  <th scope="row" class="px-3 py-3 text-left text-ink">
                     Totals
                     <span class="block text-xs font-normal text-muted">
                       All {{ meta?.total ?? rows.length }}

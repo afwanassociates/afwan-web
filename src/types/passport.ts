@@ -39,11 +39,6 @@ export interface Company {
   name: string
   /** Where the employer is. */
   country: CountrySummary
-  agent_name: string | null
-  agent_phone: string | null
-  agent_email: string | null
-  /** The Bangladeshi recruiting agency. */
-  bd_agency_name: string | null
   /** Workers the company asked for. */
   quota: number | null
   is_active: boolean
@@ -52,12 +47,6 @@ export interface Company {
   created_at: string
   updated_at: string
 }
-
-/** Optional agent details of a company (all nullable). */
-export type CompanyAgentDetails = Pick<
-  Company,
-  'agent_name' | 'agent_phone' | 'agent_email' | 'bd_agency_name' | 'quota'
->
 
 /** The company as embedded in a passport entry. */
 export type CompanySummary = Pick<Company, 'id' | 'name' | 'country'>
@@ -185,16 +174,17 @@ export interface NewReference {
   phone?: string | null
 }
 
-export interface NewCompany extends Partial<CompanyAgentDetails> {
+export interface NewCompany {
   name: string
   country_code: string
+  quota?: number
 }
 
 /** Body of POST /admin/companies and PATCH /admin/companies/{id}. */
-export interface AdminCompanyPayload extends CompanyAgentDetails {
+export interface AdminCompanyPayload {
   name: string
   country_code: string
-  is_active: boolean
+  quota: number
 }
 
 /** Colour of a latest status (afwan-api config workflow.tones). */
@@ -227,4 +217,20 @@ export interface PassportOverview {
   entered_by: { id: number; name: string } | null
   created_at: string
   latest_status: LatestStatus
+}
+
+/** One row of GET /passports/{id}/history: what happened, from entry to flight. */
+export interface PassportHistoryEvent {
+  key: string
+  /** YYYY-MM-DD */
+  date: string
+  step_key: string
+  step_label: string
+  /** "Passport entered", "Medical Fit", "Visa issued", … */
+  title: string
+  tone: StatusTone
+  /** Filled fields only; dates are YYYY-MM-DD when type is "date". */
+  details: { label: string; value: string; type: string }[]
+  recorded_by: { id: number; name: string } | null
+  remarks: string | null
 }

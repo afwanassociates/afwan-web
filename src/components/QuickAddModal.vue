@@ -2,9 +2,11 @@
 import { ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
 import CountrySelect from '@/components/CountrySelect.vue'
+import ReferenceTypeToggle from '@/components/ReferenceTypeToggle.vue'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { useCountriesStore } from '@/stores/countries'
 import type { CountrySummary } from '@/types/country'
+import type { ReferenceType } from '@/types/passport'
 
 export interface QuickAddValues {
   name: string
@@ -13,11 +15,13 @@ export interface QuickAddValues {
   country_code: string | null
   /** Only with `withQuota`: a whole number, at least 1. */
   quota: number | null
+  /** Only with `withReferenceType`: person or agency. */
+  type: ReferenceType | null
 }
 
 /**
  * Small "add new" dialog used from a SearchSelect: a required name, an optional phone, and
- * for companies a required quota (`withQuota`) and a required country preselected with
+ * for references a Person | Agency choice (`withReferenceType`), for companies a required quota (`withQuota`) and a required country preselected with
  * `defaultCountryCode` (`withCountry`). The company's other details stay on the admin
  * Companies page. `save` calls the API; a 422 (e.g. the name already exists) keeps the
  * dialog open with the errors under their fields.
@@ -35,6 +39,8 @@ const props = withDefaults(
     defaultCountryCode?: string | null
     /** Show a required Quota field (whole number, at least 1). */
     withQuota?: boolean
+    /** Show a Person | Agency choice (starts on Person). */
+    withReferenceType?: boolean
     /** Prefills the name, e.g. with the text typed in the combobox. */
     initialName?: string
   }>(),
@@ -44,6 +50,7 @@ const props = withDefaults(
     withCountry: false,
     defaultCountryCode: null,
     withQuota: false,
+    withReferenceType: false,
     initialName: '',
   },
 )
@@ -62,6 +69,7 @@ const name = ref('')
 const phone = ref('')
 const country = ref<CountrySummary | null>(null)
 const quota = ref<string | number>('')
+const referenceType = ref<ReferenceType>('person')
 const errors = ref<Record<string, string>>({})
 const formError = ref<string | null>(null)
 const isSaving = ref(false)
@@ -71,6 +79,7 @@ watch(open, async (isOpen) => {
   name.value = props.initialName
   phone.value = ''
   quota.value = ''
+  referenceType.value = 'person'
   errors.value = {}
   formError.value = null
   country.value = null
@@ -106,6 +115,7 @@ async function onSubmit() {
       phone: trimmedPhone || null,
       country_code: props.withCountry ? (country.value?.code ?? null) : null,
       quota: props.withQuota ? Number(quotaText) : null,
+      type: props.withReferenceType ? referenceType.value : null,
     })
     emit('saved', item)
     open.value = false
@@ -136,6 +146,11 @@ const inputClass =
       {{ formError }}
     </p>
     <form class="space-y-4" novalidate @submit.prevent="onSubmit">
+      <div v-if="withReferenceType" data-field="type">
+        <ReferenceTypeToggle v-model="referenceType" label="Reference type" />
+        <p v-if="errors.type" class="mt-1 text-sm text-red-700">{{ errors.type }}</p>
+      </div>
+
       <div>
         <label :for="nameId" class="block text-sm font-medium text-slate-700">
           {{ nameLabel }}<span class="text-red-700" aria-hidden="true"> *</span>

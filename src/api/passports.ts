@@ -1,9 +1,11 @@
 import api from '@/lib/api'
+import { downloadCsv } from '@/api/reports'
 import type { Paginated } from '@/types/auth'
 import type {
   EntryMode,
   PassportEntry,
   PassportFilters,
+  PassportHistoryEvent,
   PassportOverview,
   PassportPayload,
 } from '@/types/passport'
@@ -30,14 +32,27 @@ export async function updateEntryMode(id: number, mode: EntryMode | null): Promi
   return data.data
 }
 
-/** Lean overview items with a latest status (view=overview), for the All Passports screen. */
+/**
+ * Lean overview items with a latest status, for the All Passports screen. Read-only, so it
+ * comes from /api/reports/passports, which accounts may read too.
+ */
 export async function listPassportOverview(
   filters: PassportFilters,
 ): Promise<Paginated<PassportOverview>> {
-  const { data } = await api.get<Paginated<PassportOverview>>(BASE, {
+  const { data } = await api.get<Paginated<PassportOverview>>('/api/reports/passports', {
     params: { ...filters, view: 'overview' },
   })
   return data
+}
+
+/**
+ * Downloads the All Passports overview as CSV (same searches, every page, newest first).
+ * Returns the file name.
+ */
+export function downloadPassportOverviewCsv(
+  filters: Omit<PassportFilters, 'page' | 'per_page'>,
+): Promise<string> {
+  return downloadCsv('/api/reports/passports', { ...filters, view: 'overview' }, 'all-passports')
 }
 
 export async function getPassport(id: number): Promise<PassportEntry> {
@@ -108,4 +123,10 @@ export async function updatePassport(
 
 export async function deletePassport(id: number): Promise<void> {
   await api.delete(`${BASE}/${id}`)
+}
+
+/** A passport's history from entry to flight, oldest first. */
+export async function getPassportHistory(id: number): Promise<PassportHistoryEvent[]> {
+  const { data } = await api.get<{ data: PassportHistoryEvent[] }>(`${BASE}/${id}/history`)
+  return data.data
 }

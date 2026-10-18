@@ -402,13 +402,15 @@ defineExpose({ focus: () => input.value?.focus() })
         No results{{ query.trim() ? ` for “${query.trim()}”` : '' }}.
       </li>
 
+      <!-- Pinned to the bottom of the list, so it shows without scrolling past the results. -->
       <li
         v-if="addLabel"
         :id="optionId(addIndex)"
         role="option"
         aria-selected="false"
-        class="cursor-pointer border-t border-stroke px-3 py-2.5 font-semibold text-primary-700"
-        :class="{ 'bg-primary-50': activeIndex === addIndex }"
+        data-add-option
+        class="sticky bottom-0 -mb-1 cursor-pointer border-t border-stroke px-3 py-2.5 font-semibold text-primary-700"
+        :class="activeIndex === addIndex ? 'bg-primary-50' : 'bg-white'"
         @mousedown.prevent="chooseAdd"
         @mousemove="activeIndex = addIndex"
       >

@@ -4,7 +4,6 @@ import { RouterLink, useRoute, useRouter, type RouteLocationRaw } from 'vue-rout
 import SearchSelect from '@/components/SearchSelect.vue'
 import QuickAddModal, { type QuickAddValues } from '@/components/QuickAddModal.vue'
 import CountrySelect from '@/components/CountrySelect.vue'
-import ReferenceTypeToggle from '@/components/ReferenceTypeToggle.vue'
 import ScanFileInput from '@/components/ScanFileInput.vue'
 import { SCAN_TOO_LARGE_FOR_SERVER } from '@/api/passportScan'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
@@ -12,10 +11,11 @@ import { createReference, searchReferences } from '@/api/references'
 import { createCompany, searchCompanies } from '@/api/companies'
 import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus, fieldErrors, firstFieldError } from '@/lib/errors'
-import { addDays, toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
+import { addDays, addMonthsNoOverflow, toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
 import { useCountriesStore } from '@/stores/countries'
 import { useWorkflowStore } from '@/stores/workflow'
 import {
+  PASSPORT_MIN_VALIDITY_MONTHS,
   PASSPORT_NAME_MAX,
   normalizePassportName,
   normalizePassportNameInput,
@@ -31,7 +31,6 @@ import type {
   PassportPayload,
   Reference,
   ReferenceSummary,
-  ReferenceType,
 } from '@/types/passport'
 import type { CountrySummary } from '@/types/country'
 
@@ -88,13 +87,14 @@ function onCountryPicked(value: CountrySummary | null) {
   country.value = value
 }
 const dateOfBirth = ref('')
-const referenceType = ref<ReferenceType>('person')
 const reference = ref<ReferenceSummary | null>(null)
 const company = ref<CompanySummary | null>(null)
 const receivedDate = ref(today)
 const expiryDate = ref('')
-/** The expiry date must be after the received date. */
-const minExpiryDate = computed(() => addDays(receivedDate.value, 1) || undefined)
+/** The passport must be valid for at least 18 months after the received date. */
+const minExpiryDate = computed(
+  () => addMonthsNoOverflow(receivedDate.value, PASSPORT_MIN_VALIDITY_MONTHS) || undefined,
+)
 /** Date of birth max: must be at least 18 years before today. */
 const maxDateOfBirth = computed(() => addDays(today, -(18 * 365 + 4)))
 
@@ -176,7 +176,6 @@ async function init() {
   entry.value = null
   savedCountry.value = null
   loadError.value = null
-  referenceType.value = 'person'
   receivedDate.value = today
 
   const id = entryId.value
@@ -200,7 +199,6 @@ async function init() {
     dateOfBirth.value = loaded.date_of_birth ?? ''
     expiryDate.value = loaded.passport_expiry_date ?? ''
     // Older entries always have a reference; newer ones may have none.
-    referenceType.value = loaded.reference?.type ?? 'person'
     reference.value = loaded.reference
     company.value = loaded.company
     receivedDate.value = loaded.passport_received_date
@@ -246,14 +244,6 @@ function clearError(field: keyof PassportFormErrors) {
   if (errors.value[field]) errors.value = { ...errors.value, [field]: undefined }
 }
 
-function onReferenceTypeChange(type: ReferenceType) {
-  if (type === referenceType.value) return
-  referenceType.value = type
-  // References are filtered by type, so a selection of the other type no longer applies.
-  reference.value = null
-  clearError('reference_id')
-}
-
 watch(reference, () => clearError('reference_id'))
 watch(company, () => clearError('company_id'))
 watch(receivedDate, () => clearError('passport_received_date'))
@@ -263,11 +253,13 @@ watch(expiryDate, () => clearError('passport_expiry_date'))
 
 /* ---------- Comboboxes and quick add ---------- */
 
-const fetchReferences = (q: string) => searchReferences({ type: referenceType.value, q })
+// One reference list: people and agencies are searched together.
+const fetchReferences = (q: string) => searchReferences({ q })
+// "Person" / "Agency", plus the phone when the search result has one.
+const referenceSubtitle = (item: ReferenceSummary) =>
+  [item.type_label, (item as Partial<Reference>).phone].filter(Boolean).join(' · ')
 const fetchCompanies = (q: string) => searchCompanies(q)
 const companySubtitle = (item: CompanySummary) => item.country?.name
-
-const referenceTypeLabel = computed(() => (referenceType.value === 'person' ? 'person' : 'agency'))
 
 const referenceModalOpen = ref(false)
 const companyModalOpen = ref(false)
@@ -284,7 +276,7 @@ function openCompanyModal(query: string) {
 }
 
 const saveReference = (values: QuickAddValues) =>
-  createReference({ type: referenceType.value, name: values.name, phone: values.phone })
+  createReference({ type: values.type ?? 'person', name: values.name, phone: values.phone })
 
 const saveCompany = (values: QuickAddValues) =>
   createCompany({
@@ -593,7 +585,8 @@ const inputClass =
                 :aria-describedby="`${expiryId}-hint${errors.passport_expiry_date ? ` ${expiryId}-error` : ''}`"
               />
               <p :id="`${expiryId}-hint`" class="mt-1 text-xs text-muted">
-                {{ toDisplayDate(expiryDate) || 'DD-MM-YYYY' }} · after the received date
+                {{ toDisplayDate(expiryDate) || 'DD-MM-YYYY' }} · valid
+                {{ PASSPORT_MIN_VALIDITY_MONTHS }}+ months after the received date
               </p>
               <p
                 v-if="errors.passport_expiry_date"
@@ -630,31 +623,21 @@ const inputClass =
                 {{ errors.date_of_birth }}
               </p>
             </div>
-            <!-- 5. Reference (required): type toggle + search; full width -->
-            <fieldset
-              class="space-y-3 rounded-xl border border-stroke p-4 sm:col-span-2"
-              data-field="reference"
-            >
-              <legend class="px-1 text-sm font-semibold text-ink">
-                Reference<span class="text-red-700" aria-hidden="true"> *</span>
-              </legend>
-              <ReferenceTypeToggle
-                :model-value="referenceType"
-                @update:model-value="onReferenceTypeChange"
-              />
+            <!-- 5. Reference (required): one search for every reference; full width -->
+            <div class="sm:col-span-2" data-field="reference">
               <SearchSelect
-                :key="referenceType"
                 ref="referenceSelect"
                 v-model="reference"
                 :fetch="fetchReferences"
-                :label="referenceType === 'person' ? 'Reference person' : 'Reference agency'"
-                :placeholder="`Search ${referenceTypeLabel}…`"
-                :add-label="`Add new ${referenceTypeLabel}`"
+                :subtitle-of="referenceSubtitle"
+                label="Reference"
+                placeholder="Search reference…"
+                add-label="Add new reference"
                 :error="errors.reference_id"
                 required
                 @add="openReferenceModal"
               />
-            </fieldset>
+            </div>
             <!-- 6. Passport received date -->
             <div data-field="passport_received_date">
               <label :for="dateId" class="block text-sm font-medium text-slate-700">
@@ -763,11 +746,12 @@ const inputClass =
     <!-- Outside the form: a dialog has its own form, and forms cannot be nested. -->
     <QuickAddModal
       v-model:open="referenceModalOpen"
-      :title="`Add new ${referenceTypeLabel}`"
-      :name-label="referenceType === 'person' ? 'Person name' : 'Agency name'"
+      title="Add new reference"
+      name-label="Reference name"
       :initial-name="quickAddName"
       :save="saveReference"
       with-phone
+      with-reference-type
       @saved="onReferenceAdded"
     />
     <QuickAddModal

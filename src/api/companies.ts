@@ -43,7 +43,7 @@ export async function createAdminCompany(payload: AdminCompanyPayload): Promise<
 /** Edit or (de)activate. */
 export async function updateAdminCompany(
   id: number,
-  changes: Partial<AdminCompanyPayload>,
+  changes: Partial<AdminCompanyPayload> & { is_active?: boolean },
 ): Promise<Company> {
   const { data } = await api.patch<{ data: Company }>(`${ADMIN}/${id}`, changes)
   return data.data

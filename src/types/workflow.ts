@@ -181,6 +181,8 @@ export interface StepListParams {
   company?: string
   company_id?: number
   reference?: string
+  /** Filter by reference (the dropdown). */
+  reference_id?: number
   receive_date_from?: string
   receive_date_to?: string
   booking_date_from?: string

@@ -16,8 +16,8 @@ import type { StepRecord, StepRecordSummary } from '@/types/workflow'
 
 /**
  * A passport's steps as a vertical timeline: each step's state, latest record and older
- * records (collapsed). Buttons follow the API's rules: record / update the current step,
- * edit records the user may change, and "Undo latest step" for admins.
+ * records (collapsed). Read-only: steps are recorded and changed on their own pages; the one
+ * button here is "Undo latest step" for admins.
  */
 const props = defineProps<{
   passport: PassportEntry
@@ -26,11 +26,7 @@ const props = defineProps<{
   role: Role | undefined
   userId: number | null
 }>()
-defineEmits<{
-  record: [stepKey: string, record: StepRecordSummary | null]
-  edit: [stepKey: string, record: StepRecord]
-  undo: [record: StepRecord]
-}>()
+defineEmits<{ undo: [record: StepRecord] }>()
 
 const workflow = useWorkflowStore()
 
@@ -46,44 +42,15 @@ const latestRecord = computed<StepRecord | null>(() => {
 
 const isAdmin = computed(() => isMedicalAdmin(props.role))
 
-/**
- * Steps worked only on their own page (BMET: Training / Finger / Clearance; Flight: booking
- * date and Mark flight confirm): no generic Record / Update / Edit form here, so a confirmed
- * flight's booking date stays locked. The step shows a link to its page instead.
- */
-function isPageOnly(stepKey: string) {
-  const config = workflow.stepConfig(stepKey)
-  return !!config && (!!config.actions?.length || config.fields.some((f) => f.phase === 'booking'))
-}
-
-/** A page-only step the passport has reached and not finished: link to its page. */
+/** A recorded step (Calling onwards) the passport has reached and not finished: link to its page. */
 const showsPageLink = (step: { key: string; state: StepState }) =>
-  isPageOnly(step.key) &&
+  step.key !== 'passport' &&
+  step.key !== 'medical' &&
   step.state !== 'locked' &&
   props.history[step.key]?.[0]?.status !== 'completed'
 
-/** data_entry: only their own records (the API also checks that no later step exists). */
-const canEdit = (record: StepRecord) =>
-  !isPageOnly(record.step_key) &&
-  record.can.update &&
-  (isAdmin.value || record.recorded_by?.id === props.userId)
-
 const canUndo = (record: StepRecord) =>
   isAdmin.value && record.can.delete && record.id === latestRecord.value?.id
-
-function currentAction(stepKey: string): { label: string; update: boolean } | null {
-  if (props.passport.current_stage !== stepKey || isPageOnly(stepKey)) return null
-  switch (props.passport.stage_status) {
-    case 'waiting':
-      return { label: 'Record', update: false }
-    case 'in_process':
-      return { label: 'Update status', update: true }
-    case 'rejected':
-      return { label: 'Record again', update: false }
-    default:
-      return null
-  }
-}
 
 /** Labels that read better here than the config's (the calling permit's expiry). */
 const TIMELINE_LABEL: Record<string, Record<string, string>> = {
@@ -200,25 +167,8 @@ const smallButton =
         >
           {{ STEP_STATE_TEXT[step.state] ?? step.state }}
         </span>
-        <button
-          v-if="currentAction(step.key)"
-          type="button"
-          :class="[smallButton, 'ml-auto bg-primary-900 text-white hover:bg-primary-700']"
-          :data-step-action="currentAction(step.key)!.label"
-          @click="
-            $emit(
-              'record',
-              step.key,
-              currentAction(step.key)!.update
-                ? (history[step.key]?.[0] ?? step.record ?? null)
-                : null,
-            )
-          "
-        >
-          {{ currentAction(step.key)!.label }}
-        </button>
         <RouterLink
-          v-else-if="showsPageLink(step)"
+          v-if="showsPageLink(step)"
           :to="{ name: 'step-page', params: { step: step.key } }"
           class="ml-auto text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
           data-step-page-link
@@ -302,16 +252,7 @@ const smallButton =
                 <dd class="break-words text-ink">{{ record.remarks }}</dd>
               </template>
             </dl>
-            <div v-if="canEdit(record) || canUndo(record)" class="mt-2 -ml-2 flex flex-wrap gap-1">
-              <button
-                v-if="canEdit(record)"
-                type="button"
-                :class="[smallButton, 'text-primary-700 hover:bg-primary-50']"
-                data-edit-record
-                @click="$emit('edit', step.key, record)"
-              >
-                Edit<span class="sr-only"> {{ step.label }} record</span>
-              </button>
+            <div v-if="canUndo(record)" class="mt-2 -ml-2 flex flex-wrap gap-1">
               <button
                 v-if="canUndo(record)"
                 type="button"
@@ -344,15 +285,6 @@ const smallButton =
               <span v-if="record.reference_no" class="font-mono">· {{ record.reference_no }}</span>
               <span class="text-muted"> · {{ record.recorded_by?.name ?? '—' }}</span>
               <p v-if="record.remarks" class="mt-1 break-words text-muted">{{ record.remarks }}</p>
-              <button
-                v-if="canEdit(record)"
-                type="button"
-                :class="[smallButton, '-ml-3 text-primary-700 hover:bg-primary-50']"
-                data-edit-record
-                @click="$emit('edit', step.key, record)"
-              >
-                Edit<span class="sr-only"> earlier {{ step.label }} record</span>
-              </button>
             </li>
           </ul>
         </details>

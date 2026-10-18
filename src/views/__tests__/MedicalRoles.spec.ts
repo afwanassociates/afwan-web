@@ -14,7 +14,23 @@ import type { Role } from '@/types/auth'
 import type { MedicalRecord } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
 
-vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), getPassport: vi.fn() }))
+vi.mock('@/api/passports', () => ({
+  listPassports: vi.fn(),
+  getPassport: vi.fn(),
+  getPassportHistory: vi.fn(async () => [
+    {
+      key: 'medical-1',
+      date: '2026-09-01',
+      step_key: 'medical',
+      step_label: 'Medical',
+      title: 'Medical Unfit',
+      tone: 'red',
+      details: [],
+      recorded_by: null,
+      remarks: null,
+    },
+  ]),
+}))
 vi.mock('@/api/medical', () => ({
   listMedicals: vi.fn(),
   deleteMedical: vi.fn(),
@@ -184,8 +200,9 @@ describe('Passport detail', () => {
 
       expect(action().exists()).toBe(false)
       const history = wrapper.get('[aria-labelledby="history-heading"]')
-      expect(history.findAll('[data-record]').length).toBeGreaterThan(0)
-      expect(history.findAll('button').some((b) => b.text().startsWith('Edit'))).toBe(false)
+      expect(history.get('h2').text()).toBe('Passport history')
+      expect(history.findAll('[data-history-event]').length).toBeGreaterThan(0)
+      expect(history.findAll('button')).toHaveLength(0)
     },
   )
 

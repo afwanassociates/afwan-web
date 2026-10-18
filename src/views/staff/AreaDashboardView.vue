@@ -1,69 +1,84 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
-import api from '@/lib/api'
-import { dashboardEndpointFor } from '@/lib/roles'
-import { errorMessage, errorStatus } from '@/lib/errors'
-import { useAuthStore } from '@/stores/auth'
+import { ref } from 'vue'
+import { fetchReportSummary } from '@/api/reports'
+import { errorMessage } from '@/lib/errors'
+import type { CompanyCounts } from '@/types/report'
 
-interface AreaResponse {
-  area: string
-  message: string
-}
+/* ---------- Passport summary cards (same counts as the company report) ---------- */
 
-const route = useRoute()
-const auth = useAuthStore()
+/** One card per count, each with its own colour. */
+const SUMMARY_CARDS: { key: keyof CompanyCounts; label: string; tone: string }[] = [
+  { key: 'total', label: 'Total', tone: 'border-primary-200 bg-primary-50 text-primary-900' },
+  { key: 'not_started', label: 'Not started', tone: 'border-slate-200 bg-slate-50 text-slate-800' },
+  {
+    key: 'medical_pending',
+    label: 'Medical pending',
+    tone: 'border-amber-200 bg-amber-50 text-amber-900',
+  },
+  { key: 'medical_fit', label: 'Medical fit', tone: 'border-green-200 bg-green-50 text-green-900' },
+  { key: 'medical_unfit', label: 'Unfit', tone: 'border-red-200 bg-red-50 text-red-900' },
+  { key: 'calling_done', label: 'Calling', tone: 'border-sky-200 bg-sky-50 text-sky-900' },
+  { key: 'visa_done', label: 'Visa', tone: 'border-indigo-200 bg-indigo-50 text-indigo-900' },
+  { key: 'bmet_done', label: 'BMET', tone: 'border-violet-200 bg-violet-50 text-violet-900' },
+  {
+    key: 'flight_done',
+    label: 'Flight done',
+    tone: 'border-emerald-200 bg-emerald-50 text-emerald-900',
+  },
+  {
+    key: 'in_process',
+    label: 'In process',
+    tone: 'border-orange-200 bg-orange-50 text-orange-900',
+  },
+]
 
-const area = computed(() => route.meta.area)
+const summary = ref<CompanyCounts | null>(null)
+const summaryError = ref<string | null>(null)
+const isSummaryLoading = ref(false)
 
-const result = ref<AreaResponse | null>(null)
-const error = ref<string | null>(null)
-const isLoading = ref(false)
-
-let requestId = 0
-
-async function load() {
-  if (!area.value) return
-  const id = ++requestId
-  isLoading.value = true
-  error.value = null
-  result.value = null
+async function loadSummary() {
+  isSummaryLoading.value = true
+  summaryError.value = null
   try {
-    const { data } = await api.get<AreaResponse>(dashboardEndpointFor(area.value))
-    if (id === requestId) result.value = data
+    summary.value = await fetchReportSummary()
   } catch (e) {
-    if (id !== requestId) return
-    error.value =
-      errorStatus(e) === 403
-        ? 'You do not have permission to view this area.'
-        : errorMessage(e, 'Could not load this area. Please try again.')
+    summaryError.value = errorMessage(e, 'Could not load the passport summary.')
   } finally {
-    if (id === requestId) isLoading.value = false
+    isSummaryLoading.value = false
   }
 }
 
-watch(area, load, { immediate: true })
+loadSummary()
 </script>
 
 <template>
-  <div class="mx-auto max-w-4xl">
-    <p v-if="auth.user" class="text-sm text-slate-600">Welcome back, {{ auth.user.name }}</p>
-    <h1 class="mt-1 text-2xl font-bold text-primary-900 sm:text-3xl">Dashboard</h1>
+  <section aria-labelledby="summary-heading" :aria-busy="isSummaryLoading">
+    <h1 id="summary-heading" class="text-2xl font-bold text-primary-900 sm:text-3xl">
+      Passport summary
+    </h1>
+    <p class="mt-1 text-sm text-muted">Every passport, across all companies.</p>
 
-    <section class="glass-card mt-6 p-6" aria-live="polite" :aria-busy="isLoading">
-      <p v-if="isLoading" class="text-slate-600">Loading…</p>
+    <div v-if="summaryError" role="alert" class="mt-4 space-y-3">
+      <p class="text-red-700">{{ summaryError }}</p>
+      <button type="button" class="btn btn-primary text-sm" @click="loadSummary">Try again</button>
+    </div>
 
-      <div v-else-if="error" role="alert" class="space-y-4">
-        <p class="text-red-700">{{ error }}</p>
-        <button type="button" class="btn btn-primary text-sm" @click="load">Try again</button>
+    <dl
+      v-else
+      class="mt-6 grid w-full grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5"
+      data-summary
+    >
+      <div
+        v-for="card in SUMMARY_CARDS"
+        :key="card.key"
+        :class="['rounded-xl border p-5 shadow-sm', card.tone]"
+        :data-card="card.key"
+      >
+        <dt class="text-sm font-medium opacity-80">{{ card.label }}</dt>
+        <dd class="mt-1 text-3xl font-bold tabular-nums">
+          {{ summary ? summary[card.key] : isSummaryLoading ? '…' : '—' }}
+        </dd>
       </div>
-
-      <div v-else-if="result">
-        <p class="text-xs font-semibold tracking-wider text-accent-700 uppercase">
-          {{ result.area }}
-        </p>
-        <p class="mt-2 text-lg text-slate-800">{{ result.message }}</p>
-      </div>
-    </section>
-  </div>
+    </dl>
+  </section>
 </template>

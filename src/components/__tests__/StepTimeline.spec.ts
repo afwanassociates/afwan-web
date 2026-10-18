@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { config, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import StepTimeline from '../StepTimeline.vue'
 import { useWorkflowStore } from '@/stores/workflow'
@@ -7,6 +7,11 @@ import { makePassport } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { Role } from '@/types/auth'
 import type { StepRecord } from '@/types/workflow'
+
+// Unfinished steps link to their page.
+config.global.stubs = {
+  RouterLink: { props: ['to'], template: '<a :data-to="to.params?.step"><slot /></a>' },
+}
 
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowConfig: vi.fn(async () => WORKFLOW_CONFIG),
@@ -366,27 +371,26 @@ describe('StepTimeline', () => {
     expect(older.text()).toContain('Earlier records (1)')
   })
 
-  it('offers "Update status" on the current step', async () => {
+  it('has no Record / Update button: the current step links to its page', async () => {
     const wrapper = await mountTimeline('data_entry', DATA_ENTRY_ID)
 
-    expect(stepEl(wrapper, 'visa').get('[data-step-action]').text()).toBe('Update status')
-    expect(stepEl(wrapper, 'calling').find('[data-step-action]').exists()).toBe(false)
+    expect(wrapper.find('[data-step-action]').exists()).toBe(false)
+    expect(stepEl(wrapper, 'visa').get('[data-step-page-link]').text()).toBe('Open Visa page')
   })
 
-  it('data_entry: no Undo, and Edit only on their own records', async () => {
+  it('data_entry: no Edit and no Undo', async () => {
     const wrapper = await mountTimeline('data_entry', DATA_ENTRY_ID)
 
     expect(wrapper.find('[data-undo]').exists()).toBe(false)
-    expect(stepEl(wrapper, 'visa').find('[data-edit-record]').exists()).toBe(true)
-    expect(stepEl(wrapper, 'calling').find('[data-edit-record]').exists()).toBe(false)
+    expect(wrapper.find('[data-edit-record]').exists()).toBe(false)
   })
 
   it.each(['admin', 'super_admin'] as const)(
-    '%s: Edit any record, and Undo on the latest step only',
+    '%s: no Edit, and Undo on the latest step only',
     async (role) => {
       const wrapper = await mountTimeline(role, 1)
 
-      expect(stepEl(wrapper, 'calling').find('[data-edit-record]').exists()).toBe(true)
+      expect(wrapper.find('[data-edit-record]').exists()).toBe(false)
       expect(wrapper.findAll('[data-undo]')).toHaveLength(1)
       expect(stepEl(wrapper, 'visa').find('[data-undo]').exists()).toBe(true)
     },

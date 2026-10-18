@@ -25,8 +25,10 @@ import { fetchWorkflowSummary } from '@/api/workflow'
 import type { Role } from '@/types/auth'
 import type { StepListParams, StepListRow, StepListTab } from '@/types/workflow'
 
+vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 vi.mock('@/api/steps', () => ({
   listStepPassports: vi.fn(),
+  downloadStepListCsv: vi.fn(async () => 'visa-issued-01-05-2026.csv'),
   startStep: vi.fn(),
   recordStepResult: vi.fn(),
   updateCalling: vi.fn(),
@@ -954,42 +956,98 @@ describe('Step pages (one per step)', () => {
     })
   })
 
-  describe('searches', () => {
-    it('sends search, company and reference with the tab (no company dropdown, sort or stage filter)', async () => {
-      vi.useFakeTimers()
-      try {
-        await mountStep('/visa?tab=rejected&q=karim')
-        await wrapper.get('input[data-search-box="company"]').setValue('Desert')
-        await wrapper.get('input[data-search-box="reference"]').setValue('green')
-        await vi.advanceTimersByTimeAsync(350)
-        await flushPromises()
+  describe('Export CSV', () => {
+    it('downloads the current tab with the same searches and confirms with a toast', async () => {
+      const { downloadStepListCsv } = await import('@/api/steps')
+      await mountStep('/visa?tab=issued&q=rahim')
 
-        expect(router.currentRoute.value.query).toEqual({
-          tab: 'rejected',
-          q: 'karim',
-          company: 'Desert',
-          reference: 'green',
-        })
-        expect(lastListCall()).toEqual([
-          'visa',
-          expect.objectContaining({
-            tab: 'rejected',
-            search: 'karim',
-            company: 'Desert',
-            reference: 'green',
-          }),
-        ])
-      } finally {
-        vi.useRealTimers()
-      }
+      await wrapper.get('button[data-export]').trigger('click')
+      await flushPromises()
+
+      expect(downloadStepListCsv).toHaveBeenCalledWith(
+        'visa',
+        expect.objectContaining({ tab: 'issued', search: 'rahim' }),
+      )
+      expect(toastMessages()).toContain('Downloaded visa-issued-01-05-2026.csv.')
+    })
+
+    it('shows an error toast when the download fails', async () => {
+      const { downloadStepListCsv } = await import('@/api/steps')
+      vi.mocked(downloadStepListCsv).mockRejectedValueOnce(new Error('boom'))
+      await mountStep('/bmet?tab=cleared')
+
+      await wrapper.get('button[data-export]').trigger('click')
+      await flushPromises()
+
+      expect(downloadStepListCsv).toHaveBeenCalledWith(
+        'bmet',
+        expect.objectContaining({ tab: 'cleared' }),
+      )
+      expect(toastMessages().some((m) => m.includes('Could not export'))).toBe(true)
+      expect(wrapper.get('button[data-export]').text()).toBe('Export CSV')
+    })
+  })
+
+  describe('searches', () => {
+    it('sends the search, Filter by company and Filter by reference with the tab', async () => {
+      const filter = (label: string) =>
+        wrapper
+          .findAllComponents({ name: 'SearchSelect' })
+          .find((c) => (c.props() as Record<string, unknown>).label === label)!
+      await mountStep('/visa?tab=rejected&q=karim')
+
       const search = wrapper.get('[role="search"]')
-      expect(search.findAll('label').map((l) => l.text().trim())).toEqual([
-        'Search',
-        'Search company',
-        'Search reference',
+      expect(search.find('input[data-search-box="reference"]').exists()).toBe(false)
+      expect(search.text()).not.toContain('Search reference')
+      expect(filter('Filter by reference').props()).toMatchObject({
+        placeholder: 'Search reference…',
+        noneLabel: 'All references',
+        clearable: true,
+      })
+
+      filter('Filter by company').vm.$emit('update:modelValue', {
+        id: 3,
+        name: 'Desert Co',
+        country: { code: 'SA', name: 'Saudi Arabia' },
+      })
+      await flushPromises()
+      filter('Filter by reference').vm.$emit('update:modelValue', {
+        id: 8,
+        type: 'agency',
+        type_label: 'Agency',
+        name: 'Sea Star',
+      })
+      await flushPromises()
+
+      expect(router.currentRoute.value.query).toEqual({
+        tab: 'rejected',
+        q: 'karim',
+        company_id: '3',
+        reference_id: '8',
+      })
+      expect(lastListCall()).toEqual([
+        'visa',
+        expect.objectContaining({
+          tab: 'rejected',
+          search: 'karim',
+          company_id: 3,
+          reference_id: 8,
+        }),
       ])
-      expect(search.find('select').exists()).toBe(false)
-      expect(search.find('input[role="combobox"]').exists()).toBe(false)
+
+      // References of the chosen company only; "All references" removes the filter.
+      const { searchReferences } = await import('@/api/references')
+      await (
+        filter('Filter by reference').props() as { fetch: (q: string) => Promise<unknown> }
+      ).fetch('se')
+      expect(searchReferences).toHaveBeenCalledWith({ q: 'se', company_id: 3 })
+      filter('Filter by reference').vm.$emit('update:modelValue', null)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({
+        tab: 'rejected',
+        q: 'karim',
+        company_id: '3',
+      })
     })
 
     it('mentions company and reference when nothing matches', async () => {
@@ -1645,20 +1703,25 @@ describe('Step pages (one per step)', () => {
     const order = [...root.element.children].map((el) =>
       el.matches('nav[aria-label="Workflow steps"]')
         ? 'step bar'
-        : el.tagName === 'H1'
-          ? 'title'
-          : el.tagName === 'P'
-            ? 'subtitle'
-            : el.tagName === 'SECTION'
-              ? 'card'
-              : el.tagName,
+        : el.matches('[data-page-header]')
+          ? 'header'
+          : el.tagName === 'SECTION'
+            ? 'card'
+            : el.tagName,
     )
-    expect(order.slice(0, 4)).toEqual(['step bar', 'title', 'subtitle', 'card'])
+    expect(order.slice(0, 3)).toEqual(['step bar', 'header', 'card'])
+    // The header: title and subtitle on the left, Export CSV on the right (outside the card).
+    const header = wrapper.get('[data-page-header]')
+    expect(header.classes()).toContain('mt-6')
+    expect(header.find('h1').exists()).toBe(true)
+    expect(header.find('p').exists()).toBe(true)
+    expect(header.find('button[data-export]').exists()).toBe(true)
+    expect(wrapper.get('section.glass-card').find('[data-export]').exists()).toBe(false)
     const title = wrapper.get('h1')
     expect(title.text()).toBe('Visa')
     // Same classes as the Medical page's title and card.
     expect(title.classes()).toEqual(
-      expect.arrayContaining(['mt-6', 'text-2xl', 'font-bold', 'text-primary-900', 'sm:text-3xl']),
+      expect.arrayContaining(['text-2xl', 'font-bold', 'text-primary-900', 'sm:text-3xl']),
     )
     const card = wrapper.get('section.glass-card')
     const inCard = [

@@ -100,7 +100,7 @@ describe('router guard (real routes)', () => {
     })
 
     it.each(['admin', 'super_admin', 'data_entry', 'accounts'] as const)(
-      '%s can open the Company report (top menu)',
+      '%s can open the Company report',
       async (role) => {
         setSession(role)
         await router.push('/reports/companies')
@@ -108,6 +108,11 @@ describe('router guard (real routes)', () => {
         expect(router.currentRoute.value.name).toBe('companies')
       },
     )
+
+    it('has no Reference report any more', () => {
+      expect(router.hasRoute('references-report')).toBe(false)
+      expect(router.hasRoute('reference-report')).toBe(false)
+    })
   })
 
   describe('step pages (/calling, /visa, /bmet, /flight)', () => {
@@ -132,7 +137,7 @@ describe('router guard (real routes)', () => {
     it('fixed pages still win over the step route', () => {
       expect(router.resolve('/data-entry/medical').name).toBe('medical')
       expect(router.resolve('/data-entry/passports').name).toBe('passports')
-      expect(router.resolve('/data-entry/all-passports').name).toBe('all-passports')
+      expect(router.resolve('/reports/passports').name).toBe('all-passports')
     })
 
     it.each([
@@ -174,7 +179,6 @@ describe('router guard (real routes)', () => {
       ['accounts', '/staff/data-entry'],
       ['accounts', '/data-entry/medical'],
       ['accounts', '/data-entry/medical?tab=unfit'],
-      ['accounts', '/data-entry/all-passports'],
       ['accounts', '/data-entry/passports/42'],
       ['accounts', '/staff/admin/users'],
     ] as const)('%s opening %s gets the 403 page', async (role, path) => {
@@ -187,12 +191,27 @@ describe('router guard (real routes)', () => {
     })
   })
 
+  describe('All Passports', () => {
+    it.each(['super_admin', 'data_entry', 'accounts'] as const)(
+      'the old /data-entry/all-passports link takes %s to /reports/passports',
+      async (role) => {
+        setSession(role)
+        await router.push('/data-entry/all-passports?q=rahim')
+
+        expect(router.currentRoute.value.name).toBe('all-passports')
+        expect(router.currentRoute.value.fullPath).toBe('/reports/passports?q=rahim')
+      },
+    )
+  })
+
   describe('right role', () => {
     it.each([
       ['super_admin', '/staff/super-admin'],
       ['super_admin', '/data-entry/passports'],
-      ['super_admin', '/data-entry/all-passports'],
-      ['data_entry', '/data-entry/all-passports'],
+      ['super_admin', '/reports/passports'],
+      ['data_entry', '/reports/passports'],
+      // All Passports is read-only, so accounts may open it.
+      ['accounts', '/reports/passports'],
       ['super_admin', '/staff/admin/users'],
       ['admin', '/staff/admin'],
       ['admin', '/data-entry/passports'],

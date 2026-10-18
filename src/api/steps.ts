@@ -1,4 +1,5 @@
 import api from '@/lib/api'
+import { downloadCsv } from '@/api/reports'
 import type { PassportWorkflow } from '@/types/medical'
 import type {
   StepListParams,
@@ -74,6 +75,21 @@ export async function listStepPassports(
     { params },
   )
   return data
+}
+
+/**
+ * Downloads a step page's tab as CSV (same filters, every page, the API's order). Returns the
+ * file name.
+ */
+export function downloadStepListCsv(
+  stepKey: string,
+  params: Omit<StepListParams, 'page' | 'per_page'>,
+): Promise<string> {
+  return downloadCsv(
+    `${BASE}/steps/${encodeURIComponent(stepKey)}/passports`,
+    params,
+    `${stepKey}-${params.tab ?? 'pending'}`,
+  )
 }
 
 /**

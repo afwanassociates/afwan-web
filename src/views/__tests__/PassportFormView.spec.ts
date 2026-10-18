@@ -7,7 +7,7 @@ import SearchSelect from '@/components/SearchSelect.vue'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
 import { createCompany } from '@/api/companies'
 import { fetchDefaults } from '@/api/countries'
-import { addDays, todayApiDate } from '@/lib/dates'
+import { addDays, addMonthsNoOverflow, todayApiDate } from '@/lib/dates'
 import { httpError, makePassport } from '@/test/helpers'
 import type { AppDefaults, CountryOption } from '@/types/country'
 import type { CompanySummary, PassportEntry, ReferenceSummary } from '@/types/passport'
@@ -129,9 +129,9 @@ async function chooseScan(file: File) {
 async function fillValidForm(reference: ReferenceSummary = PERSON) {
   await field('Passport name').setValue('md rahim')
   await field('Passport number').setValue('ab 123 4567')
-  await field('Passport date of birth').setValue('1990-05-17')
+  await field('Date of birth').setValue('1990-05-17')
   await field('Passport expiry date').setValue('2031-10-04')
-  select(`Reference ${reference.type}`).choose(reference)
+  select('Reference').choose(reference)
   select('Company name').choose(COMPANY)
   await flushPromises()
   if (
@@ -160,8 +160,11 @@ describe('PassportFormView', () => {
     expect(document.activeElement).toBe(field('Passport name').element)
     expect(field('Passport received date').element.value).toBe(TODAY)
     expect(field('Passport received date').attributes('max')).toBe(TODAY)
-    expect(field('Passport date of birth').attributes('max')).toBe(addDays(TODAY, -1))
-    expect(field('Passport expiry date').attributes('min')).toBe(addDays(TODAY, 1))
+    // At least 18 years old.
+    expect(field('Date of birth').attributes('max')).toBe(addDays(TODAY, -(18 * 365 + 4)))
+    // Valid for at least 18 months after the received date.
+    expect(field('Passport expiry date').attributes('min')).toBe(addMonthsNoOverflow(TODAY, 18))
+    expect(wrapper.text()).toContain('valid 18+ months after the received date')
   })
 
   it('uppercases the name and strips spaces from the number as you type', async () => {
@@ -189,9 +192,9 @@ describe('PassportFormView', () => {
     expect(errorFor(field('Passport number'))).toBe(
       'The passport number must be 6 to 20 letters and digits.',
     )
-    expect(errorFor(field('Passport date of birth'))).toBe('Enter the date of birth.')
+    expect(errorFor(field('Date of birth'))).toBe('Enter the date of birth.')
     expect(errorFor(field('Passport expiry date'))).toBe('Enter the passport expiry date.')
-    expect(select('Reference person').error()).toBe('Reference is required.')
+    expect(select('Reference').error()).toBe('Reference is required.')
     expect(select('Company name').error()).toBe('Select a company.')
     expect(select('Country').error()).toBe('Select the passport country.')
     expect(document.activeElement).toBe(field('Passport name').element)
@@ -225,10 +228,9 @@ describe('PassportFormView', () => {
     expect(router.currentRoute.value.name).toBe('passports')
   })
 
-  it('"Save and add another" clears the form but keeps the received date and reference type', async () => {
+  it('"Save and add another" clears the form but keeps the received date', async () => {
     vi.mocked(createPassport).mockResolvedValue(makeEntry())
     await mountForm()
-    await wrapper.findAll('button[aria-pressed]')[1]!.trigger('click') // Agency
     await fillValidForm(AGENCY)
     await field('Passport received date').setValue('2026-09-01')
 
@@ -239,23 +241,24 @@ describe('PassportFormView', () => {
     expect(router.currentRoute.value.name).toBe('passport-new')
     expect(field('Passport name').element.value).toBe('')
     expect(field('Passport number').element.value).toBe('')
-    expect(field('Passport date of birth').element.value).toBe('')
+    expect(field('Date of birth').element.value).toBe('')
     expect(field('Passport expiry date').element.value).toBe('')
-    expect(select('Reference agency').value()).toBeNull()
+    expect(select('Reference').value()).toBeNull()
     expect(select('Company name').value()).toBeNull()
     expect(field('Passport received date').element.value).toBe('2026-09-01')
-    expect(wrapper.get('button[aria-pressed="true"]').text()).toBe('Agency')
     expect(document.activeElement).toBe(field('Passport name').element)
   })
 
-  it('switching the reference type clears the selected reference', async () => {
+  it('has one reference search (no person/agency toggle) that searches every reference', async () => {
+    const { searchReferences } = await import('@/api/references')
     await mountForm()
-    select('Reference person').choose(PERSON)
-    await flushPromises()
 
-    await wrapper.findAll('button[aria-pressed]')[1]!.trigger('click')
-
-    expect(select('Reference agency').value()).toBeNull()
+    expect(wrapper.get('[data-fields]').find('button[aria-pressed]').exists()).toBe(false)
+    const referenceSelect = wrapper
+      .findAllComponents(SearchSelect)
+      .find((c) => (c.props() as Record<string, unknown>).label === 'Reference')!
+    await (referenceSelect.props() as { fetch: (q: string) => Promise<unknown> }).fetch('ka')
+    expect(searchReferences).toHaveBeenCalledWith({ q: 'ka' })
   })
 
   it('puts the server message for a duplicate passport number under that field', async () => {
@@ -304,7 +307,7 @@ describe('PassportFormView', () => {
         'Passport name',
         'Passport number',
         'Passport expiry date',
-        'Passport date of birth',
+        'Date of birth',
         'Reference',
         'Passport received date',
         'Country',
@@ -320,14 +323,10 @@ describe('PassportFormView', () => {
       const required = labels.filter((t) => /\*$/.test(t))
       expect(required).toHaveLength(9) // every field, the scan copy included
       expect(labels[4]).toMatch(/^Reference\s*\*$/)
-      const legendMarker = wrapper.get('[data-field="reference"] legend span[aria-hidden="true"]')
-      expect(legendMarker.text()).toBe('*')
-      expect(legendMarker.classes()).toContain('text-red-700')
       const markers = wrapper
         .get('[data-fields]')
         .findAll('label span[aria-hidden="true"]')
         .filter((m) => m.text() === '*')
-      // 8 field labels plus the reference search's own label ("Reference person *").
       expect(markers).toHaveLength(9)
       expect(markers.every((m) => m.classes().includes('text-red-700'))).toBe(true)
     })
@@ -345,14 +344,14 @@ describe('PassportFormView', () => {
 
       const focusable = wrapper
         .get('[data-fields]')
-        .findAll('input:not([type="hidden"]), button[aria-pressed]')
+        .findAll('input:not([type="hidden"])')
         .filter((el) => el.attributes('tabindex') !== '-1')
         .map((el) => el.attributes('id') ?? el.text())
       const order = [
         field('Passport name'),
         field('Passport number'),
         field('Passport expiry date'),
-        field('Passport date of birth'),
+        field('Date of birth'),
       ].map((f) => f.attributes('id'))
       expect(focusable.slice(0, 4)).toEqual(order)
       // No positive tabindex anywhere (it would break the natural order).
@@ -505,14 +504,14 @@ describe('PassportFormView', () => {
     it('shows "Reference is required" on an empty reference and does not save', async () => {
       await mountForm()
       await fillValidForm()
-      select('Reference person').choose(null)
+      select('Reference').choose(null)
       await flushPromises()
 
       await wrapper.get('button[data-action="save"]').trigger('click')
       await flushPromises()
 
       expect(createPassport).not.toHaveBeenCalled()
-      expect(select('Reference person').error()).toBe('Reference is required.')
+      expect(select('Reference').error()).toBe('Reference is required.')
       // Shown under the field, in red, and announced with it.
       const input = wrapper.get('[data-field="reference"] input[role="combobox"]')
       expect(input.attributes('aria-required')).toBe('true')
@@ -524,15 +523,15 @@ describe('PassportFormView', () => {
       vi.mocked(createPassport).mockResolvedValue(makeEntry())
       await mountForm()
       await fillValidForm()
-      select('Reference person').choose(null)
+      select('Reference').choose(null)
       await flushPromises()
       await wrapper.get('form').trigger('submit')
       await flushPromises()
-      expect(select('Reference person').error()).toBe('Reference is required.')
+      expect(select('Reference').error()).toBe('Reference is required.')
 
-      select('Reference person').choose(PERSON)
+      select('Reference').choose(PERSON)
       await flushPromises()
-      expect(select('Reference person').error()).toBeUndefined()
+      expect(select('Reference').error()).toBeUndefined()
 
       await wrapper.get('button[data-action="save"]').trigger('click')
       await flushPromises()
@@ -559,29 +558,34 @@ describe('PassportFormView', () => {
       vi.mocked(createPassport).mockResolvedValue(makeEntry())
       await mountForm()
       await fillValidForm()
-      select('Reference person').choose(null)
+      select('Reference').choose(null)
       await flushPromises()
       await wrapper.get('form').trigger('submit')
       await flushPromises()
-      expect(select('Reference person').error()).toBe('Reference is required.')
+      expect(select('Reference').error()).toBe('Reference is required.')
 
-      // "Add new person" from the reference search opens the quick add dialog.
+      // "Add new reference" from the reference search opens the quick add dialog.
       const referenceSelect = wrapper
         .findAllComponents(SearchSelect)
-        .find((c) => (c.props() as Record<string, unknown>).label === 'Reference person')!
+        .find((c) => (c.props() as Record<string, unknown>).label === 'Reference')!
       referenceSelect.vm.$emit('add', 'New Agent')
       await flushPromises()
-      const dialogForm = wrapper.findAll('form').find((f) => f.text().includes('Person name'))!
+      const dialogForm = wrapper.findAll('form').find((f) => f.text().includes('Reference name'))!
+      // The dialog asks whether the reference is a person or an agency (Person by default).
+      const typeButtons = dialogForm.findAll('button[aria-pressed]')
+      expect(typeButtons.map((b) => b.text())).toEqual(['Person', 'Agency'])
+      expect(typeButtons[0]!.attributes('aria-pressed')).toBe('true')
+      await typeButtons[1]!.trigger('click')
       await dialogForm.trigger('submit')
       await flushPromises()
 
       expect(createReference).toHaveBeenCalledWith({
-        type: 'person',
+        type: 'agency',
         name: 'New Agent',
         phone: null,
       })
-      expect(select('Reference person').value()).toEqual(added)
-      expect(select('Reference person').error()).toBeUndefined()
+      expect(select('Reference').value()).toEqual(added)
+      expect(select('Reference').error()).toBeUndefined()
 
       await wrapper.get('button[data-action="save"]').trigger('click')
       await flushPromises()
@@ -650,9 +654,9 @@ describe('PassportFormView', () => {
       await mountForm()
       await field('Passport name').setValue('md rahim')
       await field('Passport number').setValue('ab1234567')
-      await field('Passport date of birth').setValue('1990-05-17')
+      await field('Date of birth').setValue('1990-05-17')
       await field('Passport expiry date').setValue('2031-10-04')
-      select('Reference person').choose(PERSON)
+      select('Reference').choose(PERSON)
       select('Company name').choose(COMPANY)
       await flushPromises()
 
@@ -812,7 +816,7 @@ describe('PassportFormView', () => {
   })
 
   describe('edit mode', () => {
-    it('prefills the entry, including the reference type, and saves with PATCH', async () => {
+    it('prefills the entry, including the reference, and saves with PATCH', async () => {
       vi.mocked(getPassport).mockResolvedValue(
         makeEntry({ country: { code: 'BD', name: 'Bangladesh' } }),
       )
@@ -821,10 +825,9 @@ describe('PassportFormView', () => {
 
       expect(getPassport).toHaveBeenCalledWith(42)
       expect(field('Passport name').element.value).toBe('MD RAHIM')
-      expect(field('Passport date of birth').element.value).toBe('1990-05-17')
+      expect(field('Date of birth').element.value).toBe('1990-05-17')
       expect(field('Passport expiry date').element.value).toBe('2031-09-29')
-      expect(wrapper.get('button[aria-pressed="true"]').text()).toBe('Agency')
-      expect(select('Reference agency').value()).toEqual(AGENCY)
+      expect(select('Reference').value()).toEqual(AGENCY)
       expect(select('Company name').value()).toEqual(COMPANY)
       expect(select('Country').value()).toEqual({ code: 'BD', name: 'Bangladesh' })
 

@@ -100,10 +100,33 @@ describe('validatePassportForm', () => {
 
   describe('expiry date', () => {
     it('must be after the received date', () => {
-      expect(validate({ passport_expiry_date: '2026-10-06' }).passport_expiry_date).toBeUndefined()
       expect(validate({ passport_expiry_date: TODAY }).passport_expiry_date).toBe(
         'The passport expiry date must be after the passport received date.',
       )
+    })
+
+    it('must be valid for at least 18 months after the received date', () => {
+      // Received 05-10-2026: 18 months later is 05-04-2028.
+      expect(validate({ passport_expiry_date: '2026-10-06' }).passport_expiry_date).toBe(
+        'The passport must be valid for at least 18 months after the received date.',
+      )
+      expect(validate({ passport_expiry_date: '2028-04-04' }).passport_expiry_date).toBe(
+        'The passport must be valid for at least 18 months after the received date.',
+      )
+      expect(validate({ passport_expiry_date: '2028-04-05' }).passport_expiry_date).toBeUndefined()
+      // No month overflow: 31-08 + 18 months is 29-02 (leap year).
+      expect(
+        validatePassportForm(
+          { ...valid, passport_received_date: '2026-08-31', passport_expiry_date: '2028-02-28' },
+          TODAY,
+        ).passport_expiry_date,
+      ).toBeDefined()
+      expect(
+        validatePassportForm(
+          { ...valid, passport_received_date: '2026-08-31', passport_expiry_date: '2028-02-29' },
+          TODAY,
+        ).passport_expiry_date,
+      ).toBeUndefined()
     })
   })
 

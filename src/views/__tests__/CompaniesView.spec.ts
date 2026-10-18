@@ -3,7 +3,11 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import CompaniesView from '../CompaniesView.vue'
-import { downloadCompanyReportCsv, fetchCompanyReport } from '@/api/reports'
+import SearchSelect from '@/components/SearchSelect.vue'
+import { searchCompanies } from '@/api/companies'
+import { searchReferences } from '@/api/references'
+import { downloadCompanyReportCsv, fetchCompanyReport, fetchReportReferences } from '@/api/reports'
+import { fetchDefaults } from '@/api/countries'
 import { useAuthStore } from '@/stores/auth'
 import { httpError, makeUser } from '@/test/helpers'
 import type { Role } from '@/types/auth'
@@ -13,9 +17,15 @@ vi.mock('@/api/reports', () => ({
   fetchCompanyReport: vi.fn(),
   downloadCompanyReportCsv: vi.fn(async () => 'company-report-10-10-2026.csv'),
   fetchCompanyPassports: vi.fn(),
+  fetchReportReferences: vi.fn(),
 }))
+vi.mock('@/api/companies', () => ({ searchCompanies: vi.fn(async () => []) }))
+vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 vi.mock('@/api/countries', () => ({
-  fetchCountries: vi.fn(async () => [{ code: 'MY', name: 'Malaysia', is_pinned: true }]),
+  fetchCountries: vi.fn(async () => [
+    { code: 'MY', name: 'Malaysia', is_pinned: true },
+    { code: 'SA', name: 'Saudi Arabia', is_pinned: false },
+  ]),
   fetchDefaults: vi.fn(async () => ({
     default_company_country_code: 'MY',
     default_passport_country_code: null,
@@ -27,8 +37,6 @@ function row(overrides: Partial<CompanyReportRow>): CompanyReportRow {
     id: 1,
     name: 'ABC Sdn Bhd',
     country_code: 'MY',
-    agent_name: 'Rahim',
-    bd_agency_name: 'Dhaka Overseas',
     quota: 10,
     total: 4,
     medical_fit: 3,
@@ -111,7 +119,6 @@ describe('CompaniesView', () => {
     const headers = wrapper.findAll('thead th').map((th) => th.text().replace(/[↑↓]/g, '').trim())
     expect(headers).toEqual([
       'Company',
-      'Agent',
       'Quota',
       'Total',
       'Medical fit',
@@ -125,7 +132,6 @@ describe('CompaniesView', () => {
     ])
     expect(rowEl(1).text()).toContain('ABC Sdn Bhd')
     expect(rowEl(1).text()).toContain('Malaysia')
-    expect(rowEl(1).text()).toContain('Rahim')
   })
 
   describe('totals row', () => {
@@ -209,21 +215,204 @@ describe('CompaniesView', () => {
     expect(router.currentRoute.value.query.sort).toBe('total')
   })
 
-  it('filters by country and exports the CSV with the same filters', async () => {
-    await mountAs('data_entry')
+  describe('country', () => {
+    it('starts on the default company country, with no "All countries" option', async () => {
+      vi.mocked(fetchDefaults).mockResolvedValueOnce({
+        default_company_country_code: 'SA',
+        default_passport_country_code: null,
+      } as Awaited<ReturnType<typeof fetchDefaults>>)
+      await mountAs('data_entry')
 
-    await wrapper.get('select[data-country]').setValue('MY')
-    await flushPromises()
-    expect(fetchCompanyReport).toHaveBeenLastCalledWith(
-      expect.objectContaining({ country_code: 'MY' }),
-    )
+      // One request, already for the default country (never every country).
+      expect(fetchCompanyReport).toHaveBeenCalledTimes(1)
+      expect(fetchCompanyReport).toHaveBeenCalledWith(
+        expect.objectContaining({ country_code: 'SA' }),
+      )
+      const select = wrapper.get<HTMLSelectElement>('select[data-country]')
+      expect(select.element.value).toBe('SA')
+      expect(select.findAll('option').map((o) => o.attributes('value'))).toEqual(['MY', 'SA'])
+      expect(router.currentRoute.value.query.country).toBeUndefined()
+    })
 
-    await wrapper.get('button[data-export]').trigger('click')
-    await flushPromises()
-    expect(downloadCompanyReportCsv).toHaveBeenCalledWith({
-      search: undefined,
-      country_code: 'MY',
-      sort: undefined,
+    it('uses Malaysia for accounts (who cannot read the settings)', async () => {
+      await mountAs('accounts')
+
+      expect(fetchDefaults).not.toHaveBeenCalled()
+      expect(fetchCompanyReport).toHaveBeenCalledWith(
+        expect.objectContaining({ country_code: 'MY' }),
+      )
+    })
+
+    it('keeps a chosen country in the URL; Clear filters goes back to the default', async () => {
+      await mountAs('data_entry', '/reports/companies?country=SA&company_id=1')
+
+      expect(fetchCompanyReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ country_code: 'SA' }),
+      )
+      await wrapper.get('button[data-clear-filters]').trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({})
+      expect(fetchCompanyReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ country_code: 'MY', company_id: undefined }),
+      )
+    })
+
+    it('filters by country and exports the CSV with the same filters', async () => {
+      await mountAs('data_entry')
+
+      await wrapper.get('select[data-country]').setValue('SA')
+      await flushPromises()
+      expect(router.currentRoute.value.query.country).toBe('SA')
+      expect(fetchCompanyReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ country_code: 'SA' }),
+      )
+
+      await wrapper.get('button[data-export]').trigger('click')
+      await flushPromises()
+      expect(downloadCompanyReportCsv).toHaveBeenCalledWith({
+        company_id: undefined,
+        reference_id: undefined,
+        country_code: 'SA',
+        sort: undefined,
+      })
+    })
+  })
+
+  describe('company and reference filters', () => {
+    const filter = (label: string) =>
+      wrapper
+        .findAllComponents(SearchSelect)
+        .find((c) => (c.props() as Record<string, unknown>).label === label)!
+    const fetchOf = (label: string) =>
+      (filter(label).props() as { fetch: (q: string) => Promise<unknown> }).fetch
+
+    it('are searchable dropdowns, like the passport pages', async () => {
+      await mountAs('data_entry')
+
+      const labels = wrapper
+        .findAllComponents(SearchSelect)
+        .map((c) => (c.props() as Record<string, unknown>).label)
+      expect(labels).toEqual(['Filter by company', 'Filter by reference'])
+      expect(filter('Filter by company').props()).toMatchObject({
+        placeholder: 'Search company…',
+        noneLabel: 'All companies',
+        clearable: true,
+      })
+      expect(filter('Filter by reference').props()).toMatchObject({
+        placeholder: 'Search reference…',
+        noneLabel: 'All references',
+        clearable: true,
+      })
+    })
+
+    it('search the lookups for data entry', async () => {
+      await mountAs('data_entry')
+
+      await fetchOf('Filter by company')('alp')
+      await fetchOf('Filter by reference')('sea')
+      expect(searchCompanies).toHaveBeenCalledWith('alp')
+      expect(searchReferences).toHaveBeenCalledWith({ q: 'sea' })
+    })
+
+    it('search the reports for accounts (who cannot use the lookups)', async () => {
+      const SEA = { id: 8, type: 'agency', type_label: 'Agency', name: 'Sea Star' } as const
+      vi.mocked(fetchReportReferences).mockResolvedValue([SEA])
+      await mountAs('accounts')
+
+      expect(await fetchOf('Filter by reference')('sea')).toEqual([SEA])
+      expect(fetchReportReferences).toHaveBeenCalledWith({ q: 'sea', company_id: undefined })
+      expect(searchReferences).not.toHaveBeenCalled()
+
+      await fetchOf('Filter by company')('abc')
+      expect(fetchCompanyReport).toHaveBeenLastCalledWith({ search: 'abc', per_page: 20 })
+      expect(searchCompanies).not.toHaveBeenCalled()
+    })
+
+    it('with a company chosen, lists only the references of that company', async () => {
+      await mountAs('data_entry', '/reports/companies?company_id=1')
+      await fetchOf('Filter by reference')('')
+      expect(searchReferences).toHaveBeenLastCalledWith({ q: '', company_id: 1 })
+
+      wrapper.unmount()
+      vi.mocked(fetchReportReferences).mockResolvedValue([])
+      await mountAs('accounts', '/reports/companies?company_id=1')
+      await fetchOf('Filter by reference')('sea')
+      expect(fetchReportReferences).toHaveBeenLastCalledWith({ q: 'sea', company_id: 1 })
+    })
+
+    it('choosing a company and a reference filters the report and keeps both in the URL', async () => {
+      await mountAs('data_entry')
+
+      filter('Filter by company').vm.$emit('update:modelValue', {
+        id: 1,
+        name: 'ABC Sdn Bhd',
+        country: { code: 'MY', name: 'Malaysia' },
+      })
+      await flushPromises()
+      filter('Filter by reference').vm.$emit('update:modelValue', {
+        id: 8,
+        type: 'agency',
+        type_label: 'Agency',
+        name: 'Sea Star',
+      })
+      await flushPromises()
+
+      expect(router.currentRoute.value.query).toEqual({ company_id: '1', reference_id: '8' })
+      expect(fetchCompanyReport).toHaveBeenLastCalledWith(
+        expect.objectContaining({ company_id: 1, reference_id: 8, country_code: 'MY' }),
+      )
+
+      await wrapper.get('button[data-export]').trigger('click')
+      await flushPromises()
+      expect(downloadCompanyReportCsv).toHaveBeenCalledWith(
+        expect.objectContaining({ company_id: 1, reference_id: 8 }),
+      )
+
+      // "All references" (or the clear button) removes it again.
+      filter('Filter by reference').vm.$emit('update:modelValue', null)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({ company_id: '1' })
+    })
+
+    it('shows the chosen names after a reload, and Clear filters empties both', async () => {
+      vi.mocked(fetchCompanyReport).mockResolvedValue({
+        ...REPORT,
+        filters: {
+          company: { id: 1, name: 'ABC Sdn Bhd', country_code: 'MY' },
+          reference: { id: 8, type: 'agency', type_label: 'Agency', name: 'Sea Star' },
+        },
+      })
+      await mountAs('data_entry', '/reports/companies?company_id=1&reference_id=8')
+
+      expect(
+        (filter('Filter by company').props() as Record<string, unknown>).modelValue,
+      ).toMatchObject({
+        id: 1,
+        name: 'ABC Sdn Bhd',
+      })
+      expect(
+        (filter('Filter by reference').props() as Record<string, unknown>).modelValue,
+      ).toMatchObject({
+        id: 8,
+        name: 'Sea Star',
+      })
+
+      vi.mocked(fetchCompanyReport).mockResolvedValue(REPORT)
+      await wrapper.get('button[data-clear-filters]').trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({})
+      expect((filter('Filter by company').props() as Record<string, unknown>).modelValue).toBeNull()
+      expect(
+        (filter('Filter by reference').props() as Record<string, unknown>).modelValue,
+      ).toBeNull()
+    })
+
+    it('changing the country drops the chosen company', async () => {
+      await mountAs('data_entry', '/reports/companies?company_id=1')
+
+      await wrapper.get('select[data-country]').setValue('SA')
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({ country: 'SA' })
     })
   })
 
@@ -243,7 +432,7 @@ describe('CompaniesView', () => {
       data: [],
       meta: { ...REPORT.meta, total: 0 },
     })
-    await mountAs('data_entry', '/reports/companies?search=zzz')
+    await mountAs('data_entry', '/reports/companies?reference_id=8')
 
     expect(wrapper.get('[data-empty]').text()).toContain('No companies match these filters.')
   })

@@ -14,6 +14,7 @@ import {
   clearFlightBooking,
   confirmFlight,
   deleteStepRecord,
+  downloadStepListCsv,
   listStepPassports,
   markStepAction,
   undoStepAction,
@@ -25,12 +26,13 @@ import { useToast } from '@/composables/useToast'
 import { businessToday, daysLeft, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { staffTitle } from '@/lib/pageTitle'
+import { referenceSubtitle, searchReferenceOptions } from '@/lib/referenceOptions'
 import { ADMIN_ROLES, canAccessArea } from '@/lib/roles'
 import { STICKY_ACTIONS, TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
 import { finalStatuses, isRecordStep, statusLabel } from '@/lib/workflow'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
-import type { CompanySummary } from '@/types/passport'
+import type { CompanySummary, ReferenceSummary } from '@/types/passport'
 import type {
   StepAction,
   StepConfig,
@@ -61,7 +63,6 @@ workflow.loadConfig()
 
 const searchId = useId()
 const blockedId = useId()
-const referenceId = useId()
 const receiveDateFromId = useId()
 const receiveDateToId = useId()
 const bookingDateFromId = useId()
@@ -124,11 +125,12 @@ const text = (value: unknown) => (typeof value === 'string' ? value : '')
 const filters = computed(() => {
   const page = Number(text(route.query.page))
   const companyId = Number(text(route.query.company_id))
+  const referenceId = Number(text(route.query.reference_id))
   return {
     tab: text(route.query.tab),
     q: text(route.query.q).trim(),
     company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
-    reference: text(route.query.reference).trim(),
+    reference_id: Number.isInteger(referenceId) && referenceId > 0 ? referenceId : null,
     receive_date_from: text(route.query.receive_date_from).trim(),
     receive_date_to: text(route.query.receive_date_to).trim(),
     booking_date_from: text(route.query.booking_date_from).trim(),
@@ -140,7 +142,7 @@ type Filters = typeof filters.value
 
 const hasFilters = computed(() =>
   Boolean(
-    filters.value.q || filters.value.company_id || filters.value.reference ||
+    filters.value.q || filters.value.company_id || filters.value.reference_id ||
     (activeTab.value === 'permitted' && (filters.value.receive_date_from || filters.value.receive_date_to)) ||
     (stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed') && (filters.value.booking_date_from || filters.value.booking_date_to)),
   ),
@@ -152,7 +154,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   if (next.tab && next.tab !== defaultTab.value) query.tab = next.tab
   if (next.q) query.q = next.q
   if (next.company_id) query.company_id = String(next.company_id)
-  if (next.reference) query.reference = next.reference
+  if (next.reference_id) query.reference_id = String(next.reference_id)
   if (next.receive_date_from) query.receive_date_from = next.receive_date_from
   else delete query.receive_date_from
   if (next.receive_date_to) query.receive_date_to = next.receive_date_to
@@ -167,7 +169,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
 
 const search = ref(filters.value.q)
 const selectedCompany = ref<CompanySummary | null>(null)
-const reference = ref(filters.value.reference)
+const selectedReference = ref<ReferenceSummary | null>(null)
 const receiveDateFrom = ref(filters.value.receive_date_from)
 const receiveDateTo = ref(filters.value.receive_date_to)
 const bookingDateFrom = ref(filters.value.booking_date_from)
@@ -178,52 +180,41 @@ function applySearches() {
   router.replace({
     query: queryWith({
       q: search.value.trim(),
-      reference: reference.value.trim(),
     }),
   })
 }
 const debouncedSearch = useDebounce(applySearches, 300)
-const debouncedReference = useDebounce(applySearches, 300)
 
 function onCompanySelected(value: CompanySummary | null) {
   selectedCompany.value = value
   router.replace({ query: queryWith({ company_id: value?.id ?? null }) })
 }
 
-function clearBox(key: 'reference') {
-  reference.value = ''
-  debouncedReference.cancel()
-  router.replace({ query: queryWith({ reference: '' }) })
+/** With a company chosen, only references that have passports of that company. */
+const fetchReferences = (query: string) =>
+  searchReferenceOptions(query, canAct.value, filters.value.company_id ?? undefined)
+
+function onReferenceSelected(value: ReferenceSummary | null) {
+  selectedReference.value = value
+  router.replace({ query: queryWith({ reference_id: value?.id ?? null }) })
 }
 
 function clearFilters() {
   search.value = ''
   selectedCompany.value = null
-  reference.value = ''
+  selectedReference.value = null
   receiveDateFrom.value = ''
   receiveDateTo.value = ''
   bookingDateFrom.value = ''
   bookingDateTo.value = ''
   debouncedSearch.cancel()
-  debouncedReference.cancel()
-  router.replace({ query: queryWith({ q: '', company_id: null, reference: '', receive_date_from: '', receive_date_to: '', booking_date_from: '', booking_date_to: '' }) })
+  router.replace({ query: queryWith({ q: '', company_id: null, reference_id: null, receive_date_from: '', receive_date_to: '', booking_date_from: '', booking_date_to: '' }) })
 }
-
-const searchBoxes = [
-  {
-    key: 'reference' as const,
-    id: referenceId,
-    label: 'Search reference',
-    placeholder: 'Reference name',
-    model: reference,
-    debounce: debouncedReference,
-  },
-]
 
 watch(filters, (f) => {
   if (f.q !== search.value.trim()) search.value = f.q
   if (!f.company_id && selectedCompany.value) selectedCompany.value = null
-  if (f.reference !== reference.value.trim()) reference.value = f.reference
+  if (!f.reference_id && selectedReference.value) selectedReference.value = null
   if (f.receive_date_from !== receiveDateFrom.value) receiveDateFrom.value = f.receive_date_from
   if (f.receive_date_to !== receiveDateTo.value) receiveDateTo.value = f.receive_date_to
   if (f.booking_date_from !== bookingDateFrom.value) bookingDateFrom.value = f.booking_date_from
@@ -293,7 +284,7 @@ let requestId = 0
 const apiFilters = (f: Filters) => ({
   search: f.q || undefined,
   company_id: f.company_id ?? undefined,
-  reference: f.reference || undefined,
+  reference_id: f.reference_id ?? undefined,
   ...(activeTab.value === 'permitted' ? {
     receive_date_from: f.receive_date_from || undefined,
     receive_date_to: f.receive_date_to || undefined,
@@ -333,6 +324,27 @@ async function load() {
       loadError.value = errorMessage(error, 'Could not load the passports. Please try again.')
   } finally {
     if (id === requestId) isLoading.value = false
+  }
+}
+
+/* ---------- Export ---------- */
+
+const isExporting = ref(false)
+
+/** Downloads the current tab as CSV, with the same searches as the list. */
+async function exportCsv() {
+  if (isExporting.value || !step.value) return
+  isExporting.value = true
+  try {
+    const fileName = await downloadStepListCsv(stepKey.value, {
+      tab: activeTab.value,
+      ...apiFilters(filters.value),
+    })
+    toast.success(`Downloaded ${fileName}.`)
+  } catch (error) {
+    toast.error(errorMessage(error, 'Could not export the passports. Please try again.'))
+  } finally {
+    isExporting.value = false
   }
 }
 
@@ -853,12 +865,38 @@ const STICKY = STICKY_ACTIONS
     </div>
 
     <template v-else-if="step">
-      <h1 class="mt-6 text-2xl font-bold text-primary-900 sm:text-3xl" data-step-title>
-        {{ step.label }}
-      </h1>
-      <p class="mt-1 text-sm text-muted">
-        Step {{ step.order }}: start the step, then record its result.
-      </p>
+      <div class="mt-6 flex flex-wrap items-end justify-between gap-4" data-page-header>
+        <div>
+          <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl" data-step-title>
+            {{ step.label }}
+          </h1>
+          <p class="mt-1 text-sm text-muted">
+            Step {{ step.order }}: start the step, then record its result.
+          </p>
+        </div>
+        <!-- The current tab, with the same searches as the list. -->
+        <button
+          type="button"
+          class="btn btn-white text-sm"
+          :disabled="isExporting || !list"
+          data-export
+          @click="exportCsv"
+        >
+          <svg
+            class="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14" />
+          </svg>
+          {{ isExporting ? 'Exporting…' : 'Export CSV' }}
+        </button>
+      </div>
 
       <section class="glass-card mt-6 p-4 sm:p-6">
         <div class="-mx-4 overflow-x-auto border-b border-stroke px-4 sm:-mx-6 sm:px-6">
@@ -933,44 +971,17 @@ const STICKY = STICKY_ACTIONS
                 data-company-filter
                 @update:model-value="onCompanySelected"
               />
-              <div v-for="box in searchBoxes" :key="box.key">
-                <label :for="box.id" class="block text-sm font-medium text-slate-700">
-                  {{ box.label }}
-                </label>
-                <div class="relative">
-                  <input
-                    :id="box.id"
-                    v-model="box.model.value"
-                    type="text"
-                    autocomplete="off"
-                    :placeholder="box.placeholder"
-                    :class="[inputClass, 'pr-10']"
-                    :data-search-box="box.key"
-                    @input="box.debounce.run()"
-                    @keydown.esc="clearBox(box.key)"
-                  />
-                  <button
-                    v-if="box.model.value"
-                    type="button"
-                    class="absolute top-1/2 right-1.5 mt-0.5 -translate-y-1/2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                    :data-clear="box.key"
-                    @click="clearBox(box.key)"
-                  >
-                    <svg
-                      class="h-4 w-4"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="2.5"
-                      stroke-linecap="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M6 6l12 12M18 6L6 18" />
-                    </svg>
-                    <span class="sr-only">Clear {{ box.label.toLowerCase() }}</span>
-                  </button>
-                </div>
-              </div>
+              <SearchSelect
+                :model-value="selectedReference"
+                :fetch="fetchReferences"
+                :subtitle-of="referenceSubtitle"
+                label="Filter by reference"
+                placeholder="Search reference…"
+                none-label="All references"
+                clearable
+                data-reference-filter
+                @update:model-value="onReferenceSelected"
+              />
               <!-- Permitted tab only: receive date range filter -->
               <template v-if="activeTab === 'permitted' && stepKey === 'calling'">
                 <div>

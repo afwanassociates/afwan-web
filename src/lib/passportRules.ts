@@ -1,4 +1,4 @@
-import { toApiDate, todayApiDate } from '@/lib/dates'
+import { addMonthsNoOverflow, toApiDate, todayApiDate } from '@/lib/dates'
 
 /**
  * Client-side mirror of the API's passport rules (StorePassportEntryRequest).
@@ -7,6 +7,8 @@ import { toApiDate, todayApiDate } from '@/lib/dates'
 
 export const PASSPORT_NAME_MAX = 150
 export const PASSPORT_NUMBER_PATTERN = /^[A-Z0-9]{6,20}$/
+/** The passport must be valid for at least this many months after it is received. */
+export const PASSPORT_MIN_VALIDITY_MONTHS = 18
 
 /** While typing: uppercase only, so spaces can still be typed between words. */
 export function normalizePassportNameInput(value: string): string {
@@ -86,6 +88,8 @@ export function validatePassportForm(
   else if (received && expiry <= received)
     errors.passport_expiry_date =
       'The passport expiry date must be after the passport received date.'
+  else if (received && expiry < addMonthsNoOverflow(received, PASSPORT_MIN_VALIDITY_MONTHS))
+    errors.passport_expiry_date = `The passport must be valid for at least ${PASSPORT_MIN_VALIDITY_MONTHS} months after the received date.`
 
   return errors
 }

@@ -4,8 +4,12 @@ import { RouterLink, useRoute } from 'vue-router'
 import LatestStatusText from '@/components/LatestStatusText.vue'
 import PassportListBody from '@/components/PassportListBody.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
-import { searchCompanies } from '@/api/companies'
-import { fetchCompanyPassports, fetchCompanyReport } from '@/api/reports'
+import {
+  downloadCompanyPassportsCsv,
+  fetchCompanyPassports,
+  fetchCompanyReport,
+} from '@/api/reports'
+import { useToast } from '@/composables/useToast'
 import {
   balanceClass,
   countClass,
@@ -15,19 +19,16 @@ import {
   rememberedRow,
 } from '@/lib/companyReport'
 import { errorMessage, errorStatus } from '@/lib/errors'
-import { canAccessArea } from '@/lib/roles'
-import { useAuthStore } from '@/stores/auth'
 import type { Paginated } from '@/types/auth'
-import type { Company } from '@/types/passport'
 import type { CompanyCounts, CompanyPassport, CompanyReportRow } from '@/types/report'
 
 /**
- * One company of the Companies report: a header card with the company, its agent and its
- * counts, then the company's passports (newest first). Read-only: the step bar is display
- * only and the one row action is "Edit passport" (when the API's can_edit_passport allows).
+ * One company of the Companies report: a header card with the company and its counts, then the
+ * company's passports (newest first) with an Export CSV of all of them. Read-only: no row
+ * actions, and the step bar is display only.
  */
 const route = useRoute()
-const auth = useAuthStore()
+const toast = useToast()
 
 const PER_PAGE = 15
 
@@ -37,17 +38,9 @@ const page = computed(() => {
   return Number.isInteger(value) && value > 1 ? value : 1
 })
 
-/** Only data-entry users and admins may read the agent's phone and email (company lookup). */
-const canLookUpContact = computed(() => {
-  const role = auth.user?.role
-  return role !== undefined && canAccessArea(role, 'data_entry')
-})
-
 /* ---------- Header (the company's report row) ---------- */
 
 const row = shallowRef<CompanyReportRow | null>(null)
-/** Phone and email are not in the report; data-entry users get them from the company lookup. */
-const contact = shallowRef<Pick<Company, 'agent_phone' | 'agent_email'> | null>(null)
 const rowMissing = ref(false)
 
 /** Finds the company's report row: searching by name when known, else page by page. */
@@ -77,15 +70,6 @@ async function loadHeader(id: number, nameHint: string | null) {
     rowMissing.value = row.value === null
   } catch {
     rowMissing.value = row.value === null
-  }
-  contact.value = null
-  if (row.value && canLookUpContact.value) {
-    try {
-      const match = (await searchCompanies(row.value.name)).find((c) => c.id === id)
-      if (match) contact.value = { agent_phone: match.agent_phone, agent_email: match.agent_email }
-    } catch {
-      // Phone and email are extras; the page works without them.
-    }
   }
 }
 
@@ -148,15 +132,23 @@ watch(
 )
 
 const pageLink = (p: number) => ({ query: { ...route.query, page: p > 1 ? String(p) : undefined } })
-/**
- * The only row action: the passport details form (name, number, reference, dates, country,
- * company). It comes back to this page after saving.
- */
-const editLink = (id: number) => ({
-  name: 'passport-edit',
-  params: { id },
-  query: { back: route.fullPath },
-})
+/* ---------- Export ---------- */
+
+const isExporting = ref(false)
+
+/** Downloads every passport of this company (all pages) as CSV. */
+async function exportCsv() {
+  if (isExporting.value) return
+  isExporting.value = true
+  try {
+    const fileName = await downloadCompanyPassportsCsv(companyId.value)
+    toast.success(`Downloaded ${fileName}.`)
+  } catch (error) {
+    toast.error(errorMessage(error, 'Could not export the passports. Please try again.'))
+  } finally {
+    isExporting.value = false
+  }
+}
 
 const title = computed(() => row.value?.name ?? list.value?.data[0]?.company.name ?? 'Company')
 const th = 'py-3 pr-4 font-semibold'
@@ -206,41 +198,6 @@ const th = 'py-3 pr-4 font-semibold'
         <p v-else-if="!row" class="mt-4 text-sm text-muted">Company details are not available.</p>
 
         <template v-else>
-          <dl class="mt-4 grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-4" data-agent>
-            <div>
-              <dt class="text-muted">Agent</dt>
-              <dd class="font-semibold text-ink">{{ row.agent_name || '—' }}</dd>
-            </div>
-            <div v-if="contact">
-              <dt class="text-muted">Agent phone</dt>
-              <dd class="text-ink">
-                <a
-                  v-if="contact.agent_phone"
-                  :href="`tel:${contact.agent_phone}`"
-                  class="text-primary-700 underline-offset-4 hover:underline"
-                  >{{ contact.agent_phone }}</a
-                >
-                <template v-else>—</template>
-              </dd>
-            </div>
-            <div v-if="contact">
-              <dt class="text-muted">Agent email</dt>
-              <dd class="break-all text-ink">
-                <a
-                  v-if="contact.agent_email"
-                  :href="`mailto:${contact.agent_email}`"
-                  class="text-primary-700 underline-offset-4 hover:underline"
-                  >{{ contact.agent_email }}</a
-                >
-                <template v-else>—</template>
-              </dd>
-            </div>
-            <div>
-              <dt class="text-muted">Bangladesh agency</dt>
-              <dd class="text-ink">{{ row.bd_agency_name || '—' }}</dd>
-            </div>
-          </dl>
-
           <ul class="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5" data-mini-counts>
             <li
               v-for="c in MINI_COUNTS"
@@ -257,10 +214,33 @@ const th = 'py-3 pr-4 font-semibold'
         </template>
       </section>
 
-      <!-- Passports -->
-      <section class="glass-card mt-6 p-4 sm:p-6" aria-labelledby="passports-heading">
+      <!-- Passports: the heading and Export CSV above the card, the list inside it. -->
+      <div class="mt-6 flex flex-wrap items-end justify-between gap-4" data-passports-header>
         <h2 id="passports-heading" class="text-lg font-semibold text-ink">Passports</h2>
-        <div class="mt-2">
+        <button
+          type="button"
+          class="btn btn-white text-sm"
+          :disabled="isExporting || !list || list.data.length === 0"
+          data-export
+          @click="exportCsv"
+        >
+          <svg
+            class="h-4 w-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 4v11m0 0l-4-4m4 4l4-4M5 20h14" />
+          </svg>
+          {{ isExporting ? 'Exporting…' : 'Export CSV' }}
+        </button>
+      </div>
+      <section class="glass-card mt-3 p-4 sm:p-6" aria-labelledby="passports-heading">
+        <div>
           <PassportListBody
             :list="list"
             :is-loading="isLoading"
@@ -277,10 +257,7 @@ const th = 'py-3 pr-4 font-semibold'
                     <th scope="col" :class="th">Passport no</th>
                     <th scope="col" :class="th">Reference</th>
                     <th scope="col" :class="th">Latest status</th>
-                    <th scope="col" :class="th">Progress</th>
-                    <th scope="col" :class="[th, 'pr-0']">
-                      <span class="sr-only">Actions</span>
-                    </th>
+                    <th scope="col" :class="[th, 'pr-0']">Progress</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-stroke">
@@ -300,19 +277,9 @@ const th = 'py-3 pr-4 font-semibold'
                     <td class="py-3 pr-4">
                       <LatestStatusText :latest-status="p.latest_status" />
                     </td>
-                    <td class="py-3 pr-4">
+                    <td class="py-3">
                       <!-- Display only: no workflow buttons on this page. -->
                       <WorkflowStepper :steps="p.workflow.steps" compact />
-                    </td>
-                    <td class="py-3 text-right">
-                      <RouterLink
-                        v-if="p.can_edit_passport"
-                        :to="editLink(p.id)"
-                        class="rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap text-primary-700 hover:bg-primary-50"
-                        data-edit-passport
-                      >
-                        Edit passport<span class="sr-only"> {{ p.passport_number }}</span>
-                      </RouterLink>
                     </td>
                   </tr>
                 </tbody>

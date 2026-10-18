@@ -115,10 +115,9 @@ const router = createRouter({
           meta: { title: staffTitle('Add passport') },
         },
         {
+          // All Passports moved under /reports (accounts may read it); keep old links working.
           path: 'all-passports',
-          name: 'all-passports',
-          component: () => import('@/views/AllPassportsView.vue'),
-          meta: { title: staffTitle('All passports') },
+          redirect: (to) => ({ name: 'all-passports', query: to.query }),
         },
         {
           path: 'passports/:id(\\d+)',
@@ -183,6 +182,13 @@ const router = createRouter({
       meta: { requiresAuth: true, layout: 'staff', roles: REPORT_ROLES },
       children: [
         { path: '', redirect: { name: 'companies' } },
+        {
+          // The read-only All Passports overview.
+          path: 'passports',
+          name: 'all-passports',
+          component: () => import('@/views/AllPassportsView.vue'),
+          meta: { title: staffTitle('All passports') },
+        },
         {
           path: 'companies',
           name: 'companies',

@@ -49,8 +49,14 @@ const navItems = computed(() => {
   const role = auth.user?.role
   if (!role) return []
   const items: NavItem[] = [{ name: homeRouteFor(role).name, label: 'Dashboard' }]
+  // The company-wise report, right under Dashboard for every role that may see it.
+  const canSeeReports = (REPORT_ROLES as readonly string[]).includes(role)
+  if (canSeeReports) {
+    items.push({ name: 'companies', label: 'Company Report', section: '/reports/companies' })
+  }
+  // All Passports is read-only, so accounts see it too (without the data-entry screens).
+  if (canSeeReports) items.push({ name: 'all-passports', label: 'All Passports' })
   if (canAccessArea(role, 'data_entry')) {
-    items.push({ name: 'all-passports', label: 'All Passports' })
     items.push({ name: 'passport-new', label: 'Add Passport' })
     items.push({ name: 'passports', label: 'Passport List' })
     const step2 = workflow.summary?.step2
@@ -77,20 +83,13 @@ const navItems = computed(() => {
   }
   if (canAccessArea(role, 'admin')) {
     items.push({ name: 'staff-users', label: 'Users' })
-    // Admin panel › Companies (create / edit / deactivate). The report is in the top menu.
+    // Admin panel › Companies (create / edit / deactivate).
     if (ADMIN_ROLES.includes(role)) items.push({ name: 'admin-companies', label: 'Companies' })
   }
   if (settingsPagesFor(role).length > 0) {
     items.push({ name: 'settings', label: 'Settings', section: '/admin/settings' })
   }
   return items
-})
-
-/** Top navigation: the company-wise report, for every role that may see it. */
-const topItems = computed(() => {
-  const role = auth.user?.role
-  if (!role || !(REPORT_ROLES as readonly string[]).includes(role)) return []
-  return [{ name: 'companies', label: 'Company', section: '/reports/companies' }]
 })
 
 function isActive(item: NavItem) {
@@ -197,22 +196,6 @@ async function logout() {
             />
           </svg>
         </button>
-
-        <nav v-if="topItems.length" aria-label="Reports" class="min-w-0">
-          <ul class="flex items-center gap-1">
-            <li v-for="item in topItems" :key="item.name">
-              <RouterLink
-                :to="{ name: item.name }"
-                class="block rounded-full px-4 py-2 text-sm font-semibold text-primary-900 hover:bg-primary-50"
-                :class="{ 'bg-primary-100 text-primary-950': isActive(item) }"
-                :aria-current="isActive(item) ? 'page' : undefined"
-                data-top-nav
-              >
-                {{ item.label }}
-              </RouterLink>
-            </li>
-          </ul>
-        </nav>
 
         <div v-if="auth.user" class="ml-auto min-w-0 text-right">
           <p class="truncate text-sm font-semibold text-primary-900">{{ auth.user.name }}</p>

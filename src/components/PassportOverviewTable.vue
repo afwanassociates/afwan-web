@@ -6,9 +6,10 @@ import type { PassportOverview } from '@/types/passport'
 
 /**
  * Read-only passport overview (All Passports): a table on wide screens, cards on narrow
- * ones. No actions and no sorting (the API lists newest first).
+ * ones. No actions and no sorting (the API lists newest first). `linked` (default true)
+ * links each name to the passport page; off for roles that cannot open it (accounts).
  */
-defineProps<{ entries: PassportOverview[] }>()
+withDefaults(defineProps<{ entries: PassportOverview[]; linked?: boolean }>(), { linked: true })
 
 /** created_at is a timestamp: show its Dhaka calendar date. */
 const enteredOn = (createdAt: string) => {
@@ -33,19 +34,21 @@ const headers = [
   <!-- Phones: cards, no buttons -->
   <ul class="divide-y divide-stroke md:hidden">
     <li v-for="entry in entries" :key="entry.id" class="py-4" data-row>
-      <RouterLink
-        :to="{ name: 'passport-detail', params: { id: entry.id } }"
+      <component
+        :is="linked ? RouterLink : 'div'"
+        :to="linked ? { name: 'passport-detail', params: { id: entry.id } } : undefined"
         class="block rounded-sm"
       >
         <span
-          class="block font-semibold break-words text-primary-900 underline-offset-4 hover:underline"
+          class="block font-semibold break-words text-primary-900"
+          :class="{ 'underline-offset-4 hover:underline': linked }"
         >
           {{ entry.passport_name }}
         </span>
         <span class="block font-mono text-sm tracking-wider text-slate-700">
           {{ entry.passport_number }}
         </span>
-      </RouterLink>
+      </component>
       <div class="mt-2 text-base">
         <LatestStatusText :latest-status="entry.latest_status" />
       </div>
@@ -95,11 +98,15 @@ const headers = [
         <tr v-for="entry in entries" :key="entry.id" class="align-top" data-row>
           <td class="py-3 pr-4">
             <RouterLink
+              v-if="linked"
               :to="{ name: 'passport-detail', params: { id: entry.id } }"
               class="rounded-sm font-semibold text-primary-900 underline-offset-4 hover:underline"
             >
               {{ entry.passport_name }}
             </RouterLink>
+            <span v-else class="font-semibold text-primary-900" data-name>
+              {{ entry.passport_name }}
+            </span>
             <span v-if="entry.date_of_birth" class="block text-xs text-muted">
               Born {{ toDisplayDate(entry.date_of_birth) }}
             </span>

@@ -96,6 +96,7 @@ describe('StaffLayout menu', () => {
       'super_admin',
       [
         'Dashboard',
+        'Company Report',
         'All Passports',
         'Add Passport',
         'Passport List',
@@ -113,6 +114,7 @@ describe('StaffLayout menu', () => {
       'admin',
       [
         'Dashboard',
+        'Company Report',
         'All Passports',
         'Add Passport',
         'Passport List',
@@ -130,6 +132,7 @@ describe('StaffLayout menu', () => {
       'data_entry',
       [
         'Dashboard',
+        'Company Report',
         'All Passports',
         'Add Passport',
         'Passport List',
@@ -140,8 +143,7 @@ describe('StaffLayout menu', () => {
         'Flight',
       ],
     ],
-    // Accounts: the Company report is in the top menu.
-    ['accounts', ['Dashboard']],
+    ['accounts', ['Dashboard', 'Company Report', 'All Passports']],
   ] as const)('shows %s one "Dashboard" and its own screens', async (role, labels) => {
     await mountAs(role)
 
@@ -149,13 +151,15 @@ describe('StaffLayout menu', () => {
   })
 
   it.each(['super_admin', 'admin', 'data_entry', 'accounts'] as const)(
-    'shows %s the "Company" report in the top menu',
+    'shows %s the "Company Report" under Dashboard in the sidebar',
     async (role) => {
       await mountAs(role, '/companies')
 
-      const top = wrapper.findAll('nav[aria-label="Reports"] a')
-      expect(top.map((a) => a.text())).toEqual(['Company'])
-      expect(top[0]!.attributes('href')).toBe('/companies')
+      const links = wrapper.findAll('nav[aria-label="Staff portal"] a')
+      expect(links[1]!.find('[data-label]').text()).toBe('Company Report')
+      expect(links[1]!.attributes('href')).toBe('/companies')
+      expect(wrapper.find('nav[aria-label="Reports"]').exists()).toBe(false)
+      expect(navLabels()).not.toContain('Reference Report')
     },
   )
 

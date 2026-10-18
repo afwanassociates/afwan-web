@@ -3,27 +3,24 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import CompanyView from '../CompanyView.vue'
-import { searchCompanies } from '@/api/companies'
 import { fetchCompanyPassports, fetchCompanyReport } from '@/api/reports'
 import { useAuthStore } from '@/stores/auth'
 import { httpError, makePassport, makeUser } from '@/test/helpers'
 import type { Role } from '@/types/auth'
-import type { Company, PassportEntry } from '@/types/passport'
+import type { PassportEntry } from '@/types/passport'
 import type { CompanyPassport, CompanyReportRow } from '@/types/report'
 
 vi.mock('@/api/reports', () => ({
   fetchCompanyReport: vi.fn(),
   fetchCompanyPassports: vi.fn(),
   downloadCompanyReportCsv: vi.fn(),
+  downloadCompanyPassportsCsv: vi.fn(async () => 'company-abc-passports-01-05-2026.csv'),
 }))
-vi.mock('@/api/companies', () => ({ searchCompanies: vi.fn() }))
 
 const ROW: CompanyReportRow = {
   id: 7,
   name: 'ABC Sdn Bhd',
   country_code: 'MY',
-  agent_name: 'Rahim',
-  bd_agency_name: 'Dhaka Overseas',
   quota: 2,
   total: 3,
   medical_fit: 2,
@@ -109,23 +106,17 @@ beforeEach(() => {
     totals: { ...ROW },
     meta: { current_page: 1, last_page: 1, per_page: 100, total: 1 },
   })
-  vi.mocked(searchCompanies).mockResolvedValue([
-    { id: 7, name: 'ABC Sdn Bhd', agent_phone: '+60 12 345', agent_email: 'rahim@abc.my' },
-  ] as Company[])
 })
 afterEach(() => wrapper.unmount())
 
 describe('CompanyView', () => {
-  it('shows the header card with the company, agent and mini counts', async () => {
+  it('shows the header card with the company and mini counts', async () => {
     await mountAs('data_entry')
 
     const header = wrapper.get('[data-header]')
     expect(header.get('h1').text()).toBe('ABC Sdn Bhd')
     expect(header.text()).toContain('Malaysia')
-    expect(header.get('[data-agent]').text()).toContain('Rahim')
-    expect(header.get('[data-agent]').text()).toContain('Dhaka Overseas')
-    expect(header.get('[data-agent]').text()).toContain('+60 12 345')
-    expect(header.get('[data-agent]').text()).toContain('rahim@abc.my')
+    expect(header.find('[data-agent]').exists()).toBe(false)
     expect(wrapper.get('[data-mini="total"]').text()).toContain('3')
     expect(wrapper.get('[data-mini="in_process"] .text-amber-700').text()).toBe('2')
     expect(wrapper.get('[data-mini="visa_done"] .text-slate-400').text()).toBe('0')
@@ -142,14 +133,7 @@ describe('CompanyView', () => {
 
     expect(fetchCompanyPassports).toHaveBeenCalledWith(7, { page: 1, per_page: 15 })
     const headers = wrapper.findAll('[data-passports] thead th').map((th) => th.text())
-    expect(headers).toEqual([
-      'Name',
-      'Passport no',
-      'Reference',
-      'Latest status',
-      'Progress',
-      'Actions',
-    ])
+    expect(headers).toEqual(['Name', 'Passport no', 'Reference', 'Latest status', 'Progress'])
 
     const first = wrapper.get('[data-passport-row="11"]')
     expect(first.text()).toContain('KARIM UDDIN')
@@ -159,19 +143,45 @@ describe('CompanyView', () => {
     expect(wrapper.text()).toContain('Showing 1–15 of 17')
   })
 
-  it('offers only "Edit passport", and only where can_edit_passport is true', async () => {
+  it('has no "Edit passport" (or any other) row action, even where can_edit_passport is true', async () => {
     await mountAs('data_entry')
 
-    const editable = wrapper.get('[data-passport-row="11"]')
-    const notEditable = wrapper.get('[data-passport-row="12"]')
+    expect(wrapper.find('[data-edit-passport]').exists()).toBe(false)
+    expect(wrapper.get('[data-passport-row="11"]').findAll('a, button')).toHaveLength(0)
+    expect(wrapper.get('[data-passports]').text()).not.toContain('Edit passport')
+  })
 
-    // The only control in an editable row is "Edit passport", back to this page after saving.
-    expect(editable.findAll('a, button')).toHaveLength(1)
-    const edit = editable.get('a[data-edit-passport]')
-    expect(edit.text()).toContain('Edit passport')
-    expect(edit.attributes('href')).toBe('/passports/11/edit?back=/reports/companies/7')
-    // can_edit_passport false: no action at all.
-    expect(notEditable.findAll('a, button')).toHaveLength(0)
+  describe('Export CSV', () => {
+    it('sits next to the Passports heading, outside the card, and downloads every passport', async () => {
+      const { downloadCompanyPassportsCsv } = await import('@/api/reports')
+      const { useToast } = await import('@/composables/useToast')
+      useToast().toasts.value = []
+      await mountAs('accounts')
+
+      const header = wrapper.get('[data-passports-header]')
+      expect(header.get('h2').text()).toBe('Passports')
+      const button = header.get('button[data-export]')
+      expect(button.text()).toContain('Export CSV')
+      expect(wrapper.find('section [data-export]').exists()).toBe(false)
+
+      await button.trigger('click')
+      await flushPromises()
+      expect(downloadCompanyPassportsCsv).toHaveBeenCalledWith(7)
+      expect(useToast().toasts.value.map((t) => t.message)).toContain(
+        'Downloaded company-abc-passports-01-05-2026.csv.',
+      )
+    })
+
+    it('is disabled when the company has no passports', async () => {
+      vi.mocked(fetchCompanyPassports).mockResolvedValue({
+        ...PAGE_1,
+        data: [],
+        meta: { ...PAGE_1.meta, total: 0, last_page: 1, from: null, to: null },
+      })
+      await mountAs('data_entry')
+
+      expect(wrapper.get('button[data-export]').attributes('disabled')).toBeDefined()
+    })
   })
 
   it('has no workflow actions: no Record medical, Record step or links into the workflow', async () => {
@@ -180,16 +190,13 @@ describe('CompanyView', () => {
     const table = wrapper.get('[data-passports]')
     const text = table.text()
     expect(text).not.toMatch(/Record|Update status|Repeat medical|Re-test|Add medical slip/)
-    expect(table.findAll('a').every((a) => a.attributes('data-edit-passport') !== undefined)).toBe(
-      true,
-    )
-    expect(table.findAll('button')).toHaveLength(0)
+    expect(table.findAll('a, button')).toHaveLength(0)
     // The step bar is display-only.
     const bar = wrapper.get('[data-passport-row="11"] [data-state]').element.closest('a, button')
     expect(bar).toBeNull()
   })
 
-  it('accounts: read-only, no edit actions and no agent contact lookup', async () => {
+  it('accounts: read-only, no edit actions', async () => {
     vi.mocked(fetchCompanyPassports).mockResolvedValue({
       ...PAGE_1,
       data: PAGE_1.data.map((p) => ({ ...p, can_edit_passport: false })),
@@ -197,7 +204,6 @@ describe('CompanyView', () => {
     await mountAs('accounts')
 
     expect(wrapper.find('[data-edit-passport]').exists()).toBe(false)
-    expect(searchCompanies).not.toHaveBeenCalled()
   })
 
   it('shows an empty state when the company has no passports', async () => {

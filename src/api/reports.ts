@@ -1,9 +1,21 @@
 import api from '@/lib/api'
 import { businessToday, toDisplayDate } from '@/lib/dates'
 import type { Paginated } from '@/types/auth'
-import type { CompanyPassport, CompanyReport, CompanyReportParams } from '@/types/report'
+import type { ReferenceSummary } from '@/types/passport'
+import type {
+  CompanyCounts,
+  CompanyPassport,
+  CompanyReport,
+  CompanyReportParams,
+} from '@/types/report'
 
 const BASE = '/api/reports'
+
+/** Passport counts over every passport (the dashboard cards of every role). */
+export async function fetchReportSummary(): Promise<CompanyCounts> {
+  const { data } = await api.get<{ data: CompanyCounts }>(`${BASE}/summary`)
+  return data.data
+}
 
 /** One page of the company report with the totals of every filtered company. */
 export async function fetchCompanyReport(params: CompanyReportParams): Promise<CompanyReport> {
@@ -12,13 +24,21 @@ export async function fetchCompanyReport(params: CompanyReportParams): Promise<C
 }
 
 /**
- * Downloads the report as CSV (same filters and sort, every page). Returns the file name.
- * The browser is given the file through a temporary link.
+ * Downloads the company report as CSV (same filters and sort, every page). Returns the file
+ * name.
  */
-export async function downloadCompanyReportCsv(
+export function downloadCompanyReportCsv(
   params: Omit<CompanyReportParams, 'page' | 'per_page'>,
 ): Promise<string> {
-  const response = await api.get<Blob>(`${BASE}/companies`, {
+  return downloadCsv(`${BASE}/companies`, params, 'company-report')
+}
+
+/**
+ * Gets a report (or a step page's tab) as CSV and gives the browser the file through a
+ * temporary link. The file name comes from the response, else `<prefix>-<today>.csv`.
+ */
+export async function downloadCsv(url: string, params: object, prefix: string): Promise<string> {
+  const response = await api.get<Blob>(url, {
     params: { ...params, export: 'csv' },
     responseType: 'blob',
   })
@@ -26,17 +46,22 @@ export async function downloadCompanyReportCsv(
   const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition)
   const fileName = match?.[1]
     ? decodeURIComponent(match[1])
-    : `company-report-${toDisplayDate(businessToday())}.csv`
+    : `${prefix}-${toDisplayDate(businessToday())}.csv`
 
-  const url = URL.createObjectURL(response.data)
+  const href = URL.createObjectURL(response.data)
   const link = document.createElement('a')
-  link.href = url
+  link.href = href
   link.download = fileName
   document.body.append(link)
   link.click()
   link.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  setTimeout(() => URL.revokeObjectURL(href), 1000)
   return fileName
+}
+
+/** Downloads every passport of a company as CSV (newest first). Returns the file name. */
+export function downloadCompanyPassportsCsv(companyId: number): Promise<string> {
+  return downloadCsv(`${BASE}/companies/${companyId}/passports`, {}, 'company-passports')
 }
 
 /** A company's passports, newest first (15 per page by default). */
@@ -49,4 +74,20 @@ export async function fetchCompanyPassports(
     { params },
   )
   return data
+}
+
+/* ---------- Reference options ---------- */
+
+/**
+ * Up to 20 references for the company report's "Filter by reference" dropdown (accounts
+ * cannot use the data-entry lookup); with `company_id`, only references of that company.
+ */
+export async function fetchReportReferences(params: {
+  q?: string
+  company_id?: number
+}): Promise<ReferenceSummary[]> {
+  const { data } = await api.get<{ data: ReferenceSummary[] }>(`${BASE}/references`, {
+    params: { q: params.q || undefined, company_id: params.company_id },
+  })
+  return data.data
 }
