@@ -1,0 +1,44 @@
+# Build the Vue app on every push to master and put the finished files (dist)
+# in the "deploy" branch. Hostinger deploys that branch (hPanel → Advanced → Git).
+name: Build and deploy
+
+on:
+  push:
+    branches: [master]
+  # Also lets you run it by hand from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# A newer push cancels a build still running.
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Type check + Vite build. The API address comes from .env.production
+      # (https://api.afwanassociatesltd.com.bd); a VITE_API_URL repository
+      # variable, if set, replaces it.
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL || 'https://api.afwanassociatesltd.com.bd' }}
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: deploy
+          publish_dir: ./dist
+          force_orphan: true
