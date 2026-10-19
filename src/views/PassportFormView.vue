@@ -50,7 +50,7 @@ const backTarget = computed<RouteLocationRaw>(() => {
 const backLabel = computed(() =>
   typeof backTarget.value === 'string' && backTarget.value.startsWith('/reports/companies')
     ? 'Company'
-    : 'Passport list',
+    : 'Passport Entry List',
 )
 const toast = useToast()
 const countries = useCountriesStore()

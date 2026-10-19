@@ -16,8 +16,10 @@ import type { StepRecord, StepRecordSummary } from '@/types/workflow'
 
 /**
  * A passport's steps as a vertical timeline: each step's state, latest record and older
- * records (collapsed). Read-only: steps are recorded and changed on their own pages; the one
- * button here is "Undo latest step" for admins.
+ * records (collapsed). Read-only: steps are recorded and changed on their own pages. For
+ * admins, each undo sits in its own step: "Undo latest step" under the latest record,
+ * "Undo medical result" in Medical and "Undo Online mark" in the first recorded step (where
+ * the Online badge is).
  */
 const props = defineProps<{
   passport: PassportEntry
@@ -25,8 +27,10 @@ const props = defineProps<{
   history: Record<string, StepRecord[]>
   role: Role | undefined
   userId: number | null
+  /** Admins, before any step record: the Online mark or the medical result to undo. */
+  earlyUndo?: { kind: 'mark' | 'medical'; label: string } | null
 }>()
-defineEmits<{ undo: [record: StepRecord] }>()
+defineEmits<{ undo: [record: StepRecord]; earlyUndo: [] }>()
 
 const workflow = useWorkflowStore()
 
@@ -289,6 +293,21 @@ const smallButton =
           </ul>
         </details>
       </template>
+
+      <!-- Admins: undo the Online mark (by its badge) or the medical result (in Medical) -->
+      <div
+        v-if="earlyUndo && step.key === (earlyUndo.kind === 'mark' ? firstRecordStep : 'medical')"
+        class="mt-2 -ml-2 flex flex-wrap gap-1"
+      >
+        <button
+          type="button"
+          :class="[smallButton, 'text-red-700 hover:bg-red-50']"
+          data-early-undo
+          @click="$emit('earlyUndo')"
+        >
+          {{ earlyUndo.label }}
+        </button>
+      </div>
     </li>
   </ol>
 </template>

@@ -198,3 +198,31 @@ export interface StepResultPayload {
   result_date: string
   [field: string]: unknown
 }
+
+/** A passport saved by a bulk action, with what an admin needs to undo it. */
+export interface BulkUpdated {
+  id: number
+  passport_number: string
+  passport_name: string
+  /** The new or changed record (start, result, booking, confirm). */
+  record_id?: number
+  /** BMET: the actions marked, in order. */
+  marked?: string[]
+  /** Flight booking: the date it had before (null: none). */
+  previous_booking_date?: string | null
+  warnings: string[]
+}
+
+/** A passport a bulk action skipped, and why (the single action's own message). */
+export interface BulkSkipped {
+  id: number
+  passport_number: string
+  passport_name: string
+  reason: string
+}
+
+/** POST /steps/{step}/bulk: the passports saved and the ones skipped. */
+export interface BulkResult {
+  updated: BulkUpdated[]
+  skipped: BulkSkipped[]
+}

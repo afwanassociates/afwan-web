@@ -300,7 +300,7 @@ const inputClass =
   <div class="mx-auto max-w-7xl">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Passport list</h1>
+        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Passport Entry List</h1>
         <p class="mt-1 text-sm text-muted">
           Passports entered, waiting for their medical slip.
           <RouterLink

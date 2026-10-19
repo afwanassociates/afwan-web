@@ -9,11 +9,12 @@ import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import { deleteStepRecord, listStepRecords } from '@/api/steps'
-import { getPassport, getPassportHistory } from '@/api/passports'
+import { deleteMedical } from '@/api/medical'
+import { getPassport, getPassportHistory, updateEntryMode } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { businessToday, daysLeft, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
-import { EXPIRING_SOON_DAYS } from '@/lib/medical'
+import { EXPIRING_SOON_DAYS, isMedicalAdmin } from '@/lib/medical'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { PassportEntry, PassportHistoryEvent } from '@/types/passport'
@@ -105,6 +106,69 @@ async function confirmUndo() {
   }
 }
 
+/*
+ * ---------- Steps 1-2: undo for admins ----------
+ * Before Calling there is no step record, so "Undo latest step" (above) has nothing to
+ * remove. Admins can still go back one step at a time, latest first: the Online mark, then
+ * the medical result. (The slip has no undo: the Medical page's Edit slip changes it.) The timeline shows each button in its own step. Undo is for admin and
+ * super_admin only (the API refuses others).
+ */
+
+type EarlyUndo = { kind: 'mark' | 'medical'; label: string; text: string }
+
+const earlyUndo = computed<EarlyUndo | null>(() => {
+  const p = passport.value
+  if (!p || !isMedicalAdmin(auth.user?.role)) return null
+  if (Object.values(stepHistory.value).some((records) => records.length > 0)) return null
+  if (p.entry_mode)
+    return {
+      kind: 'mark',
+      label: 'Undo Online mark',
+      text: 'Clear the Online mark? The passport goes back to the Medical Fit tab.',
+    }
+  const m = p.current_medical
+  if (m)
+    return {
+      kind: 'medical',
+      label: 'Undo medical result',
+      text: `Remove the medical result “${m.result === 'fit' ? 'Fit' : 'Unfit'}” of ${toDisplayDate(m.medical_date)}? The passport goes back to Medical pending (or its previous result).`,
+    }
+  return null
+})
+
+const earlyUndoOpen = ref(false)
+const earlyUndoBusy = ref(false)
+const earlyUndoError = ref<string | null>(null)
+
+function askEarlyUndo() {
+  earlyUndoError.value = null
+  earlyUndoOpen.value = true
+}
+
+async function confirmEarlyUndo() {
+  const p = passport.value
+  const undo = earlyUndo.value
+  if (!p || !undo) return
+  earlyUndoBusy.value = true
+  earlyUndoError.value = null
+  try {
+    if (undo.kind === 'mark') await updateEntryMode(p.id, null)
+    else if (p.current_medical) await deleteMedical(p.current_medical.id)
+    earlyUndoOpen.value = false
+    toast.success(
+      `${p.passport_number}: ${undo.kind === 'mark' ? 'Online mark' : 'medical result'} undone.`,
+    )
+    afterChange()
+  } catch (error) {
+    const code = errorStatus(error)
+    if (code === 403) earlyUndoError.value = 'Only admins can undo a step.'
+    else if (code !== 401)
+      earlyUndoError.value = errorMessage(error, 'Could not undo. Please try again.')
+  } finally {
+    earlyUndoBusy.value = false
+  }
+}
+
 /* ---------- Derived ---------- */
 
 const medical = computed(() => passport.value?.current_medical ?? null)
@@ -135,7 +199,7 @@ const medicalAction = computed(() => {
 const backLink = computed(() =>
   isUnfit.value
     ? { to: { name: 'medical', query: { tab: 'unfit' } }, label: 'Medical · Unfit' }
-    : { to: { name: 'passports' }, label: 'Passport list' },
+    : { to: { name: 'passports' }, label: 'Passport Entry List' },
 )
 
 /* ---------- Medical slip ---------- */
@@ -216,7 +280,9 @@ const dd = 'font-medium text-ink'
             :history="stepHistory"
             :role="auth.user?.role"
             :user-id="auth.user?.id ?? null"
+            :early-undo="earlyUndo"
             @undo="askUndo"
+            @early-undo="askEarlyUndo"
           />
         </div>
       </section>
@@ -353,6 +419,18 @@ const dd = 'font-medium text-ink'
           undoTarget.status_label
         }}” of {{ toDisplayDate(undoTarget.step_date) }}? The passport goes back to that step.
       </p>
+    </ConfirmDialog>
+
+    <ConfirmDialog
+      v-model:open="earlyUndoOpen"
+      :title="earlyUndo?.label ?? 'Undo'"
+      confirm-label="Undo"
+      danger
+      :busy="earlyUndoBusy"
+      :error="earlyUndoError"
+      @confirm="confirmEarlyUndo"
+    >
+      <p v-if="earlyUndo">{{ earlyUndo.text }}</p>
     </ConfirmDialog>
   </div>
 </template>

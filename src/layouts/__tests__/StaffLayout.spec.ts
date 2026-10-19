@@ -12,7 +12,7 @@ vi.mock('@/api/workflow', () => ({
   fetchWorkflowSummary: vi.fn(async () => ({
     steps: [],
     step1: { total_all: 24, total_active: 20, incomplete: 3 },
-    step2: { pending: 7, fit: 5, expiring_soon: 1, expired: 2, unfit: 4 },
+    step2: { not_started: 12, pending: 7, fit: 5, expiring_soon: 1, expired: 2, unfit: 4 },
     step3: { enabled: false, ready: 0 },
     // The badge is the Pending tab's count (step_tabs), not the stage's.
     stages: { calling: { total: 5, waiting: 9, in_process: 1, rejected: 1 } },
@@ -99,7 +99,7 @@ describe('StaffLayout menu', () => {
         'Company Report',
         'All Passports',
         'Add Passport',
-        'Passport List',
+        'Passport Entry List',
         'Medical',
         'Calling / Work Permit',
         'Visa',
@@ -117,7 +117,7 @@ describe('StaffLayout menu', () => {
         'Company Report',
         'All Passports',
         'Add Passport',
-        'Passport List',
+        'Passport Entry List',
         'Medical',
         'Calling / Work Permit',
         'Visa',
@@ -135,7 +135,7 @@ describe('StaffLayout menu', () => {
         'Company Report',
         'All Passports',
         'Add Passport',
-        'Passport List',
+        'Passport Entry List',
         'Medical',
         'Calling / Work Permit',
         'Visa',
@@ -237,6 +237,10 @@ describe('StaffLayout menu', () => {
         .findAll('nav[aria-label="Staff portal"] a')
         .find((a) => a.find('[data-label]').text() === label)!
     expect(link('Medical').find('[data-badge]').text()).toBe('7 pending')
+    // Passport Entry List: the passports still waiting for a medical slip.
+    expect(link('Passport Entry List').find('[data-badge]').text()).toBe(
+      '12 waiting for a medical slip',
+    )
     expect(navLabels()).not.toContain('Unfit Passports')
   })
 })

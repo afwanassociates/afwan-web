@@ -17,7 +17,7 @@ import { listPassports, updateEntryMode } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { useDebounce } from '@/composables/useDebounce'
 import { errorMessage, errorStatus, firstFieldError } from '@/lib/errors'
-import { canAccessArea } from '@/lib/roles'
+import { ADMIN_ROLES, canAccessArea } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { MedicalCenterSummary, MedicalResult, MedicalStatus } from '@/types/medical'
@@ -436,6 +436,8 @@ async function confirmResult() {
 const ONLINE: { value: EntryMode; label: string } = { value: 'online', label: 'Online' }
 /** How long the "Undo" toast stays. */
 const UNDO_MS = 6000
+/** Undo (clearing the Online mark) is for admin and super_admin only; the API refuses others. */
+const canUndo = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
 
 /** Passports with a mark request running (no double clicks). */
 const marking = ref(new Set<number>())
@@ -455,7 +457,7 @@ function afterMarkChange() {
 
 /**
  * Marks the passport: the row leaves the tab at once (optimistic) and the passport moves to
- * Calling / Work Permit. On an error the row comes back. The toast offers Undo for a while.
+ * Calling / Work Permit. On an error the row comes back. The toast offers admins Undo for a while.
  */
 async function mark(entry: PassportEntry, mode: EntryMode) {
   if (marking.value.has(entry.id) || !list.value) return
@@ -467,7 +469,7 @@ async function mark(entry: PassportEntry, mode: EntryMode) {
     const label = updated.entry_mode?.label ?? ONLINE.label
     toast.success(`${entry.passport_number}: Moved to Calling / Work Permit (${label})`, {
       duration: UNDO_MS,
-      action: { label: 'Undo', run: () => undoMark(entry) },
+      ...(canUndo.value ? { action: { label: 'Undo', run: () => undoMark(entry) } } : {}),
     })
     afterMarkChange()
   } catch (error) {
@@ -577,7 +579,7 @@ const actionClass =
           :to="{ name: 'passports' }"
           class="font-semibold text-primary-700 underline underline-offset-2"
         >
-          Add their slip from the Passport list
+          Add their slip from the Passport Entry List
         </RouterLink>
       </p>
 

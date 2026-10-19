@@ -9,12 +9,14 @@ import { searchCompanies } from '@/api/companies'
 import { downloadPassportOverviewCsv, listPassportOverview } from '@/api/passports'
 import { fetchCompanyReport } from '@/api/reports'
 import { useDebounce } from '@/composables/useDebounce'
+import { businessToday, datePresetRange, toDisplayDate } from '@/lib/dates'
 import { useToast } from '@/composables/useToast'
 import { countryName } from '@/lib/companyReport'
 import { referenceSubtitle, searchReferenceOptions } from '@/lib/referenceOptions'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { canAccessArea } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
+import { useWorkflowStore } from '@/stores/workflow'
 import type { Paginated } from '@/types/auth'
 import type { CompanySummary, PassportOverview, ReferenceSummary } from '@/types/passport'
 
@@ -31,7 +33,6 @@ const PER_PAGE = 15
 /** Query keys of older versions of this page; ignored and dropped from the URL. */
 const OLD_KEYS = [
   'status',
-  'stage',
   'medical_status',
   'sort',
   'company_id',
@@ -68,6 +69,34 @@ const fetchCompanies = (query: string) =>
   isDataEntry.value ? searchCompanies(query) : searchReportCompanies(query)
 
 const searchId = useId()
+const stageId = useId()
+const dateId = useId()
+const dateFromId = useId()
+const dateToId = useId()
+
+/* ---------- Step and date filters ---------- */
+
+const workflow = useWorkflowStore()
+
+/** Every step from the workflow (labels from the API), then Completed. */
+const stageOptions = computed(() => [
+  ...[...(workflow.summary?.steps ?? [])]
+    .filter((s) => s.enabled)
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .map((s) => ({ value: s.key, label: s.label })),
+  { value: 'completed', label: 'Completed' },
+])
+
+const DATE_OPTIONS = [
+  { value: '', label: 'Any time' },
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This week' },
+  { value: 'month', label: 'This month' },
+  { value: 'custom', label: 'Custom range' },
+] as const
+type DateFilter = (typeof DATE_OPTIONS)[number]['value']
+const isDateFilter = (value: string): value is DateFilter =>
+  DATE_OPTIONS.some((o) => o.value === value)
 
 /** With a company chosen, only references that have passports of that company. */
 const fetchReferences = (query: string) =>
@@ -79,8 +108,13 @@ const filters = computed(() => {
   const page = Number(text(route.query.page))
   const companyId = Number(text(route.query.company_id))
   const referenceId = Number(text(route.query.reference_id))
+  const date = text(route.query.date)
   return {
     q: text(route.query.q).trim(),
+    stage: text(route.query.stage),
+    date: isDateFilter(date) ? date : '',
+    date_from: text(route.query.date_from),
+    date_to: text(route.query.date_to),
     reference_id: Number.isInteger(referenceId) && referenceId > 0 ? referenceId : null,
     company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
     page: Number.isInteger(page) && page > 1 ? page : 1,
@@ -89,8 +123,28 @@ const filters = computed(() => {
 type Filters = typeof filters.value
 
 const hasFilters = computed(() =>
-  Boolean(filters.value.q || filters.value.reference_id || filters.value.company_id),
+  Boolean(
+    filters.value.q ||
+    filters.value.reference_id ||
+    filters.value.company_id ||
+    filters.value.stage ||
+    filters.value.date,
+  ),
 )
+
+/**
+ * The step status date range sent to the API: Today, This week (from Saturday) or This month
+ * (from the 1st) end today in Dhaka; Custom range uses the From / To dates.
+ */
+const statusDates = computed(() => {
+  const f = filters.value
+  if (f.date === 'custom') return { from: f.date_from || undefined, to: f.date_to || undefined }
+  if (f.date) {
+    const { from, to } = datePresetRange(f.date, businessToday())
+    return { from, to }
+  }
+  return { from: undefined, to: undefined }
+})
 
 /** The current query with `changes` applied; a search change goes back to page 1. */
 function queryWith(changes: Partial<Filters>): LocationQuery {
@@ -102,6 +156,11 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
     else query[key] = String(value)
   }
   set('q', next.q)
+  set('stage', next.stage)
+  set('date', next.date)
+  // From / To only for a custom range.
+  set('date_from', next.date === 'custom' ? next.date_from : null)
+  set('date_to', next.date === 'custom' ? next.date_to : null)
   set('reference_id', next.reference_id)
   set('company_id', next.company_id)
   set('page', next.page)
@@ -118,6 +177,19 @@ const searchDebounce = useDebounce(
   () => router.replace({ query: queryWith({ q: search.value.trim() }) }),
   300,
 )
+function onStageChange(event: Event) {
+  router.replace({ query: queryWith({ stage: (event.target as HTMLSelectElement).value }) })
+}
+
+function onDateChange(event: Event) {
+  const value = (event.target as HTMLSelectElement).value
+  router.replace({ query: queryWith({ date: isDateFilter(value) ? value : '' }) })
+}
+
+function onCustomDate(key: 'date_from' | 'date_to', event: Event) {
+  router.replace({ query: queryWith({ [key]: (event.target as HTMLInputElement).value }) })
+}
+
 function onReferenceSelected(value: ReferenceSummary | null) {
   selectedReference.value = value
   router.replace({ query: queryWith({ reference_id: value?.id ?? null }) })
@@ -133,7 +205,17 @@ function clearFilters() {
   selectedReference.value = null
   selectedCompany.value = null
   searchDebounce.cancel()
-  router.replace({ query: queryWith({ q: '', reference_id: null, company_id: null }) })
+  router.replace({
+    query: queryWith({
+      q: '',
+      reference_id: null,
+      company_id: null,
+      stage: '',
+      date: '',
+      date_from: '',
+      date_to: '',
+    }),
+  })
 }
 
 // Back / forward: show what the URL says.
@@ -166,6 +248,9 @@ async function exportCsv() {
       q: f.q || undefined,
       reference_id: f.reference_id ?? undefined,
       company_id: f.company_id ?? undefined,
+      stage: f.stage || undefined,
+      status_date_from: statusDates.value.from,
+      status_date_to: statusDates.value.to,
     })
     toast.success(`Downloaded ${fileName}.`)
   } catch (error) {
@@ -187,6 +272,9 @@ async function load() {
       q: f.q || undefined,
       reference_id: f.reference_id ?? undefined,
       company_id: f.company_id ?? undefined,
+      stage: f.stage || undefined,
+      status_date_from: statusDates.value.from,
+      status_date_to: statusDates.value.to,
       page: f.page,
       per_page: PER_PAGE,
     })
@@ -306,6 +394,72 @@ const inputClass =
             data-company-filter
             @update:model-value="onCompanySelected"
           />
+        </div>
+        <!-- Step and date (the date of the passport's current step status) -->
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <label :for="stageId" class="block text-sm font-medium text-slate-700">Step</label>
+            <select
+              :id="stageId"
+              :value="filters.stage"
+              :class="inputClass"
+              data-stage-filter
+              @change="onStageChange"
+            >
+              <option value="">All steps</option>
+              <option v-for="o in stageOptions" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </option>
+            </select>
+          </div>
+          <div>
+            <label :for="dateId" class="block text-sm font-medium text-slate-700">Date</label>
+            <select
+              :id="dateId"
+              :value="filters.date"
+              :class="inputClass"
+              :aria-describedby="`${dateId}-hint`"
+              data-date-filter
+              @change="onDateChange"
+            >
+              <option v-for="o in DATE_OPTIONS" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </option>
+            </select>
+            <p :id="`${dateId}-hint`" class="mt-1 text-xs text-muted">
+              <template v-if="statusDates.from || statusDates.to">
+                {{ toDisplayDate(statusDates.from) || '…' }} –
+                {{ toDisplayDate(statusDates.to) || '…' }} ·
+              </template>
+              date of the current step's status
+            </p>
+          </div>
+          <template v-if="filters.date === 'custom'">
+            <div>
+              <label :for="dateFromId" class="block text-sm font-medium text-slate-700">From</label>
+              <input
+                :id="dateFromId"
+                type="date"
+                :value="filters.date_from"
+                :max="filters.date_to || undefined"
+                :class="inputClass"
+                data-date-from
+                @change="onCustomDate('date_from', $event)"
+              />
+            </div>
+            <div>
+              <label :for="dateToId" class="block text-sm font-medium text-slate-700">To</label>
+              <input
+                :id="dateToId"
+                type="date"
+                :value="filters.date_to"
+                :min="filters.date_from || undefined"
+                :class="inputClass"
+                data-date-to
+                @change="onCustomDate('date_to', $event)"
+              />
+            </div>
+          </template>
         </div>
         <button
           v-if="hasFilters"

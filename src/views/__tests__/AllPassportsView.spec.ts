@@ -271,13 +271,15 @@ describe('All Passports (read-only overview)', () => {
     expect(wrapper.find('th button').exists()).toBe(false)
   })
 
-  it('has no "Completed" option, card or count', async () => {
+  it('has no "Completed" card or count in the step bar (Completed is only a Step filter option)', async () => {
     await mountPage()
 
     expect(wrapper.find('[data-step="completed"]').exists()).toBe(false)
     expect(wrapper.find('[data-completed]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Completed')
-    expect(wrapper.find('option').exists()).toBe(false)
+    expect(wrapper.get('nav[aria-label="Workflow steps"]').text()).not.toContain('Completed')
+    // The only selects are the Step and Date filters.
+    expect(wrapper.findAll('select[data-stage-filter], select[data-date-filter]')).toHaveLength(2)
+    expect(wrapper.findAll('select')).toHaveLength(2)
   })
 
   it('always asks for the overview of every status, with no sort (newest first)', async () => {
@@ -304,6 +306,113 @@ describe('All Passports (read-only overview)', () => {
     expect(lastFilters()).toEqual(expect.objectContaining({ medical_status: 'all', q: 'rahim' }))
     expect(lastFilters()!.sort).toBeUndefined()
     expect(lastFilters()!.company_id).toBeUndefined()
+  })
+
+  describe('Step and date filters', () => {
+    const stageSelect = () => wrapper.get<HTMLSelectElement>('select[data-stage-filter]')
+    const dateSelect = () => wrapper.get<HTMLSelectElement>('select[data-date-filter]')
+
+    it('lists every enabled step from the workflow, then Completed', async () => {
+      await mountPage()
+
+      expect(
+        stageSelect()
+          .findAll('option')
+          .map((o) => [o.attributes('value'), o.text()]),
+      ).toEqual([
+        ['', 'All steps'],
+        ['passport', 'Passport'],
+        ['medical', 'Medical'],
+        ['completed', 'Completed'],
+      ])
+      expect(
+        dateSelect()
+          .findAll('option')
+          .map((o) => o.text()),
+      ).toEqual(['Any time', 'Today', 'This week', 'This month', 'Custom range'])
+    })
+
+    it('sends the step and the date range (Today / This week / This month end today in Dhaka)', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      // 18-10-2026, Sunday, midday in Dhaka.
+      vi.setSystemTime(new Date('2026-10-18T06:00:00Z'))
+      try {
+        await mountPage()
+
+        await stageSelect().setValue('medical')
+        await flushPromises()
+        expect(router.currentRoute.value.query.stage).toBe('medical')
+        expect(lastFilters()).toEqual(expect.objectContaining({ stage: 'medical' }))
+
+        await dateSelect().setValue('today')
+        await flushPromises()
+        expect(lastFilters()).toEqual(
+          expect.objectContaining({
+            stage: 'medical',
+            status_date_from: '2026-10-18',
+            status_date_to: '2026-10-18',
+          }),
+        )
+
+        await dateSelect().setValue('week')
+        await flushPromises()
+        expect(lastFilters()).toEqual(
+          expect.objectContaining({ status_date_from: '2026-10-17', status_date_to: '2026-10-18' }),
+        )
+
+        await dateSelect().setValue('month')
+        await flushPromises()
+        expect(router.currentRoute.value.query).toEqual({ stage: 'medical', date: 'month' })
+        expect(lastFilters()).toEqual(
+          expect.objectContaining({ status_date_from: '2026-10-01', status_date_to: '2026-10-18' }),
+        )
+        const hint = wrapper
+          .get('select[data-date-filter]')
+          .element.parentElement!.querySelector('p')!
+        expect(hint.textContent!.replace(/\s+/g, ' ').trim()).toBe(
+          "01-10-2026 – 18-10-2026 · date of the current step's status",
+        )
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('Custom range shows From / To and sends them; they are kept in the URL', async () => {
+      await mountPage('admin', '/all-passports?date=custom&date_from=2026-09-01&date_to=2026-09-30')
+
+      expect(wrapper.get<HTMLInputElement>('input[data-date-from]').element.value).toBe(
+        '2026-09-01',
+      )
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ status_date_from: '2026-09-01', status_date_to: '2026-09-30' }),
+      )
+
+      await wrapper.get('input[data-date-to]').setValue('2026-09-15')
+      await flushPromises()
+      expect(router.currentRoute.value.query.date_to).toBe('2026-09-15')
+      expect(lastFilters()).toEqual(expect.objectContaining({ status_date_to: '2026-09-15' }))
+    })
+
+    it('Clear searches resets the step and the date; Export CSV uses them', async () => {
+      const { downloadPassportOverviewCsv } = await import('@/api/passports')
+      await mountPage('admin', '/all-passports?stage=completed&date=custom&date_from=2026-09-01')
+
+      await wrapper.get('button[data-export]').trigger('click')
+      await flushPromises()
+      expect(downloadPassportOverviewCsv).toHaveBeenCalledWith(
+        expect.objectContaining({ stage: 'completed', status_date_from: '2026-09-01' }),
+      )
+
+      await wrapper
+        .findAll('button')
+        .find((b) => b.text() === 'Clear searches')!
+        .trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({})
+      expect(wrapper.find('input[data-date-from]').exists()).toBe(false)
+      expect(lastFilters()!.stage).toBeUndefined()
+      expect(lastFilters()!.status_date_from).toBeUndefined()
+    })
   })
 
   describe('Filter by reference', () => {
@@ -437,13 +546,13 @@ describe('All Passports (read-only overview)', () => {
     it('keeps the removed controls, columns and "Completed" out', async () => {
       await mountPage('admin', '/all-passports?company=desert')
 
-      expect(wrapper.find('select').exists()).toBe(false)
+      // Only the Step and Date selects.
+      expect(wrapper.findAll('select')).toHaveLength(2)
       expect(wrapper.text()).not.toMatch(/Company country|Sort by|Any company|All countries/)
       const headers = wrapper.findAll('thead th').map((th) => th.text().trim())
       expect(headers).not.toContain('Country')
       expect(headers).not.toContain('Passport expiry')
       expect(wrapper.find('[data-step="completed"]').exists()).toBe(false)
-      expect(wrapper.text()).not.toContain('Completed')
     })
   })
 })

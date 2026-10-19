@@ -161,6 +161,10 @@ export interface PassportFilters {
   view?: 'overview'
   /** Current step: medical, calling, visa, bmet, flight or completed. */
   stage?: string
+  /** YYYY-MM-DD: the current step status date from (All Passports' date filter). */
+  status_date_from?: string
+  /** YYYY-MM-DD: the current step status date to. */
+  status_date_to?: string
   /** Status at that step: pending, unfit, waiting, in_process or rejected. */
   stage_status?: string
   direction?: 'asc' | 'desc'

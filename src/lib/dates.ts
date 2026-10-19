@@ -109,3 +109,27 @@ export function daysLeft(validUntilYmd: string, todayYmd: string): number | null
   const utc = ([y, m, d]: [number, number, number]) => Date.UTC(y, m - 1, d)
   return Math.round((utc(until) - utc(today)) / 86_400_000)
 }
+
+/** Quick date ranges for list filters. */
+export type DatePreset = 'today' | 'week' | 'month'
+
+/**
+ * The YYYY-MM-DD range of a quick date filter, ending today (Dhaka): today only, this week
+ * (from Saturday, the first day of the week in Bangladesh) or this month (from the 1st).
+ */
+export function datePresetRange(
+  preset: DatePreset,
+  todayYmd: string,
+): { from: string; to: string } {
+  const parts = parseYmd(todayYmd)
+  if (!parts) return { from: todayYmd, to: todayYmd }
+  const [year, month, day] = parts
+  if (preset === 'month')
+    return { from: `${year}-${String(month).padStart(2, '0')}-01`, to: todayYmd }
+  if (preset === 'week') {
+    // getUTCDay: 0 = Sunday … 6 = Saturday; days since the last Saturday.
+    const sinceSaturday = (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 1) % 7
+    return { from: addDays(todayYmd, -sinceSaturday), to: todayYmd }
+  }
+  return { from: todayYmd, to: todayYmd }
+}

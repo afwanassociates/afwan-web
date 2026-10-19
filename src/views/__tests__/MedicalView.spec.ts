@@ -11,6 +11,7 @@ import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { PassportEntry, PassportFilters } from '@/types/passport'
+import type { Role } from '@/types/auth'
 
 vi.mock('@/api/passports', () => ({
   listPassports: vi.fn(),
@@ -82,10 +83,10 @@ const TABS = ['pending', 'fit', 'expiring_soon', 'expired', 'unfit'] as const
 let wrapper: VueWrapper
 let router: Router
 
-async function mountMedical(path = '/medical') {
+async function mountMedical(path = '/medical', role: Role = 'data_entry') {
   const pinia = createPinia()
   setActivePinia(pinia)
-  useAuthStore().user = makeUser({ role: 'data_entry' })
+  useAuthStore().user = makeUser({ role })
   const Empty = { template: '<div />' }
   router = createRouter({
     history: createMemoryHistory(),
@@ -626,7 +627,7 @@ describe('Medical page', () => {
       vi.mocked(updateEntryMode).mockImplementation(
         () => new Promise((resolve) => (finish = resolve)),
       )
-      await mountMedical('/medical?tab=fit')
+      await mountMedical('/medical?tab=fit', 'admin')
       const summaryCalls = vi.mocked(fetchWorkflowSummary).mock.calls.length
 
       await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
@@ -651,7 +652,7 @@ describe('Medical page', () => {
         ...A,
         entry_mode: { value: 'online', label: 'Online' },
       })
-      await mountMedical('/medical?tab=fit')
+      await mountMedical('/medical?tab=fit', 'admin')
       await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
       await flushPromises()
       toasts()
@@ -676,13 +677,29 @@ describe('Medical page', () => {
       expect(updateEntryMode).toHaveBeenCalledTimes(1)
     })
 
+    it('data entry marks Online but gets no Undo (undo is for admins)', async () => {
+      const { updateEntryMode } = await import('@/api/passports')
+      vi.mocked(updateEntryMode).mockResolvedValue({
+        ...A,
+        entry_mode: { value: 'online', label: 'Online' },
+      } as PassportEntry)
+      await mountMedical('/medical?tab=fit')
+
+      await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
+      await flushPromises()
+
+      const toast = toasts().find((t) => t.message.includes('Moved to Calling'))!
+      expect(toast).toBeDefined()
+      expect(toast.action).toBeUndefined()
+    })
+
     it('Undo clears the mark (entry_mode null) and puts the row back', async () => {
       const { updateEntryMode } = await import('@/api/passports')
       vi.mocked(updateEntryMode).mockResolvedValue({
         ...A,
         entry_mode: { value: 'online', label: 'Online' },
       })
-      await mountMedical('/medical?tab=fit')
+      await mountMedical('/medical?tab=fit', 'admin')
       vi.mocked(listPassports).mockResolvedValue(page([B]))
       await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
       await flushPromises()

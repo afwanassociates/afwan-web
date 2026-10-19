@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
+import BulkActionBar, { type BulkAction } from '@/components/BulkActionBar.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import StepResultDialog from '@/components/StepResultDialog.vue'
 import StepStartPopover from '@/components/StepStartPopover.vue'
 import TopModal from '@/components/TopModal.vue'
@@ -11,6 +13,7 @@ import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import { searchCompanies } from '@/api/companies'
 import {
   bookFlight,
+  bulkStep,
   clearFlightBooking,
   confirmFlight,
   deleteStepRecord,
@@ -29,11 +32,12 @@ import { staffTitle } from '@/lib/pageTitle'
 import { referenceSubtitle, searchReferenceOptions } from '@/lib/referenceOptions'
 import { ADMIN_ROLES, canAccessArea } from '@/lib/roles'
 import { STICKY_ACTIONS, TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
-import { finalStatuses, isRecordStep, statusLabel } from '@/lib/workflow'
+import { finalStatuses, isRecordStep, statusLabel, stepResultPayload } from '@/lib/workflow'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { CompanySummary, ReferenceSummary } from '@/types/passport'
 import type {
+  BulkResult,
   StepAction,
   StepConfig,
   StepFieldConfig,
@@ -597,8 +601,8 @@ const setBusy = (id: number, on: boolean) => {
 
 /**
  * Marks an action done (today in Dhaka, or `date` to correct it). The row changes at once
- * (the last action takes it off Pending) and comes back on an error. A new mark gets a toast
- * with Undo.
+ * (the last action takes it off Pending) and comes back on an error. A new mark gets a toast,
+ * with Undo for admins.
  */
 async function markAction(row: StepListRow, a: StepAction, date?: string) {
   const s = step.value
@@ -626,7 +630,12 @@ async function markAction(row: StepListRow, a: StepAction, date?: string) {
         `${row.passport_number}: ${
           isComplete(a) && next ? `Moved to ${cleared} - now in ${next.label} ${nextTab}` : a.label
         }`,
-        { duration: UNDO_MS, action: { label: 'Undo', run: () => undoAction(row, a) } },
+        {
+          duration: UNDO_MS,
+          ...(canUndo.value
+            ? { action: { label: 'Undo', run: () => undoAction(row, a) } }
+            : {}),
+        },
       )
     }
   } catch (error) {
@@ -684,6 +693,12 @@ function saveDateEdit() {
 
 const UNDO_MS = 6000
 
+/**
+ * Every undo (a BMET action, the flight booking or confirmation, a new step record) is for
+ * admin and super_admin only; the API refuses the others.
+ */
+const canUndo = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
+
 /* ---------- Flight: booking date and one-click confirm ---------- */
 
 /** The booking popover (under its button). */
@@ -722,7 +737,7 @@ function confirmHint(row: StepListRow): string | undefined {
 
 /**
  * One click: the row leaves Pending at once and comes back on an error (the API's message in
- * a toast). The toast "Flight confirmed" offers Undo (the booking date is kept).
+ * a toast). The toast "Flight confirmed" offers admins Undo (the booking date is kept).
  */
 async function markConfirm(row: StepListRow) {
   const current = list.value
@@ -733,7 +748,7 @@ async function markConfirm(row: StepListRow) {
     const response = await confirmFlight(row.id)
     toast.success(`${row.passport_number}: ${statusLabel(step.value!, 'completed')}`, {
       duration: UNDO_MS,
-      action: { label: 'Undo', run: () => undoConfirm(row) },
+      ...(canUndo.value ? { action: { label: 'Undo', run: () => undoConfirm(row) } } : {}),
     })
     for (const w of response.warnings ?? []) toast.warning(w.message)
   } catch (error) {
@@ -767,8 +782,6 @@ async function undoConfirm(row: StepListRow) {
 
 /* ---------- Permitted → the next step (optimistic, with Undo for admins) ---------- */
 
-/** Only admins may delete a step record, so only they get Undo. */
-const canUndo = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
 
 /**
  * Starts the next step (calling → visa) from the Permitted tab: the row leaves at once and
@@ -816,6 +829,252 @@ async function undoNext(row: StepListRow, recordId: number) {
     load()
     workflow.refresh()
   }
+}
+
+/*
+ * ---------- Bulk update ----------
+ * Tick passports, choose one action and its date once, Apply. Calling Permitted: start the
+ * next step (Visa submitted). Visa Pending: Visa issued (one issue and expired date) or
+ * Rejected. BMET Pending: Training / Finger / Clearance done, or All done. Flight Pending:
+ * the flight date or Flight confirm. Each passport is checked by the API as its single
+ * button is; the ones it skips come back with the reason and stay selected.
+ */
+
+type BulkUndo = 'record' | 'milestone' | 'booking' | 'confirm' | null
+type BulkDef = BulkAction & {
+  apiStep: string
+  apiAction: string
+  build: (values: Record<string, string>) => Record<string, unknown>
+  /** How an admin's "Undo all" reverses it (null: no undo, e.g. a visa result). */
+  undo: BulkUndo
+}
+
+const bulkActions = computed<BulkDef[]>(() => {
+  const s = step.value
+  if (!s || !canAct.value) return []
+  const today = { defaultToday: true, notFuture: true }
+
+  // Calling Permitted: start the next step with its start date (visa submitted date).
+  if (isHandOverTab.value && nextStep.value) {
+    const next = nextStep.value
+    const label =
+      next.fields.find((f) => f.name === 'step_date')?.label ?? `${next.short_label} date`
+    return [
+      {
+        key: 'start',
+        label: label.replace(/\s+date$/i, ''),
+        fields: [{ name: 'step_date', label, ...today }],
+        apiStep: next.key,
+        apiAction: 'start',
+        build: (v) => ({ status: 'in_process', remarks: null, step_date: v.step_date }),
+        undo: 'record',
+      },
+    ]
+  }
+  if (!isPendingTab.value) return []
+
+  // BMET: each action, then all of them at once.
+  if (isMilestoneStep.value) {
+    const date = [{ name: 'date', label: 'Date', ...today }]
+    return [
+      ...actions.value.map((a) => ({
+        key: a.key,
+        label: a.label,
+        fields: date,
+        apiStep: s.key,
+        apiAction: a.key,
+        build: (v: Record<string, string>) => ({ date: v.date }),
+        undo: 'milestone' as const,
+      })),
+      {
+        key: 'all',
+        label: `All done (${actions.value.map(actionName).join(' + ')})`,
+        fields: date,
+        apiStep: s.key,
+        apiAction: 'all',
+        build: (v) => ({ date: v.date }),
+        undo: 'milestone',
+      },
+    ]
+  }
+
+  // Flight: the flight date (may be in the future), or confirm the ready ones.
+  if (isBookingStep.value) {
+    const label = bookingField.value?.label ?? 'Flight date'
+    return [
+      {
+        key: 'booking',
+        label: `Set ${label.toLowerCase()}`,
+        fields: [{ name: 'booking_date', label }],
+        apiStep: s.key,
+        apiAction: 'booking',
+        build: (v) => ({ booking_date: v.booking_date }),
+        undo: 'booking',
+      },
+      {
+        key: 'confirm',
+        label: `${s.short_label} confirm`,
+        fields: [],
+        apiStep: s.key,
+        apiAction: 'confirm',
+        build: () => ({}),
+        undo: 'confirm',
+      },
+    ]
+  }
+
+  // Visa: the result, with the dates entered once (the visa number is added per passport).
+  if (singleOutcome.value) return []
+  const dates = s.fields.filter(
+    (f) => f.phase === 'result' && f.type === 'date' && f.required_for.includes('completed'),
+  )
+  const first = dates[0]?.name ?? 'result_date'
+  const rejected = statusLabel(s, 'rejected')
+  return [
+    {
+      key: 'completed',
+      label: statusLabel(s, 'completed'),
+      fields: dates.map((f) => ({
+        name: f.name,
+        label: f.label,
+        defaultToday: f.name === first,
+        notFuture: (f.not_future_for ?? []).includes('completed'),
+        after: f.after?.replace(/^details\./, '') ?? undefined,
+      })),
+      apiStep: s.key,
+      apiAction: 'result',
+      build: (v) => stepResultPayload(s, 'completed', v[first] ?? '', v),
+      undo: null,
+    },
+    {
+      key: 'rejected',
+      label: rejected,
+      fields: [{ name: 'result_date', label: `${rejected} date`, ...today }],
+      apiStep: s.key,
+      apiAction: 'result',
+      build: (v) => stepResultPayload(s, 'rejected', v.result_date ?? '', {}),
+      undo: null,
+    },
+  ]
+})
+
+const selected = ref(new Set<number>())
+const hasBulk = computed(() => bulkActions.value.length > 0)
+const pageIds = computed(() => list.value?.data.map((r) => r.id) ?? [])
+const allOnPageSelected = computed(
+  () => pageIds.value.length > 0 && pageIds.value.every((id) => selected.value.has(id)),
+)
+
+// Another step, tab or search: start with nothing selected.
+watch(
+  () => [stepKey.value, activeTab.value, JSON.stringify(filters.value)],
+  () => (selected.value = new Set()),
+)
+
+function toggleRow(id: number) {
+  const next = new Set(selected.value)
+  if (next.has(id)) next.delete(id)
+  else next.add(id)
+  selected.value = next
+}
+
+function toggleAllOnPage() {
+  const next = new Set(selected.value)
+  for (const id of pageIds.value) {
+    if (allOnPageSelected.value) next.delete(id)
+    else next.add(id)
+  }
+  selected.value = next
+}
+
+const bulkPending = ref<{ def: BulkDef; values: Record<string, string> } | null>(null)
+const bulkConfirmOpen = ref(false)
+const bulkBusy = ref(false)
+
+/** "Mark 12 passports as Training done on 19-10-2026?" */
+const bulkQuestion = computed(() => {
+  const p = bulkPending.value
+  if (!p) return ''
+  const dates = p.def.fields
+    .map((f) => `${f.label.toLowerCase()} ${toDisplayDate(p.values[f.name])}`)
+    .join(', ')
+  const n = selected.value.size
+  return `${p.def.label} for ${n} passport${n === 1 ? '' : 's'}${dates ? ` (${dates})` : ''}?`
+})
+
+function askBulk(def: BulkAction, values: Record<string, string>) {
+  const found = bulkActions.value.find((a) => a.key === def.key)
+  if (!found) return
+  bulkPending.value = { def: found, values }
+  bulkConfirmOpen.value = true
+}
+
+async function runBulk() {
+  const pending = bulkPending.value
+  if (!pending || bulkBusy.value) return
+  const { def, values } = pending
+  const ids = [...selected.value]
+  bulkBusy.value = true
+  try {
+    const result = await bulkStep(def.apiStep, def.apiAction, ids, def.build(values))
+    bulkConfirmOpen.value = false
+    const n = result.updated.length
+    const skipped = result.skipped.length
+    toast.success(
+      `${def.label}: ${n} updated${skipped ? `, ${skipped} skipped` : ''}.`,
+      canUndo.value && def.undo && n > 0
+        ? {
+            duration: UNDO_MS,
+            action: { label: 'Undo all', run: () => undoBulk(def, result.updated) },
+          }
+        : {},
+    )
+    if (skipped)
+      toast.warning(
+        `Skipped: ${result.skipped
+          .slice(0, 5)
+          .map((p) => `${p.passport_number} (${p.reason})`)
+          .join('; ')}${skipped > 5 ? `; and ${skipped - 5} more` : ''}`,
+      )
+    // The skipped ones stay selected, to fix and try again.
+    selected.value = new Set(result.skipped.map((p) => p.id))
+  } catch (error) {
+    bulkConfirmOpen.value = false
+    if (errorStatus(error) !== 401)
+      toast.error(
+        errorStatus(error) === 422
+          ? (Object.values(fieldErrors(error))[0] ?? errorMessage(error))
+          : errorMessage(error, 'Could not save. Please try again.'),
+      )
+  } finally {
+    bulkBusy.value = false
+    load()
+    workflow.refresh()
+  }
+}
+
+/** Admins: reverse exactly that batch, one passport at a time. */
+async function undoBulk(def: BulkDef, updated: BulkResult['updated']) {
+  let failed = 0
+  for (const p of updated) {
+    try {
+      if (def.undo === 'record' && p.record_id) await deleteStepRecord(p.record_id)
+      else if (def.undo === 'milestone')
+        for (const action of [...(p.marked ?? [])].reverse())
+          await undoStepAction(p.id, def.apiStep, action)
+      else if (def.undo === 'confirm') await undoFlightConfirm(p.id)
+      else if (def.undo === 'booking')
+        if (p.previous_booking_date) await bookFlight(p.id, p.previous_booking_date)
+        else await clearFlightBooking(p.id)
+    } catch {
+      failed++
+    }
+  }
+  if (failed)
+    toast.error(`${def.label}: ${updated.length - failed} undone, ${failed} could not be undone.`)
+  else toast.success(`${def.label}: ${updated.length} undone.`)
+  load()
+  workflow.refresh()
 }
 
 const emptyTitle = computed(() =>
@@ -1047,6 +1306,21 @@ const STICKY = STICKY_ACTIONS
             </button>
           </div>
 
+          <!-- Bulk update: the bar once passports are ticked -->
+          <div v-if="hasBulk" class="mt-4">
+            <BulkActionBar
+              v-if="selected.size > 0"
+              :count="selected.size"
+              :actions="bulkActions"
+              :busy="bulkBusy"
+              @apply="askBulk"
+              @clear="selected = new Set()"
+            />
+            <p v-else class="text-xs text-muted" data-bulk-hint>
+              Tick passports to update them together.
+            </p>
+          </div>
+
           <!-- Same list body as the Medical page: loading, error, empty and pagination -->
           <div class="mt-6 border-t border-stroke pt-2">
             <PassportListBody
@@ -1062,6 +1336,19 @@ const STICKY = STICKY_ACTIONS
                 <table class="w-full text-left text-sm" data-step-table>
                   <thead :class="TABLE_HEAD">
                     <tr>
+                      <th v-if="hasBulk" scope="col" class="w-8 py-3 pr-2">
+                        <input
+                          type="checkbox"
+                          class="h-4 w-4 rounded border-slate-300"
+                          :checked="allOnPageSelected"
+                          :indeterminate="
+                            !allOnPageSelected && pageIds.some((id) => selected.has(id))
+                          "
+                          aria-label="Select all on this page"
+                          data-select-all
+                          @change="toggleAllOnPage"
+                        />
+                      </th>
                       <th scope="col" :class="th">Passport name</th>
                       <th scope="col" :class="th">Passport number</th>
                       <th scope="col" :class="th">Reference</th>
@@ -1142,6 +1429,16 @@ const STICKY = STICKY_ACTIONS
                       class="align-middle"
                       :data-row="row.id"
                     >
+                      <td v-if="hasBulk" class="py-3 pr-2">
+                        <input
+                          type="checkbox"
+                          class="h-4 w-4 rounded border-slate-300"
+                          :checked="selected.has(row.id)"
+                          :aria-label="`Select ${row.passport_name}`"
+                          data-select-row
+                          @change="toggleRow(row.id)"
+                        />
+                      </td>
                       <td class="py-3 pr-4" data-cell="passport_name">
                         <RouterLink
                           :to="{ name: 'passport-detail', params: { id: row.id } }"
@@ -1495,7 +1792,7 @@ const STICKY = STICKY_ACTIONS
         :label="bookingField?.label ?? 'Booking date'"
         :value="booking.row.booking_date ?? null"
         :save="(date) => saveBooking(booking!.row, date)"
-        :clear="() => clearBooking(booking!.row)"
+        :clear="canUndo ? () => clearBooking(booking!.row) : undefined"
         @close="booking = null"
       />
       <TopModal
@@ -1554,5 +1851,18 @@ const STICKY = STICKY_ACTIONS
       <div class="h-64 rounded-2xl bg-slate-200" />
       <span class="sr-only">Loading the step…</span>
     </div>
+    <ConfirmDialog
+      v-model:open="bulkConfirmOpen"
+      title="Bulk update"
+      :confirm-label="`Apply to ${selected.size}`"
+      :busy="bulkBusy"
+      @confirm="runBulk"
+    >
+      <p>{{ bulkQuestion }}</p>
+      <p class="mt-2 text-sm text-muted">
+        Each passport is checked as if done one by one; any that cannot be updated are skipped
+        and listed.
+      </p>
+    </ConfirmDialog>
   </div>
 </template>

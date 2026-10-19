@@ -28,6 +28,7 @@ import type { StepListParams, StepListRow, StepListTab } from '@/types/workflow'
 vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 vi.mock('@/api/steps', () => ({
   listStepPassports: vi.fn(),
+  bulkStep: vi.fn(),
   downloadStepListCsv: vi.fn(async () => 'visa-issued-01-05-2026.csv'),
   startStep: vi.fn(),
   recordStepResult: vi.fn(),
@@ -279,7 +280,12 @@ const lastListCall = () => {
   return calls[calls.length - 1]!
 }
 const toDisplay = (iso: string) => iso.split('-').reverse().join('-')
-const headers = () => wrapper.findAll('thead th').map((th) => th.text().trim())
+// The bulk checkbox column has no title: left out.
+const headers = () =>
+  wrapper
+    .findAll('thead th')
+    .filter((th) => !th.find('[data-select-all]').exists())
+    .map((th) => th.text().trim())
 const toastMessages = () => useToast().toasts.value.map((t) => t.message)
 const modal = () => {
   const el = document.body.querySelector<HTMLElement>('[data-top-modal]')
@@ -956,6 +962,206 @@ describe('Step pages (one per step)', () => {
     })
   })
 
+  describe('Bulk update', () => {
+    const tick = async (...ids: number[]) => {
+      for (const id of ids)
+        await wrapper.get(`tr[data-row="${id}"] input[data-select-row]`).trigger('change')
+    }
+    const bar = () => wrapper.get('[data-bulk-bar]')
+    const actionOptions = () =>
+      bar()
+        .findAll('select[data-bulk-action] option')
+        .map((o) => o.text())
+    /** Apply in the bar, then confirm in the dialog. */
+    const applyAndConfirm = async () => {
+      await bar().get('button[data-bulk-apply]').trigger('click')
+      await flushPromises()
+      const dialog = [...wrapper.findAll('dialog')].find(
+        (d) => d.get('h2').text() === 'Bulk update',
+      )!
+      await dialog
+        .findAll('button')
+        .find((b) => b.text().startsWith('Apply to'))!
+        .trigger('click')
+      await flushPromises()
+    }
+    const ok = (ids: number[], extra: Record<string, unknown> = {}) => ({
+      updated: ids.map((id) => ({
+        id,
+        passport_number: `NW${id}`,
+        passport_name: `P ${id}`,
+        warnings: [],
+        ...extra,
+      })),
+      skipped: [],
+    })
+
+    it('Calling Permitted: ticks rows, shows the bar and starts the visa for all of them', async () => {
+      const { bulkStep } = await import('@/api/steps')
+      vi.mocked(bulkStep).mockResolvedValue(ok([60, 61], { record_id: 900 }))
+      ROWS.permitted = [permitted(60, addDays(TODAY, 100)), permitted(61, addDays(TODAY, 100))]
+      await mountStep('/calling?tab=permitted')
+
+      expect(wrapper.find('[data-bulk-bar]').exists()).toBe(false)
+      expect(wrapper.get('[data-bulk-hint]').text()).toBe('Tick passports to update them together.')
+      await tick(60, 61)
+
+      expect(bar().get('[data-bulk-count]').text()).toBe('2 selected')
+      expect(actionOptions()).toEqual(['Visa submitted'])
+      expect(bar().get<HTMLInputElement>('input[data-bulk-field="step_date"]').element.value).toBe(
+        TODAY,
+      )
+      await applyAndConfirm()
+
+      expect(bulkStep).toHaveBeenCalledWith('visa', 'start', [60, 61], {
+        status: 'in_process',
+        remarks: null,
+        step_date: TODAY,
+      })
+      expect(toastMessages()).toContain('Visa submitted: 2 updated.')
+      // Data entry gets no Undo all.
+      const toast = useToast().toasts.value.find((t) => t.message === 'Visa submitted: 2 updated.')!
+      expect(toast.action).toBeUndefined()
+      ROWS.permitted = []
+    })
+
+    it('"Select all on this page" ticks every row', async () => {
+      ROWS.permitted = [permitted(60, addDays(TODAY, 100)), permitted(61, addDays(TODAY, 100))]
+      await mountStep('/calling?tab=permitted')
+
+      await wrapper.get('input[data-select-all]').trigger('change')
+      expect(bar().get('[data-bulk-count]').text()).toBe('2 selected')
+      await wrapper.get('input[data-select-all]').trigger('change')
+      expect(wrapper.find('[data-bulk-bar]').exists()).toBe(false)
+      ROWS.permitted = []
+    })
+
+    it('Visa Pending: Visa issued with one issue and expired date, or Rejected', async () => {
+      const { bulkStep } = await import('@/api/steps')
+      vi.mocked(bulkStep).mockResolvedValue(ok([51]))
+      await mountStep('/visa')
+      await tick(51)
+
+      expect(actionOptions()).toEqual(['Visa issued', 'Rejected'])
+      const fields = bar()
+        .findAll('input[data-bulk-field]')
+        .map((i) => i.attributes('data-bulk-field'))
+      expect(fields).toEqual(['issue_date', 'valid_until'])
+
+      // The expired date must be after the issue date.
+      await bar().get('input[data-bulk-field="valid_until"]').setValue(TODAY)
+      await bar().get('button[data-bulk-apply]').trigger('click')
+      expect(bar().text()).toContain('Must be after the issue date')
+      expect(bulkStep).not.toHaveBeenCalled()
+
+      await bar().get('input[data-bulk-field="valid_until"]').setValue(addDays(TODAY, 180))
+      await applyAndConfirm()
+      expect(bulkStep).toHaveBeenCalledWith('visa', 'result', [51], {
+        result: 'completed',
+        result_date: TODAY,
+        details: { issue_date: TODAY },
+        valid_until: addDays(TODAY, 180),
+      })
+    })
+
+    it('BMET Pending: each action and All done; skipped passports are listed and stay selected', async () => {
+      const { bulkStep } = await import('@/api/steps')
+      vi.mocked(bulkStep).mockResolvedValue({
+        ...ok([60], { marked: ['training'] }),
+        skipped: [
+          {
+            id: 61,
+            passport_number: 'NW61',
+            passport_name: 'P 61',
+            reason: 'Training done already on 05-10-2026.',
+          },
+        ],
+      })
+      await mountStep('/bmet')
+      await tick(60, 61)
+
+      expect(actionOptions()).toEqual([
+        'Training done',
+        'Finger done',
+        'BMET clearance done',
+        'All done (Training + Finger + BMET clearance)',
+      ])
+      await applyAndConfirm()
+
+      expect(bulkStep).toHaveBeenCalledWith('bmet', 'training', [60, 61], { date: TODAY })
+      expect(toastMessages()).toContain('Training done: 1 updated, 1 skipped.')
+      expect(toastMessages()).toContain('Skipped: NW61 (Training done already on 05-10-2026.)')
+      expect(bar().get('[data-bulk-count]').text()).toBe('1 selected')
+      expect(
+        wrapper.get<HTMLInputElement>('tr[data-row="61"] input[data-select-row]').element.checked,
+      ).toBe(true)
+    })
+
+    it('Flight Pending: set the flight date (may be in the future) or confirm', async () => {
+      const { bulkStep } = await import('@/api/steps')
+      vi.mocked(bulkStep).mockResolvedValue(ok([70, 71], { previous_booking_date: null }))
+      await mountStep('/flight')
+      await tick(70, 71)
+
+      // The fixture's field label is "Flight booking date" (the app's config: "Flight date").
+      expect(actionOptions()).toEqual(['Set flight booking date', 'Flight confirm'])
+      await bar().get('input[data-bulk-field="booking_date"]').setValue('2026-12-20')
+      await applyAndConfirm()
+      expect(bulkStep).toHaveBeenCalledWith('flight', 'booking', [70, 71], {
+        booking_date: '2026-12-20',
+      })
+    })
+
+    it('admins get "Undo all", which reverses exactly that batch', async () => {
+      const { bulkStep } = await import('@/api/steps')
+      vi.mocked(bulkStep).mockResolvedValue({
+        updated: [
+          {
+            id: 60,
+            passport_number: 'NW60',
+            passport_name: 'P 60',
+            marked: ['training', 'finger', 'clearance'],
+            warnings: [],
+          },
+          {
+            id: 61,
+            passport_number: 'NW61',
+            passport_name: 'P 61',
+            marked: ['finger', 'clearance'],
+            warnings: [],
+          },
+        ],
+        skipped: [],
+      })
+      vi.mocked(undoStepAction).mockResolvedValue(saved as never)
+      await mountStep('/bmet', 'admin')
+      await tick(60, 61)
+      await bar().get('select[data-bulk-action]').setValue('all')
+      await applyAndConfirm()
+
+      const toast = useToast().toasts.value.find((t) => t.message.includes('2 updated'))!
+      expect(toast.action?.label).toBe('Undo all')
+      toast.action!.run()
+      await flushPromises()
+
+      expect(vi.mocked(undoStepAction).mock.calls).toEqual([
+        [60, 'bmet', 'clearance'],
+        [60, 'bmet', 'finger'],
+        [60, 'bmet', 'training'],
+        [61, 'bmet', 'clearance'],
+        [61, 'bmet', 'finger'],
+      ])
+      expect(toastMessages().some((m) => m.endsWith('2 undone.'))).toBe(true)
+    })
+
+    it('accounts see no checkboxes or bar', async () => {
+      await mountStep('/bmet', 'accounts')
+
+      expect(wrapper.find('input[data-select-row]').exists()).toBe(false)
+      expect(wrapper.find('[data-bulk-hint]').exists()).toBe(false)
+    })
+  })
+
   describe('Export CSV', () => {
     it('downloads the current tab with the same searches and confirms with a toast', async () => {
       const { downloadStepListCsv } = await import('@/api/steps')
@@ -1193,8 +1399,23 @@ describe('Step pages (one per step)', () => {
       )
     })
 
-    it('the pencil edits and clears the date', async () => {
+    it('data entry gets no undo: no Clear in the booking popover, no Undo after Flight confirm', async () => {
       await mountStep('/flight')
+      await wrapper.get('tr[data-row="71"] button[data-booking-edit]').trigger('click')
+      await flushPromises()
+      expect(bookingPopover()!.find('button[data-date-clear]').exists()).toBe(false)
+
+      vi.mocked(confirmFlight).mockResolvedValue(saved as never)
+      await confirmButton(73).trigger('click')
+      await flushPromises()
+      const toast = useToast().toasts.value.find(
+        (t) => t.message === 'FL0000073: Flight confirmed',
+      )!
+      expect(toast.action).toBeUndefined()
+    })
+
+    it('the pencil edits and clears the date (admin)', async () => {
+      await mountStep('/flight', 'admin')
       await wrapper.get('tr[data-row="71"] button[data-booking-edit]').trigger('click')
       await flushPromises()
       let p = bookingPopover()!
@@ -1218,7 +1439,7 @@ describe('Step pages (one per step)', () => {
     it('one click confirms: the row moves at once, no double click, toast with Undo; Undo puts it back', async () => {
       let resolve!: (value: unknown) => void
       vi.mocked(confirmFlight).mockReturnValue(new Promise((r) => (resolve = r)) as never)
-      await mountStep('/flight')
+      await mountStep('/flight', 'admin')
       const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
 
       await confirmButton(73).trigger('click')
@@ -1402,7 +1623,7 @@ describe('Step pages (one per step)', () => {
     it('Mark done saves today in one click: the row changes at once, no double click, toast with Undo', async () => {
       let resolve!: (value: unknown) => void
       vi.mocked(markStepAction).mockReturnValue(new Promise((r) => (resolve = r)) as never)
-      await mountStep('/bmet')
+      await mountStep('/bmet', 'admin')
       const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
 
       await markButton(60, 'finger').trigger('click')
@@ -1462,7 +1683,7 @@ describe('Step pages (one per step)', () => {
     })
 
     it('BMET clearance moves the row to BMET cleared and to Flight Pending', async () => {
-      await mountStep('/bmet')
+      await mountStep('/bmet', 'admin')
       vi.mocked(markStepAction).mockImplementation(async () => {
         // The API: BMET cleared, and Flight Pending.
         bmetPendingRows = bmetPendingRows.filter((r) => r.id !== 62)

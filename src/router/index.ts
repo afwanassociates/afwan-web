@@ -106,7 +106,7 @@ const router = createRouter({
           path: 'passports',
           name: 'passports',
           component: () => import('@/views/PassportListView.vue'),
-          meta: { title: staffTitle('Passport list') },
+          meta: { title: staffTitle('Passport Entry List') },
         },
         {
           path: 'passports/new',

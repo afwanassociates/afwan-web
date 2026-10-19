@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { addMonthsNoOverflow, businessToday, daysLeft, toApiDate, toDisplayDate } from '@/lib/dates'
+import {
+  addMonthsNoOverflow,
+  businessToday,
+  datePresetRange,
+  daysLeft,
+  toApiDate,
+  toDisplayDate,
+} from '@/lib/dates'
 
 describe('toDisplayDate', () => {
   it('formats YYYY-MM-DD as DD-MM-YYYY', () => {
@@ -72,5 +79,27 @@ describe('businessToday', () => {
     // 20:30 UTC on 7 Oct is already 02:30 on 8 Oct in Dhaka.
     expect(businessToday(new Date('2026-10-07T20:30:00Z'))).toBe('2026-10-08')
     expect(businessToday(new Date('2026-10-07T12:00:00Z'))).toBe('2026-10-07')
+  })
+})
+
+describe('datePresetRange', () => {
+  it('today: just today', () => {
+    expect(datePresetRange('today', '2026-10-18')).toEqual({ from: '2026-10-18', to: '2026-10-18' })
+  })
+
+  it('this week starts on Saturday (Bangladesh)', () => {
+    // 18-10-2026 is a Sunday: the week began on Saturday 17-10.
+    expect(datePresetRange('week', '2026-10-18')).toEqual({ from: '2026-10-17', to: '2026-10-18' })
+    // A Saturday is the first day of its own week.
+    expect(datePresetRange('week', '2026-10-17')).toEqual({ from: '2026-10-17', to: '2026-10-17' })
+    // Friday 23-10 is the last day of that week.
+    expect(datePresetRange('week', '2026-10-23')).toEqual({ from: '2026-10-17', to: '2026-10-23' })
+    // Across a month end.
+    expect(datePresetRange('week', '2026-11-02')).toEqual({ from: '2026-10-31', to: '2026-11-02' })
+  })
+
+  it('this month starts on the 1st', () => {
+    expect(datePresetRange('month', '2026-10-18')).toEqual({ from: '2026-10-01', to: '2026-10-18' })
+    expect(datePresetRange('month', '2026-02-01')).toEqual({ from: '2026-02-01', to: '2026-02-01' })
   })
 })

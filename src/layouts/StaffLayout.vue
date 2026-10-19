@@ -58,8 +58,16 @@ const navItems = computed(() => {
   if (canSeeReports) items.push({ name: 'all-passports', label: 'All Passports' })
   if (canAccessArea(role, 'data_entry')) {
     items.push({ name: 'passport-new', label: 'Add Passport' })
-    items.push({ name: 'passports', label: 'Passport List' })
     const step2 = workflow.summary?.step2
+    // Passports entered with no medical slip yet: the rows of the Passport Entry List.
+    items.push({
+      name: 'passports',
+      label: 'Passport Entry List',
+      badge:
+        step2?.not_started === undefined
+          ? undefined
+          : { count: step2.not_started, label: 'waiting for a medical slip' },
+    })
     items.push({
       name: 'medical',
       label: 'Medical',

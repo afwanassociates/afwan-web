@@ -2,6 +2,7 @@ import api from '@/lib/api'
 import { downloadCsv } from '@/api/reports'
 import type { PassportWorkflow } from '@/types/medical'
 import type {
+  BulkResult,
   StepListParams,
   StepListResponse,
   StepPayload,
@@ -75,6 +76,24 @@ export async function listStepPassports(
     { params },
   )
   return data
+}
+
+/**
+ * One action for many passports (at most 100): visa `start` / `result`, a BMET action or
+ * `all`, flight `booking` / `confirm`. `data` is the body the single action takes. Each
+ * passport is checked as its single button is; the ones that fail come back in `skipped`.
+ */
+export async function bulkStep(
+  stepKey: string,
+  action: string,
+  passportIds: number[],
+  data: Record<string, unknown> = {},
+): Promise<BulkResult> {
+  const { data: result } = await api.post<BulkResult>(
+    `${BASE}/steps/${encodeURIComponent(stepKey)}/bulk`,
+    { action, passport_ids: passportIds, data },
+  )
+  return result
 }
 
 /**

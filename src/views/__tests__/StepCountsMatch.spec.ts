@@ -215,6 +215,11 @@ async function mountAt(path: string) {
     'passports',
     'medical',
     'companies',
+    // The admin's sidebar links (the Flight test switches to an admin to Undo).
+    'staff-admin',
+    'staff-users',
+    'admin-companies',
+    'settings',
   ]
   const router = createRouter({
     history: createMemoryHistory(),
@@ -291,6 +296,8 @@ describe('Flight counts', () => {
     expect(bookFlight).toHaveBeenCalledWith(42, '2026-12-03')
     expect(threeCounts('flight')).toEqual(['2', '2', '2'])
 
+    // Undo is for admins: switch to an admin before confirming, so the toast offers it.
+    useAuthStore().user = makeUser({ role: 'admin' })
     await wrapper.get('tr[data-row="41"] button[data-confirm]').trigger('click')
     await flushPromises()
     expect(threeCounts('flight')).toEqual(['1', '1', '1'])
