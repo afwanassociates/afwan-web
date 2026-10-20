@@ -26,6 +26,9 @@ import type { StepListParams, StepListRow } from '@/types/workflow'
  * All three come from the API (the list's `tab_counts`, the summary's `step_tabs`), so they
  * agree, also after a save.
  */
+vi.mock('@/api/accounts', () => ({
+  fetchApprovalSummary: vi.fn(async () => ({ pending: 2, returned_mine: 1, is_approver: true })),
+}))
 vi.mock('@/api/steps', () => ({
   listStepPassports: vi.fn(),
   startStep: vi.fn(),
@@ -219,6 +222,9 @@ async function mountAt(path: string) {
     'staff-admin',
     'staff-users',
     'admin-companies',
+    'accounts-parties',
+    'accounts-cash-book',
+    'accounts-approvals',
     'settings',
   ]
   const router = createRouter({

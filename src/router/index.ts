@@ -1,7 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { prefersReducedMotion } from '@/lib/scroll'
-import { ADMIN_ROLES, ROLES, homeRouteFor } from '@/lib/roles'
+import { ADMIN_ROLES, ROLES, USER_MANAGER_ROLES, homeRouteFor } from '@/lib/roles'
+import { ACCOUNTS_ROLES } from '@/lib/accounts'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
 import { useAuthStore } from '@/stores/auth'
@@ -69,12 +70,14 @@ const router = createRouter({
         areaRoute('super_admin'),
         areaRoute('admin'),
         areaRoute('data_entry'),
+        areaRoute('accounts_head'),
         areaRoute('accounts'),
         {
+          // Admins manage heads, accounts and data entry users; the accounts head, accounts users.
           path: 'admin/users',
           name: 'staff-users',
           component: () => import('@/views/staff/UsersView.vue'),
-          meta: { area: 'admin', title: staffTitle('Users') },
+          meta: { roles: USER_MANAGER_ROLES, title: staffTitle('Users') },
         },
         {
           // Admin panel › Companies: admin and super_admin only.
@@ -200,6 +203,67 @@ const router = createRouter({
           name: 'company-report',
           component: () => import('@/views/CompanyView.vue'),
           meta: { title: staffTitle('Company') },
+        },
+      ],
+    },
+    {
+      // Accounts: parties / owners with their ledgers, and cash management.
+      // accounts, admin and super_admin (deleting is admin-only).
+      path: '/accounts',
+      meta: { requiresAuth: true, layout: 'staff', roles: ACCOUNTS_ROLES },
+      children: [
+        { path: '', redirect: { name: 'accounts-parties' } },
+        {
+          path: 'parties',
+          name: 'accounts-parties',
+          component: () => import('@/views/accounts/PartiesView.vue'),
+          meta: { title: staffTitle('Parties') },
+        },
+        {
+          // The page sets its own title from the party.
+          path: 'parties/:id(\\d+)',
+          name: 'accounts-party-ledger',
+          component: () => import('@/views/accounts/PartyLedgerView.vue'),
+          meta: { title: staffTitle('Party ledger') },
+        },
+        {
+          // Entries waiting for approval (and returned ones); approvers approve here.
+          path: 'approvals',
+          name: 'accounts-approvals',
+          component: () => import('@/views/accounts/ApprovalsView.vue'),
+          meta: { title: staffTitle('Approvals') },
+        },
+        {
+          // Cash management: the layout shows today's cash in hand and the tabs.
+          path: 'cash',
+          component: () => import('@/views/accounts/CashLayout.vue'),
+          children: [
+            { path: '', redirect: { name: 'accounts-cash-book' } },
+            {
+              path: 'book',
+              name: 'accounts-cash-book',
+              component: () => import('@/views/accounts/CashBookView.vue'),
+              meta: { title: staffTitle('Cash Book') },
+            },
+            {
+              path: 'receive',
+              name: 'accounts-cash-receipts',
+              component: () => import('@/views/accounts/CashReceiptsView.vue'),
+              meta: { title: staffTitle('Cash Receive') },
+            },
+            {
+              path: 'payment',
+              name: 'accounts-cash-payments',
+              component: () => import('@/views/accounts/CashPaymentsView.vue'),
+              meta: { title: staffTitle('Cash Payment') },
+            },
+            {
+              path: 'transfer',
+              name: 'accounts-cash-transfers',
+              component: () => import('@/views/accounts/CashTransfersView.vue'),
+              meta: { title: staffTitle('Cash Transfer') },
+            },
+          ],
         },
       ],
     },

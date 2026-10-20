@@ -2,7 +2,13 @@ import { useCountriesStore } from '@/stores/countries'
 import type { CompanyCounts, CompanyReportRow, CompanyReportSortKey } from '@/types/report'
 
 /** Roles that may open the Companies report (the API's CompanyPolicy::viewReport). */
-export const REPORT_ROLES = ['data_entry', 'accounts', 'admin', 'super_admin'] as const
+export const REPORT_ROLES = [
+  'data_entry',
+  'accounts',
+  'accounts_head',
+  'admin',
+  'super_admin',
+] as const
 
 /** Count columns of the report table, in order. */
 export const COUNT_COLUMNS: readonly { key: keyof CompanyCounts; label: string }[] = [

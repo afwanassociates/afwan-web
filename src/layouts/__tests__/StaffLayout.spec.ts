@@ -8,6 +8,9 @@ import { makeUser } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { Role } from '@/types/auth'
 
+vi.mock('@/api/accounts', () => ({
+  fetchApprovalSummary: vi.fn(async () => ({ pending: 2, returned_mine: 1, is_approver: true })),
+}))
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowSummary: vi.fn(async () => ({
     steps: [],
@@ -32,6 +35,7 @@ const ROUTE_NAMES = [
   'staff-admin',
   'staff-data-entry',
   'staff-accounts',
+  'staff-accounts-head',
   'staff-users',
   'passports',
   'passport-new',
@@ -41,6 +45,9 @@ const ROUTE_NAMES = [
   'unfit',
   'companies',
   'admin-companies',
+  'accounts-parties',
+  'accounts-cash-book',
+  'accounts-approvals',
 ]
 
 async function mountAs(role: Role, path = '/home') {
@@ -105,6 +112,9 @@ describe('StaffLayout menu', () => {
         'Visa',
         'BMET Clearance',
         'Flight',
+        'Parties',
+        'Cash',
+        'Approvals',
         'Users',
         'Companies',
         'Settings',
@@ -123,6 +133,9 @@ describe('StaffLayout menu', () => {
         'Visa',
         'BMET Clearance',
         'Flight',
+        'Parties',
+        'Cash',
+        'Approvals',
         'Users',
         'Companies',
         'Settings',
@@ -143,7 +156,11 @@ describe('StaffLayout menu', () => {
         'Flight',
       ],
     ],
-    ['accounts', ['Dashboard', 'Company Report', 'All Passports']],
+    ['accounts', ['Dashboard', 'Company Report', 'All Passports', 'Parties', 'Cash', 'My entries']],
+    [
+      'accounts_head',
+      ['Dashboard', 'Company Report', 'All Passports', 'Parties', 'Cash', 'Approvals', 'Users'],
+    ],
   ] as const)('shows %s one "Dashboard" and its own screens', async (role, labels) => {
     await mountAs(role)
 

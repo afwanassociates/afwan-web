@@ -4,8 +4,16 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
+import { ACCOUNTS_ROLES } from '@/lib/accounts'
 import { REPORT_ROLES } from '@/lib/companyReport'
-import { ADMIN_ROLES, canAccessArea, homeRouteFor } from '@/lib/roles'
+import {
+  ADMIN_ROLES,
+  APPROVER_ROLES,
+  USER_MANAGER_ROLES,
+  canAccessArea,
+  homeRouteFor,
+} from '@/lib/roles'
+import { useApprovalBadge } from '@/composables/useApprovalBadge'
 import { settingsPagesFor } from '@/lib/settingsPages'
 import { isRecordStep, stepPendingCount } from '@/lib/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
@@ -41,6 +49,16 @@ watch(
       workflow.load()
       workflow.loadConfig()
     }
+  },
+  { immediate: true },
+)
+
+// The approvals badge, refreshed on every page change (approving happens on several pages).
+const approvals = useApprovalBadge()
+watch(
+  () => [auth.user?.role, route.fullPath] as const,
+  ([role]) => {
+    if (role && ACCOUNTS_ROLES.includes(role)) approvals.refresh()
   },
   { immediate: true },
 )
@@ -89,11 +107,28 @@ const navItems = computed(() => {
       })
     }
   }
-  if (canAccessArea(role, 'admin')) {
-    items.push({ name: 'staff-users', label: 'Users' })
-    // Admin panel › Companies (create / edit / deactivate).
-    if (ADMIN_ROLES.includes(role)) items.push({ name: 'admin-companies', label: 'Companies' })
+  // Accounts: parties (with their ledger pages), cash (book, receive, payment, transfer) and
+  // approvals. Approvers see "Approvals" with the entries waiting; the accounts team sees
+  // "My entries" with their own entries returned for correction.
+  if (ACCOUNTS_ROLES.includes(role)) {
+    items.push({ name: 'accounts-parties', label: 'Parties', section: '/accounts/parties' })
+    items.push({ name: 'accounts-cash-book', label: 'Cash', section: '/accounts/cash' })
+    items.push({
+      name: 'accounts-approvals',
+      label: APPROVER_ROLES.includes(role) ? 'Approvals' : 'My entries',
+      badge:
+        approvals.count.value === null
+          ? undefined
+          : {
+              count: approvals.count.value,
+              label: APPROVER_ROLES.includes(role) ? 'waiting for approval' : 'returned to you',
+            },
+    })
   }
+  // Users: for every role that manages another (admins, and the accounts head for accounts users).
+  if (USER_MANAGER_ROLES.includes(role)) items.push({ name: 'staff-users', label: 'Users' })
+  // Admin panel › Companies (create / edit / deactivate).
+  if (ADMIN_ROLES.includes(role)) items.push({ name: 'admin-companies', label: 'Companies' })
   if (settingsPagesFor(role).length > 0) {
     items.push({ name: 'settings', label: 'Settings', section: '/admin/settings' })
   }
