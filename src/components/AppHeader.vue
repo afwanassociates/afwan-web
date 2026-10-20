@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import AppLogo from '@/components/AppLogo.vue'
+import BrandLockup from '@/components/BrandLockup.vue'
 import ArrowIcon from '@/components/ArrowIcon.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useSectionNav } from '@/composables/useSectionNav'
@@ -27,23 +27,21 @@ function onSectionClick(id: string) {
 
 <template>
   <header
-    class="sticky top-0 z-40 bg-primary-900/95 text-white shadow-[0_10px_30px_-18px_rgb(0_0_60/0.8)] backdrop-blur-md"
+    class="sticky top-0 z-40 bg-primary-900/95 text-white shadow-[0_10px_30px_-18px_rgb(58_11_15/0.8)] backdrop-blur-md"
     data-surface="dark"
     @keydown.esc="menuOpen = false"
   >
     <div
       class="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:h-20 sm:px-8 lg:px-10"
     >
-      <RouterLink
-        to="/"
-        class="shrink-0 rounded-xl bg-white px-3 py-1.5 shadow-[0_8px_20px_-12px_rgb(0_0_0/0.5)]"
-        aria-label="Afwan Associates Ltd — home"
-      >
-        <AppLogo class="h-7! sm:h-8!" />
+      <RouterLink to="/" class="shrink-0 rounded-md" aria-label="Afwan Associates Ltd — home">
+        <BrandLockup dark />
       </RouterLink>
 
       <nav aria-label="Main" class="hidden lg:block">
-        <ul class="flex items-center gap-8 text-[0.95rem] font-medium">
+        <ul
+          class="flex items-center gap-5 text-sm font-medium whitespace-nowrap xl:gap-8 xl:text-[0.95rem]"
+        >
           <li v-for="link in sectionLinks" :key="link.id">
             <a
               :href="`/#${link.id}`"
@@ -56,16 +54,17 @@ function onSectionClick(id: string) {
         </ul>
       </nav>
 
-      <div class="flex items-center gap-2">
+      <div class="flex shrink-0 items-center gap-1 sm:gap-2">
         <RouterLink
           v-if="auth.user"
           :to="homeRouteFor(auth.user.role)"
-          class="btn btn-white btn-icon text-sm"
+          class="btn btn-white btn-icon text-sm max-sm:px-1.5"
         >
-          Dashboard <ArrowIcon />
+          <!-- Phones: just the round arrow, so the company name and menu still fit -->
+          <span class="max-sm:sr-only">Dashboard</span> <ArrowIcon />
         </RouterLink>
-        <RouterLink v-else to="/login" class="btn btn-white btn-icon text-sm">
-          Login <ArrowIcon />
+        <RouterLink v-else to="/login" class="btn btn-white btn-icon text-sm max-sm:px-1.5">
+          <span class="max-sm:sr-only">Login</span> <ArrowIcon />
         </RouterLink>
 
         <button

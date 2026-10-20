@@ -7,7 +7,8 @@ export interface SectionLink {
 export const sectionLinks: SectionLink[] = [
   { id: 'about', label: 'About Us' },
   { id: 'services', label: 'Services' },
-  { id: 'how-it-works', label: 'How It Works' },
+  { id: 'solar', label: 'Solar' },
+  { id: 'how-it-works', label: 'How We Work' },
   { id: 'faq', label: 'FAQ' },
   { id: 'contact', label: 'Contact' },
 ]

@@ -47,7 +47,7 @@ const router = createRouter({
       path: '/',
       name: 'home',
       component: HomeView,
-      meta: { title: `${siteName} | Manpower Recruitment and Supply` },
+      meta: { title: `${siteName} | Trade, Construction and Development` },
     },
     {
       path: '/login',

@@ -1,41 +1,63 @@
-export type ServiceIcon = 'local' | 'overseas' | 'workforce' | 'visa' | 'training'
+/** The company's main lines of business, shown in "Our Services" and the footer. */
+export type ServiceIcon = 'export' | 'contractor' | 'property' | 'land' | 'supplier' | 'solar'
+
+/** Colour of the round icon badge (theme tokens --color-tone-*), gold to deep maroon. */
+export type ServiceTone = 'gold' | 'flame' | 'rust' | 'brick' | 'maroon' | 'sun'
 
 export interface Service {
   id: string
   title: string
   description: string
   icon: ServiceIcon
+  tone: ServiceTone
 }
 
 export const services: Service[] = [
   {
-    id: 'local-recruitment',
-    title: 'Local Recruitment',
-    description: 'Sourcing and screening candidates for employers within the country.',
-    icon: 'local',
+    id: 'export-import',
+    title: 'Export - Import',
+    description:
+      'Sourcing and importing quality goods from trusted suppliers abroad and delivering them to your business.',
+    icon: 'export',
+    tone: 'gold',
   },
   {
-    id: 'overseas-placement',
-    title: 'Overseas Placement',
-    description: 'Placing qualified workers with employers abroad through a managed process.',
-    icon: 'overseas',
+    id: 'first-class-contractor',
+    title: 'First-Class Contractor',
+    description:
+      'Dependable construction and contracting works, carried out to high standards and delivered on time.',
+    icon: 'contractor',
+    tone: 'flame',
   },
   {
-    id: 'workforce-supply',
-    title: 'Skilled and Unskilled Workforce Supply',
-    description: 'Flexible supply of skilled, semi-skilled and general workers to suit your needs.',
-    icon: 'workforce',
+    id: 'property',
+    title: 'Property',
+    description:
+      'Property solutions to suit residential and commercial needs, handled with care and transparency.',
+    icon: 'property',
+    tone: 'rust',
   },
   {
-    id: 'visa-documentation',
-    title: 'Visa and Documentation Support',
-    description: 'Help with visas, work permits, medicals and all required paperwork.',
-    icon: 'visa',
+    id: 'land-development',
+    title: 'Land Development',
+    description:
+      'Planning and developing land into well-organised sites that are ready for building and growth.',
+    icon: 'land',
+    tone: 'brick',
   },
   {
-    id: 'pre-departure-training',
-    title: 'Pre-departure Training',
-    description: 'Orientation on job skills, workplace safety and life in the destination country.',
-    icon: 'training',
+    id: 'supplier',
+    title: 'Supplier',
+    description:
+      'Reliable supply of a wide range of goods, except explosive materials and chemicals.',
+    icon: 'supplier',
+    tone: 'maroon',
+  },
+  {
+    id: 'solar-energy',
+    title: 'Solar Energy',
+    description: 'Reliable solar energy solutions for homes, buildings and public infrastructure.',
+    icon: 'solar',
+    tone: 'sun',
   },
 ]

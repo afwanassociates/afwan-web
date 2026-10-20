@@ -1,39 +1,69 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Service, ServiceIcon } from '@/data/services'
+import type { Service, ServiceIcon, ServiceTone } from '@/data/services'
 
 const props = defineProps<{ service: Service }>()
 
 // Outline icons on a 24×24 grid; each entry is a list of SVG path "d" values.
 const iconPaths: Record<ServiceIcon, string[]> = {
-  local: [
-    'M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z',
-    'M9.5 10a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0',
+  // A shipping box
+  export: ['M12 3 20 7.5v9L12 21l-8-4.5v-9z', 'M4 7.5 12 12l8-4.5', 'M12 12v9', 'M8 5.25l8 4.5'],
+  // A builder's hard hat
+  contractor: [
+    'M3 17h18v2H3z',
+    'M5 17v-2a7 7 0 0 1 14 0v2',
+    'M10 8.3V6a2 2 0 0 1 4 0v2.3',
+    'M9 17v-3M15 17v-3',
   ],
-  overseas: [
-    'M3 12a9 9 0 1 0 18 0 9 9 0 1 0-18 0',
-    'M3.6 9h16.8M3.6 15h16.8',
-    'M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z',
+  // An office building
+  property: [
+    'M6 21V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v17',
+    'M4 21h16',
+    'M10 7h4M10 11h4M10 15h4',
+    'M11 21v-3h2v3',
   ],
-  workforce: [
-    'M5 7a4 4 0 1 0 8 0 4 4 0 1 0-8 0',
-    'M3 21v-1a6 6 0 0 1 6-6 6 6 0 0 1 6 6v1',
-    'M16 3.5a3.5 3.5 0 0 1 0 7',
-    'M21 21v-1a5.5 5.5 0 0 0-3.5-5.1',
+  // A folded map
+  land: ['M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20z', 'M9 4v13.5', 'M15 6.5V20'],
+  // The sun
+  solar: [
+    'M12 8a4 4 0 1 0 0 8 4 4 0 1 0 0-8',
+    'M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4',
   ],
-  visa: ['M6 3h8l5 5v13H6z', 'M14 3v5h5', 'M9 13h6M9 17h6'],
-  training: ['M2 9l10-5 10 5-10 5z', 'M6 11v5c0 1.5 2.7 3 6 3s6-1.5 6-3v-5', 'M22 9v6'],
+  // A delivery truck
+  supplier: [
+    'M3 6h11v10H3z',
+    'M14 9h4l3 3.5V16h-7',
+    'M5.5 18.5a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0',
+    'M15.5 18.5a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0',
+  ],
+}
+
+// Badge colours; the gold badge takes dark icon strokes, the others white.
+const toneClasses: Record<ServiceTone, string> = {
+  gold: 'bg-tone-gold text-cocoa-950',
+  flame: 'bg-tone-flame text-white',
+  rust: 'bg-tone-rust text-white',
+  brick: 'bg-tone-brick text-white',
+  maroon: 'bg-tone-maroon text-white',
+  sun: 'bg-tone-sun text-cocoa-950',
 }
 
 const paths = computed(() => iconPaths[props.service.icon])
 </script>
 
 <template>
-  <article class="glass-card hover-lift flex h-full flex-col p-6 sm:p-7">
-    <span class="gloss-badge h-14 w-14 rounded-full" aria-hidden="true">
+  <article
+    class="flex h-full flex-col rounded-[1.75rem] bg-white p-7 shadow-[0_24px_50px_-30px_rgb(124_27_23/0.35)] ring-1 ring-cream-100 transition-transform duration-200 hover:-translate-y-1 motion-reduce:transition-none motion-reduce:hover:translate-y-0 sm:p-8"
+    :data-service="service.id"
+  >
+    <span
+      class="flex h-14 w-14 items-center justify-center rounded-full"
+      :class="toneClasses[service.tone]"
+      aria-hidden="true"
+    >
       <svg
         viewBox="0 0 24 24"
-        class="h-7 w-7"
+        class="h-6 w-6"
         fill="none"
         stroke="currentColor"
         stroke-width="1.75"
@@ -43,7 +73,7 @@ const paths = computed(() => iconPaths[props.service.icon])
         <path v-for="d in paths" :key="d" :d="d" />
       </svg>
     </span>
-    <h3 class="mt-6 text-xl font-semibold text-ink">{{ service.title }}</h3>
-    <p class="mt-3 leading-relaxed text-muted">{{ service.description }}</p>
+    <h3 class="mt-7 text-xl font-semibold text-cocoa-950 sm:text-2xl">{{ service.title }}</h3>
+    <p class="mt-3 leading-relaxed text-cocoa-700">{{ service.description }}</p>
   </article>
 </template>

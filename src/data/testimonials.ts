@@ -1,5 +1,5 @@
 /**
- * Client and worker testimonials.
+ * Client testimonials.
  * These are placeholders — replace them with real quotes you have permission to publish.
  */
 export interface Testimonial {
@@ -11,20 +11,20 @@ export interface Testimonial {
 
 export const testimonials: Testimonial[] = [
   {
-    id: 'employer-1',
-    quote: '[Placeholder: a short quote from an employer you have supplied workers to.]',
+    id: 'client-1',
+    quote: '[Placeholder: a short quote from a client about a construction or contracting job.]',
     name: '[Client name]',
     role: '[Position, Company]',
   },
   {
-    id: 'worker-1',
-    quote: '[Placeholder: a short quote from a worker you have placed in a job.]',
-    name: '[Worker name]',
-    role: '[Job title, Country]',
+    id: 'client-2',
+    quote: '[Placeholder: a short quote from a client you have imported or supplied goods for.]',
+    name: '[Client name]',
+    role: '[Position, Company]',
   },
   {
-    id: 'employer-2',
-    quote: '[Placeholder: a short quote from another employer or partner.]',
+    id: 'client-3',
+    quote: '[Placeholder: a short quote from a property or land development client.]',
     name: '[Client name]',
     role: '[Position, Company]',
   },

@@ -63,8 +63,7 @@ function onExpiryInput(value: string) {
 /** Shown when the expiry is not the standard validity. */
 const validityHint = computed(() => {
   const expiry = toApiDate(expiryDate.value)
-  if (!standardExpiry.value || !expiry || expiry === standardExpiry.value)
-    return null
+  if (!standardExpiry.value || !expiry || expiry === standardExpiry.value) return null
   return `The standard validity is ${VALIDITY_DAYS} days (${toDisplayDate(standardExpiry.value)}). This expiry date is different.`
 })
 
@@ -167,7 +166,8 @@ const inputClass =
           @input="onExpiryInput(($event.target as HTMLInputElement).value)"
         />
         <p v-if="!errors.expiry_date" :id="`${expiryId}-hint`" class="mt-1 text-xs text-muted">
-          {{ toDisplayDate(toApiDate(expiryDate)) || 'DD-MM-YYYY' }} · after the issue date · standard {{ VALIDITY_DAYS }} days
+          {{ toDisplayDate(toApiDate(expiryDate)) || 'DD-MM-YYYY' }} · after the issue date ·
+          standard {{ VALIDITY_DAYS }} days
         </p>
         <p v-else :id="`${expiryId}-error`" class="mt-1 text-sm text-red-700">
           {{ errors.expiry_date }}

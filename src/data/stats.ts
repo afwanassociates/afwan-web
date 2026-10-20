@@ -8,8 +8,8 @@ export interface Stat {
 }
 
 export const stats: Stat[] = [
-  { value: '[000+]', label: 'Workers placed' },
-  { value: '[00+]', label: 'Partner employers' },
-  { value: '[00]', label: 'Countries served' },
+  { value: '6', label: 'Business areas' },
+  { value: '[00+]', label: 'Projects completed' },
+  { value: '[00+]', label: 'Clients served' },
   { value: '[00]', label: 'Years of experience' },
 ]

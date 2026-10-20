@@ -35,6 +35,21 @@
   --color-flame-500: #dc6430;
   --color-ember-700: #9b1c14;
 
+  /* Warm brand palette of the Services section (from the logo): cream background, maroon
+     headings, cocoa body text, and one icon colour per service from gold to deep maroon. */
+  --color-cream-50: #fff8f0;
+  --color-cream-100: #fdeedd;
+  --color-cocoa-950: #3a0b0f; /* headings */
+  --color-cocoa-700: #6b4a40; /* body copy */
+  --color-maroon-700: #7c1b17;
+  --color-maroon-950: #3d0a0e;
+  --color-tone-gold: #efb43a;
+  --color-tone-flame: #c2491f;
+  --color-tone-rust: #b8431c;
+  --color-tone-brick: #922b1c;
+  --color-tone-maroon: #5a1218;
+  --color-tone-sun: #e09a1f;
+
   /* Neutral surfaces and text */
   --color-ink: #121d35; /* headings */
   --color-muted: #636370; /* body copy */
@@ -43,6 +58,56 @@
   --color-blush: #fff0f0; /* soft pink section background */
 
   --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  /* Serif display face of the hero banners (solar, property). */
+  --font-display: 'Playfair Display', ui-serif, Georgia, serif;
+}
+
+/*
+ * Warm brand theme of the public website (cream, maroon and gold, from the logo). It re-points
+ * the navy "primary" and yellow "accent" scales inside the public layout only, so every
+ * bg-primary-900, text-accent-400, .btn… there turns maroon and gold; the staff portal keeps
+ * the navy theme.
+ */
+.theme-warm {
+  --color-primary-50: #fdf3ee;
+  --color-primary-100: #f9e3d7;
+  --color-primary-200: #f1c3ab;
+  --color-primary-300: #e49a7a;
+  --color-primary-400: #cf6d4b;
+  --color-primary-500: #b8431c;
+  --color-primary-600: #9b2c1a;
+  --color-primary-700: #7c1b17;
+  --color-primary-800: #5a1218;
+  --color-primary-900: #4a0e12;
+  --color-primary-950: #3a0b0f;
+
+  --color-accent-50: #fff8e6;
+  --color-accent-100: #feecc0;
+  --color-accent-200: #fbd98a;
+  --color-accent-300: #f6c45c;
+  --color-accent-400: #efb43a;
+  --color-accent-500: #e09a1f;
+  --color-accent-600: #c27c12;
+  --color-accent-700: #8f5a0c;
+  --color-accent-800: #6f450d;
+  --color-accent-900: #5a3a0e;
+
+  --color-ink: #3a0b0f;
+  --color-muted: #6b4a40;
+  --color-stroke: #f3e3cc;
+  --color-surface: #fbf6f0;
+  --color-blush: #fff3e6;
+
+  background-color: var(--color-cream-50);
+}
+
+/* Card shadows tinted maroon instead of navy. */
+.theme-warm .glass-card {
+  box-shadow: 0 16px 40px -28px rgb(124 27 23 / 0.35);
+}
+
+.theme-warm .hover-lift:hover {
+  box-shadow: 0 24px 48px -28px rgb(124 27 23 / 0.45);
 }
 
 @layer base {

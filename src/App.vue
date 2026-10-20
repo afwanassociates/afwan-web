@@ -21,7 +21,8 @@ const route = useRoute()
     <RouterView />
   </StaffLayout>
 
-  <div v-else class="flex min-h-screen flex-col">
+  <!-- The public website uses the warm brand theme (see .theme-warm in main.css). -->
+  <div v-else class="theme-warm flex min-h-screen flex-col">
     <AppHeader />
     <main id="main-content" tabindex="-1" class="flex-1 scroll-mt-20 focus:outline-none">
       <RouterView />

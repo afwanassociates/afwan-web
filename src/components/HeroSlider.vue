@@ -1,8 +1,17 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { Slide } from '@/data/slides'
-import ArrowIcon from '@/components/ArrowIcon.vue'
-import { prefersReducedMotion, scrollToSection } from '@/lib/scroll'
+import { computed, onBeforeUnmount, onMounted, ref, watch, type Component } from 'vue'
+import type { BannerKind, Slide } from '@/data/slides'
+import GrowthBanner from '@/components/banners/GrowthBanner.vue'
+import PropertyBanner from '@/components/banners/PropertyBanner.vue'
+import SolarBanner from '@/components/banners/SolarBanner.vue'
+import { prefersReducedMotion } from '@/lib/scroll'
+
+/** Hero carousel of full-width banners (src/components/banners), with autoplay. */
+const banners: Record<BannerKind, Component> = {
+  growth: GrowthBanner,
+  solar: SolarBanner,
+  property: PropertyBanner,
+}
 
 const props = withDefaults(
   defineProps<{
@@ -125,27 +134,15 @@ function onTouchEnd(event: TouchEvent) {
 
 // --- Presentation ---------------------------------------------------------
 
-function slideStyle(slide: Slide) {
-  if (slide.image) {
-    return {
-      backgroundImage: `linear-gradient(rgb(155 28 20 / 0.78), rgb(155 28 20 / 0.78)), url('${slide.image}')`,
-      backgroundSize: 'cover',
-      backgroundPosition: 'center',
-    }
-  }
-  return { backgroundImage: slide.background }
-}
-
-const arrowClass =
-  'absolute bottom-5 z-20 flex h-11 w-11 items-center justify-center rounded-full bg-white/15 text-white ring-1 ring-white/35 backdrop-blur-sm transition-colors hover:bg-accent-400 hover:text-primary-900 hover:ring-accent-400 md:top-1/2 md:bottom-auto md:-translate-y-1/2'
+const controlClass =
+  'flex h-8 w-8 items-center justify-center rounded-full text-white transition-colors hover:bg-white/20'
 </script>
 
 <template>
   <!-- Rounded card on a light frame, like the rest of the page -->
   <section class="bg-surface p-2 sm:p-4" aria-roledescription="carousel" :aria-label="label">
     <div
-      class="relative isolate overflow-hidden rounded-[1.75rem] bg-ember-700 text-white sm:rounded-[2.5rem]"
-      data-surface="dark"
+      class="relative isolate overflow-hidden rounded-[14px] bg-[#fdf8f1]"
       @mouseenter="isHovered = true"
       @mouseleave="isHovered = false"
       @focusin="onFocusIn"
@@ -155,7 +152,7 @@ const arrowClass =
       @touchend.passive="onTouchEnd"
     >
       <div
-        class="relative h-[38rem] sm:h-[36rem] lg:h-[40rem]"
+        class="relative h-[46rem] sm:h-[40rem] lg:h-[40rem] xl:h-[44rem]"
         :aria-live="autoplayActive ? 'off' : 'polite'"
       >
         <div
@@ -163,127 +160,88 @@ const arrowClass =
           :key="slide.id"
           role="group"
           aria-roledescription="slide"
-          :aria-label="`${i + 1} of ${count}`"
+          :aria-label="`${i + 1} of ${count}: ${slide.label}`"
           :aria-hidden="i !== current"
           :inert="i !== current"
           :data-active="i === current"
-          class="absolute inset-0 flex items-center justify-center px-5 pb-20 text-center transition-opacity duration-700 ease-in-out motion-reduce:transition-none sm:px-24 md:pb-8"
+          :data-slide="slide.id"
+          class="absolute inset-0 transition-opacity duration-700 ease-in-out motion-reduce:transition-none"
           :class="i === current ? 'z-10 opacity-100' : 'z-0 opacity-0'"
-          :style="slideStyle(slide)"
         >
-          <!-- Subtle dot pattern -->
-          <div
-            class="pointer-events-none absolute inset-0 bg-[radial-gradient(rgb(255_255_255/0.14)_1px,transparent_1px)] bg-size-[22px_22px] mask-[radial-gradient(ellipse_at_center,black_30%,transparent_75%)]"
-            aria-hidden="true"
-          />
-
-          <div class="relative mx-auto max-w-4xl">
-            <p
-              class="inline-flex items-center gap-2 rounded-full bg-white/15 px-4 py-1.5 text-xs font-medium tracking-wider text-white uppercase ring-1 ring-white/25 sm:text-sm"
-            >
-              <span class="h-2 w-2 rounded-full bg-accent-400" aria-hidden="true" />
-              Afwan Associates Ltd
-            </p>
-            <h2
-              class="mt-6 text-4xl leading-tight font-semibold tracking-tight text-white sm:text-5xl lg:text-6xl"
-            >
-              {{ slide.heading }}
-            </h2>
-            <p class="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-white sm:text-lg">
-              {{ slide.text }}
-            </p>
-            <div class="mt-10 flex flex-wrap justify-center gap-3">
-              <a
-                :href="`#${slide.cta.target}`"
-                class="btn btn-accent btn-icon"
-                @click.prevent="scrollToSection(slide.cta.target)"
-              >
-                {{ slide.cta.label }} <ArrowIcon />
-              </a>
-              <a href="#contact" class="btn btn-glass" @click.prevent="scrollToSection('contact')">
-                Contact Us
-              </a>
-            </div>
-          </div>
+          <component :is="banners[slide.kind]" />
         </div>
       </div>
 
-      <template v-if="count > 1">
-        <button
-          type="button"
-          :class="[arrowClass, 'left-4 sm:left-6']"
-          aria-label="Previous slide"
-          @click="prev"
-        >
+      <!-- Controls: a small dark pill in the bottom-right corner, readable on every banner -->
+      <div
+        v-if="count > 1"
+        class="absolute right-3 bottom-3 z-20 flex items-center gap-0.5 rounded-full bg-black/45 px-1.5 py-1 backdrop-blur-sm sm:right-5 sm:bottom-4"
+      >
+        <button type="button" :class="controlClass" aria-label="Previous slide" @click="prev">
           <svg
             viewBox="0 0 24 24"
-            class="h-5 w-5"
+            class="h-4 w-4"
             fill="none"
             stroke="currentColor"
-            stroke-width="2"
+            stroke-width="2.25"
             aria-hidden="true"
           >
             <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
         <button
+          ref="pauseButton"
           type="button"
-          :class="[arrowClass, 'right-4 sm:right-6']"
-          aria-label="Next slide"
-          @click="next"
+          :class="controlClass"
+          :aria-label="isUserPaused ? 'Play slideshow' : 'Pause slideshow'"
+          @click="togglePause"
         >
           <svg
+            v-if="isUserPaused"
             viewBox="0 0 24 24"
-            class="h-5 w-5"
+            class="h-3.5 w-3.5"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M8 5.5v13l10.5-6.5z" />
+          </svg>
+          <svg
+            v-else
+            viewBox="0 0 24 24"
+            class="h-3.5 w-3.5"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" />
+          </svg>
+        </button>
+        <button
+          v-for="(slide, i) in slides"
+          :key="slide.id"
+          type="button"
+          class="group flex h-8 w-6 items-center justify-center rounded-full"
+          :aria-label="`Go to slide ${i + 1}: ${slide.label}`"
+          :aria-current="i === current ? 'true' : undefined"
+          @click="select(i)"
+        >
+          <span
+            class="block h-2 rounded-full transition-all duration-300 motion-reduce:transition-none"
+            :class="i === current ? 'w-5 bg-tone-gold' : 'w-2 bg-white/60 group-hover:bg-white'"
+          />
+        </button>
+        <button type="button" :class="controlClass" aria-label="Next slide" @click="next">
+          <svg
+            viewBox="0 0 24 24"
+            class="h-4 w-4"
             fill="none"
             stroke="currentColor"
-            stroke-width="2"
+            stroke-width="2.25"
             aria-hidden="true"
           >
             <path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
         </button>
-
-        <div class="absolute inset-x-0 bottom-5 z-20 flex h-11 items-center justify-center gap-1">
-          <button
-            ref="pauseButton"
-            type="button"
-            class="flex h-8 w-8 items-center justify-center rounded-full text-white hover:bg-white/15"
-            :aria-label="isUserPaused ? 'Play slideshow' : 'Pause slideshow'"
-            @click="togglePause"
-          >
-            <svg
-              v-if="isUserPaused"
-              viewBox="0 0 24 24"
-              class="h-4 w-4"
-              fill="currentColor"
-              aria-hidden="true"
-            >
-              <path d="M8 5.5v13l10.5-6.5z" />
-            </svg>
-            <svg v-else viewBox="0 0 24 24" class="h-4 w-4" fill="currentColor" aria-hidden="true">
-              <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" />
-            </svg>
-          </button>
-
-          <button
-            v-for="(slide, i) in slides"
-            :key="slide.id"
-            type="button"
-            class="group flex h-8 w-8 items-center justify-center rounded-full"
-            :aria-label="`Go to slide ${i + 1}: ${slide.heading}`"
-            :aria-current="i === current ? 'true' : undefined"
-            @click="select(i)"
-          >
-            <span
-              class="block h-2.5 rounded-full transition-all duration-300 motion-reduce:transition-none"
-              :class="
-                i === current ? 'w-7 bg-accent-400' : 'w-2.5 bg-white/50 group-hover:bg-white'
-              "
-            />
-          </button>
-        </div>
-      </template>
+      </div>
     </div>
   </section>
 </template>

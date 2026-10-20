@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
+import BrandLockup from '@/components/BrandLockup.vue'
 import { company } from '@/data/company'
 import { services } from '@/data/services'
 import { sectionLinks } from '@/data/navigation'
@@ -23,12 +24,8 @@ const linkClass = 'rounded-sm transition-colors hover:text-accent-400'
       class="mx-auto grid max-w-7xl gap-10 px-4 pt-16 pb-12 sm:grid-cols-2 sm:px-6 lg:grid-cols-12 lg:gap-8 lg:px-8 lg:pt-20"
     >
       <div class="lg:col-span-4">
-        <!-- Logo on a white chip so its dark-red tones stay visible on navy -->
-        <span class="inline-block rounded-xl bg-white px-4 py-2.5">
-          <img src="/images/logo.png" alt="" width="960" height="202" class="h-9 w-auto" />
-        </span>
-        <p class="mt-5 text-lg font-semibold text-white">{{ company.name }}</p>
-        <p class="mt-3 max-w-sm text-sm leading-relaxed">{{ company.tagline }}</p>
+        <BrandLockup dark />
+        <p class="mt-5 max-w-sm text-sm leading-relaxed">{{ company.tagline }}</p>
       </div>
 
       <nav aria-labelledby="footer-quick-links" class="lg:col-span-2">
@@ -106,7 +103,12 @@ const linkClass = 'rounded-sm transition-colors hover:text-accent-400'
               <path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z" />
               <path d="M9.5 10a2.5 2.5 0 1 0 5 0 2.5 2.5 0 1 0-5 0" />
             </svg>
-            <span><span class="sr-only">Address: </span>{{ company.address }}</span>
+            <span>
+              <span class="sr-only">Address: </span>
+              <template v-for="(line, i) in company.address" :key="line"
+                ><br v-if="i > 0" />{{ line }}</template
+              >
+            </span>
           </p>
         </address>
       </div>
