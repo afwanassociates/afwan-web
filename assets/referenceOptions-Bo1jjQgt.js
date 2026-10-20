@@ -1,0 +1,1 @@
+import{o as e}from"./reports-Cwg0q3Jy.js";import{n as t}from"./references-mAwToZY9.js";function n(n,r,i){return r?t({q:n,company_id:i}):e({q:n,company_id:i})}var r=e=>e.type_label;export{n,r as t};

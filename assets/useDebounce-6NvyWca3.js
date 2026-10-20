@@ -1,0 +1,1 @@
+import{P as e,R as t}from"./runtime-core.esm-bundler-TKHxGQSZ.js";function n(n,r=300){let i;function a(){i!==void 0&&(clearTimeout(i),i=void 0)}function o(...e){a(),i=setTimeout(()=>{i=void 0,n(...e)},r)}return e()&&t(a),{run:o,cancel:a}}export{n as t};

@@ -1,0 +1,1 @@
+import{o as e}from"./errors-CjLoi1u6.js";var t=`/api/data-entry/references`;async function n(n){let{data:r}=await e.get(t,{params:{type:n.type,q:n.q||void 0,company_id:n.company_id}});return r.data}async function r(n){let{data:r}=await e.post(t,n);return r.data}export{n,r as t};
