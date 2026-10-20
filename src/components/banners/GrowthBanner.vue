@@ -32,15 +32,17 @@ const lines = [
       decoding="async"
     />
 
-    <div class="relative flex h-full flex-col px-6 pt-6 pb-16 sm:px-12 sm:pt-10 lg:px-16">
+    <div
+      class="relative flex h-full flex-col px-6 pt-6 pb-16 sm:px-12 sm:pt-10 lg:px-16 short:pt-6 short:pb-14"
+    >
       <BannerTopBar />
 
-      <div class="mt-8 max-w-3xl sm:mt-12 lg:mt-14">
+      <div class="mt-8 max-w-3xl sm:mt-12 lg:mt-14 short:mt-6">
         <p class="text-xs font-semibold tracking-[0.3em] text-tone-flame uppercase sm:text-sm">
           Trusted business partner
         </p>
         <h2
-          class="mt-4 text-4xl leading-[1.05] font-extrabold tracking-tight sm:text-6xl lg:text-7xl"
+          class="mt-4 text-4xl leading-[1.05] font-extrabold tracking-tight sm:text-6xl lg:text-7xl short:mt-3 short:text-6xl"
         >
           Building Trust.<br />
           <span class="text-tone-flame">Delivering Growth.</span>

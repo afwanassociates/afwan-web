@@ -71,14 +71,16 @@ const lines = [
       </g>
     </svg>
 
-    <div class="relative flex flex-1 flex-col px-6 pt-6 sm:px-12 sm:pt-10 lg:px-16">
+    <div class="relative flex flex-1 flex-col px-6 pt-6 sm:px-12 sm:pt-10 lg:px-16 short:pt-6">
       <BannerTopBar />
 
       <div class="my-auto max-w-2xl py-6 lg:max-w-[46%]">
         <p class="text-xs font-semibold tracking-[0.3em] text-maroon-700 uppercase sm:text-sm">
           Property · Land · Development
         </p>
-        <h2 class="mt-5 font-display text-5xl leading-[1.02] font-bold sm:text-6xl lg:text-7xl">
+        <h2
+          class="mt-5 font-display text-5xl leading-[1.02] font-bold sm:text-6xl lg:text-7xl short:mt-3 short:text-6xl"
+        >
           Property<br />
           You Can <span class="text-tone-rust italic">Trust.</span>
         </h2>

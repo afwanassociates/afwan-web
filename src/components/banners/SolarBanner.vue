@@ -134,7 +134,9 @@ const chips = [
       </li>
     </ul>
 
-    <div class="relative flex h-full flex-col px-6 pt-6 pb-16 sm:px-12 sm:pt-10 lg:px-16">
+    <div
+      class="relative flex h-full flex-col px-6 pt-6 pb-16 sm:px-12 sm:pt-10 lg:px-16 short:pt-6 short:pb-14"
+    >
       <BannerTopBar dark />
       <div class="mt-5 h-px bg-white/10" aria-hidden="true" />
 
@@ -143,7 +145,7 @@ const chips = [
           Solar energy solutions
         </p>
         <h2
-          class="mt-5 font-display text-4xl leading-[1.08] font-bold sm:text-6xl lg:text-[3.6rem] xl:text-7xl"
+          class="mt-5 font-display text-4xl leading-[1.08] font-bold sm:text-6xl lg:text-[3.6rem] xl:text-7xl short:text-5xl"
         >
           Energy for a Brighter
           <span

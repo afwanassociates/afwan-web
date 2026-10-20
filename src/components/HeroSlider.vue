@@ -151,8 +151,15 @@ const controlClass =
       @touchstart.passive="onTouchStart"
       @touchend.passive="onTouchEnd"
     >
+      <!--
+        Height. Phones and tablets: fixed, so the stacked text always fits. Laptops and up: the
+        banners' wide shape (45% of the width), but never taller than the screen minus the
+        navbar and frame (100svh − 7rem), so the whole banner shows with the page below it;
+        clamped to 32–46rem (short screens get smaller headings, see the
+        short: variant in main.css) so the text always fits.
+      -->
       <div
-        class="relative h-[46rem] sm:h-[40rem] lg:h-[40rem] xl:h-[44rem]"
+        class="relative h-[46rem] sm:h-[40rem] lg:h-[clamp(32rem,min(45vw,calc(100svh-7rem)),46rem)]"
         :aria-live="autoplayActive ? 'off' : 'polite'"
       >
         <div

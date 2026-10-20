@@ -110,6 +110,10 @@
   box-shadow: 0 24px 48px -28px rgb(124 27 23 / 0.45);
 }
 
+/* Laptops with a short window (e.g. 1366×657): the hero banners use smaller headings and
+   tighter spacing there, so a whole banner fits on screen under the navbar. */
+@custom-variant short (@media (min-width: 64rem) and (max-height: 47.5rem));
+
 @layer base {
   html {
     scroll-behavior: smooth;
