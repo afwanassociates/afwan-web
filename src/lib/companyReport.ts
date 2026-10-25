@@ -4,6 +4,7 @@ import type { CompanyCounts, CompanyReportRow, CompanyReportSortKey } from '@/ty
 /** Roles that may open the Companies report (the API's CompanyPolicy::viewReport). */
 export const REPORT_ROLES = [
   'data_entry',
+  'operation_head',
   'accounts',
   'accounts_head',
   'admin',

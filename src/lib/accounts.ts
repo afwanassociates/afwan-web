@@ -2,8 +2,14 @@ import { inject, type InjectionKey, type Ref } from 'vue'
 import type { Role } from '@/types/auth'
 import type { CashSettings, PartyType } from '@/types/accounts'
 
-/** Roles of the accounts screens (parties, cash, approvals). */
-export const ACCOUNTS_ROLES: readonly Role[] = ['accounts', 'accounts_head', 'admin', 'super_admin']
+/** Roles of the accounts screens (parties, cash): the accounts team only, not admins. */
+export const ACCOUNTS_ROLES: readonly Role[] = ['accounts', 'accounts_head']
+
+/** Roles that set the cash opening balance and delete parties. */
+export const ACCOUNTS_MANAGER_ROLES: readonly Role[] = ['accounts_head']
+
+/** Roles of the Approvals page: the accounts team (their own entries) and the approvers. */
+export const APPROVALS_ROLES: readonly Role[] = [...ACCOUNTS_ROLES, 'admin', 'super_admin']
 
 export const PARTY_TYPE_LABELS: Record<PartyType, string> = {
   client: 'Party / Client',

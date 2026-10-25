@@ -4,9 +4,8 @@ import { RouterLink, RouterView, useRoute } from 'vue-router'
 import CashSettingsDialog from '@/components/accounts/CashSettingsDialog.vue'
 import { fetchCashSettings } from '@/api/accounts'
 import { useToast } from '@/composables/useToast'
-import { CASH_CONTEXT, formatMoney } from '@/lib/accounts'
+import { ACCOUNTS_MANAGER_ROLES, CASH_CONTEXT, formatMoney } from '@/lib/accounts'
 import { toDisplayDate } from '@/lib/dates'
-import { ADMIN_ROLES } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import type { CashSettings } from '@/types/accounts'
 
@@ -18,7 +17,7 @@ const route = useRoute()
 const auth = useAuthStore()
 const toast = useToast()
 
-const canSetOpening = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
+const canSetOpening = computed(() => !!auth.user && ACCOUNTS_MANAGER_ROLES.includes(auth.user.role))
 
 const settings = ref<CashSettings | null>(null)
 const settingsFailed = ref(false)

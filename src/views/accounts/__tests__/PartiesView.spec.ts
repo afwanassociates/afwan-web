@@ -174,10 +174,10 @@ describe('PartiesView', () => {
     expect(updateParty).toHaveBeenCalledWith(1, { is_active: false })
   })
 
-  it('lets admins delete, and offers to deactivate a party with transactions', async () => {
+  it('lets the accounts head delete, and offers to deactivate a party with transactions', async () => {
     vi.mocked(deleteParty).mockRejectedValue(httpError(422, { code: 'party_has_transactions' }))
     vi.mocked(updateParty).mockResolvedValue(party({ is_active: false }))
-    await mountView('admin')
+    await mountView('accounts_head')
 
     await wrapper.find('[data-delete]').trigger('click')
     await flushPromises()

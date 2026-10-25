@@ -4,7 +4,7 @@ import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLogo from '@/components/AppLogo.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
-import { ACCOUNTS_ROLES } from '@/lib/accounts'
+import { ACCOUNTS_ROLES, APPROVALS_ROLES } from '@/lib/accounts'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import {
   ADMIN_ROLES,
@@ -58,7 +58,7 @@ const approvals = useApprovalBadge()
 watch(
   () => [auth.user?.role, route.fullPath] as const,
   ([role]) => {
-    if (role && ACCOUNTS_ROLES.includes(role)) approvals.refresh()
+    if (role && APPROVALS_ROLES.includes(role)) approvals.refresh()
   },
   { immediate: true },
 )
@@ -107,12 +107,15 @@ const navItems = computed(() => {
       })
     }
   }
-  // Accounts: parties (with their ledger pages), cash (book, receive, payment, transfer) and
-  // approvals. Approvers see "Approvals" with the entries waiting; the accounts team sees
-  // "My entries" with their own entries returned for correction.
+  // Accounts: parties (with their ledger pages) and cash (book, receive, payment, transfer)
+  // for the accounts team only, then approvals. Approvers (admins included) see "Approvals"
+  // with the entries waiting; the accounts team sees "My entries" with their own entries
+  // returned for correction.
   if (ACCOUNTS_ROLES.includes(role)) {
     items.push({ name: 'accounts-parties', label: 'Parties', section: '/accounts/parties' })
     items.push({ name: 'accounts-cash-book', label: 'Cash', section: '/accounts/cash' })
+  }
+  if (APPROVALS_ROLES.includes(role)) {
     items.push({
       name: 'accounts-approvals',
       label: APPROVER_ROLES.includes(role) ? 'Approvals' : 'My entries',

@@ -1,4 +1,5 @@
 import { toDisplayDate } from '@/lib/dates'
+import { PASSPORT_MANAGER_ROLES } from '@/lib/roles'
 import type { Role } from '@/types/auth'
 import type { MedicalStatus, StepState } from '@/types/medical'
 
@@ -6,7 +7,7 @@ import type { MedicalStatus, StepState } from '@/types/medical'
 export const EXPIRING_SOON_DAYS = 14
 
 /** Roles that may re-test an unfit passport and delete medical records (the API agrees). */
-export const MEDICAL_ADMIN_ROLES: readonly Role[] = ['admin', 'super_admin']
+export const MEDICAL_ADMIN_ROLES: readonly Role[] = PASSPORT_MANAGER_ROLES
 
 export const isMedicalAdmin = (role: Role | undefined) =>
   role !== undefined && MEDICAL_ADMIN_ROLES.includes(role)

@@ -112,7 +112,7 @@ afterEach(() => {
 })
 
 describe('Cash section', () => {
-  it("shows today's cash in hand and the opening balance, settable by admins only", async () => {
+  it("shows today's cash in hand and the opening balance, settable by the accounts head only", async () => {
     await mountView()
 
     expect(wrapper.find('[data-cash-in-hand]').text()).toBe('৳ 1,200.00')
@@ -126,7 +126,7 @@ describe('Cash section', () => {
     ])
 
     wrapper.unmount()
-    await mountView('admin')
+    await mountView('accounts_head')
     expect(wrapper.find('[data-set-opening]').text()).toBe('Change')
   })
 

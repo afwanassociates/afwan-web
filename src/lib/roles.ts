@@ -4,12 +4,17 @@ import type { Role } from '@/types/auth'
  * Client-side mirror of the API's role rules (App\Enums\UserRole), all in this file.
  * These only shape the UI; the API enforces the real rules, so callers must still handle 403.
  *
- *   1 super_admin    everything, including admins and system settings
- *   2 admin          passport and workflow work, companies, countries, reports;
- *                    manages accounts heads, accounts and data entry users
- *   3 accounts_head  accounts and finance, approvals; manages accounts users
+ *   1 super_admin    everything except passport entry, including admins and settings
+ *   2 admin          companies, countries, settings, accounts approvals, read-only
+ *                    passport reports (no parties or cash); manages both heads,
+ *                    accounts and data entry users
+ *   3 accounts_head  accounts and finance (parties, cash, the opening balance and
+ *                    deleting parties), approvals; manages accounts users
+ *   3 operation_head passport entry like data entry, plus the corrections (delete,
+ *                    undo, re-tests, edit any entry); manages data entry users
  *   4 accounts       accounts and finance; read-only passports and workflow
- *   5 data_entry     passport entry and every workflow step
+ *   5 data_entry     passport entry and every workflow step (only this team and the
+ *                    operations head: admins see the passports through the reports)
  *
  * To add a role: add one entry here (with its areas and the roles it manages) and its area
  * route in src/router/index.ts.
@@ -35,16 +40,16 @@ export const ROLES: Record<Role, RoleConfig> = {
     label: 'Super Admin',
     slug: 'super-admin',
     routeName: 'staff-super-admin',
-    areas: ['super_admin', 'admin', 'accounts_head', 'accounts', 'data_entry'],
-    manages: ['admin', 'accounts_head', 'accounts', 'data_entry'],
+    areas: ['super_admin', 'admin'],
+    manages: ['admin', 'accounts_head', 'operation_head', 'accounts', 'data_entry'],
   },
   admin: {
     rank: 80,
     label: 'Admin',
     slug: 'admin',
     routeName: 'staff-admin',
-    areas: ['admin', 'accounts_head', 'accounts', 'data_entry'],
-    manages: ['accounts_head', 'accounts', 'data_entry'],
+    areas: ['admin'],
+    manages: ['accounts_head', 'operation_head', 'accounts', 'data_entry'],
   },
   accounts_head: {
     rank: 60,
@@ -53,6 +58,14 @@ export const ROLES: Record<Role, RoleConfig> = {
     routeName: 'staff-accounts-head',
     areas: ['accounts_head', 'accounts'],
     manages: ['accounts'],
+  },
+  operation_head: {
+    rank: 60,
+    label: 'Operations Head',
+    slug: 'operation-head',
+    routeName: 'staff-operation-head',
+    areas: ['operation_head', 'data_entry'],
+    manages: ['data_entry'],
   },
   accounts: {
     rank: 20,
@@ -84,6 +97,12 @@ export function canAccessArea(userRole: Role, areaRole: Role): boolean {
 
 /** Roles of the admin panel (companies, countries, settings). */
 export const ADMIN_ROLES: readonly Role[] = ['admin', 'super_admin']
+
+/** Roles that do passport work, Add Passport to Flight (the data-entry area). */
+export const PASSPORT_ROLES: readonly Role[] = ['data_entry', 'operation_head']
+
+/** Roles that correct passport work: delete, Undo, re-tests and editing anyone's entries. */
+export const PASSPORT_MANAGER_ROLES: readonly Role[] = ['operation_head']
 
 /** Roles that may open the admin settings (countries and defaults). */
 export const SETTINGS_ROLES: readonly Role[] = ['admin', 'super_admin']

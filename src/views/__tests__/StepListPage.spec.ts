@@ -806,21 +806,19 @@ describe('Step pages (one per step)', () => {
         expect(vi.mocked(listStepPassports).mock.calls.length - callsBefore).toBe(1)
       })
 
-      it('admins get Undo, which deletes the new visa record', async () => {
+      it('offers no Undo: nobody can undo a step', async () => {
         vi.mocked(startStep).mockResolvedValue({
           ...saved,
           data: { id: 900, status: 'in_process' },
         } as never)
-        const p = await openVisa('admin')
+        const p = await openVisa()
         await p.get('input').setValue('2026-10-08')
         await p.trigger('submit')
         await flushPromises()
 
         const toast = useToast().toasts.value.find((t) => t.message.includes('Moved to Visa'))!
-        expect(toast.action?.label).toBe('Undo')
-        toast.action!.run()
-        await flushPromises()
-        expect(deleteStepRecord).toHaveBeenCalledWith(900)
+        expect(toast.action).toBeUndefined()
+        expect(deleteStepRecord).not.toHaveBeenCalled()
       })
 
       it('puts the row back and shows the error when saving fails', async () => {
@@ -1112,7 +1110,7 @@ describe('Step pages (one per step)', () => {
       })
     })
 
-    it('admins get "Undo all", which reverses exactly that batch', async () => {
+    it('offers no "Undo all": nobody can undo a batch', async () => {
       const { bulkStep } = await import('@/api/steps')
       vi.mocked(bulkStep).mockResolvedValue({
         updated: [
@@ -1133,25 +1131,14 @@ describe('Step pages (one per step)', () => {
         ],
         skipped: [],
       })
-      vi.mocked(undoStepAction).mockResolvedValue(saved as never)
-      await mountStep('/bmet', 'admin')
+      await mountStep('/bmet')
       await tick(60, 61)
       await bar().get('select[data-bulk-action]').setValue('all')
       await applyAndConfirm()
 
       const toast = useToast().toasts.value.find((t) => t.message.includes('2 updated'))!
-      expect(toast.action?.label).toBe('Undo all')
-      toast.action!.run()
-      await flushPromises()
-
-      expect(vi.mocked(undoStepAction).mock.calls).toEqual([
-        [60, 'bmet', 'clearance'],
-        [60, 'bmet', 'finger'],
-        [60, 'bmet', 'training'],
-        [61, 'bmet', 'clearance'],
-        [61, 'bmet', 'finger'],
-      ])
-      expect(toastMessages().some((m) => m.endsWith('2 undone.'))).toBe(true)
+      expect(toast.action).toBeUndefined()
+      expect(undoStepAction).not.toHaveBeenCalled()
     })
 
     it('accounts see no checkboxes or bar', async () => {
@@ -1414,8 +1401,8 @@ describe('Step pages (one per step)', () => {
       expect(toast.action).toBeUndefined()
     })
 
-    it('the pencil edits and clears the date (admin)', async () => {
-      await mountStep('/flight', 'admin')
+    it('the pencil edits the date; clearing it is for nobody', async () => {
+      await mountStep('/flight')
       await wrapper.get('tr[data-row="71"] button[data-booking-edit]').trigger('click')
       await flushPromises()
       let p = bookingPopover()!
@@ -1428,18 +1415,14 @@ describe('Step pages (one per step)', () => {
       await wrapper.get('tr[data-row="71"] button[data-booking-edit]').trigger('click')
       await flushPromises()
       p = bookingPopover()!
-      flightPendingRows = [flightRow(71)]
-      await p.get('button[data-date-clear]').trigger('click')
-      await flushPromises()
-      expect(clearFlightBooking).toHaveBeenCalledWith(71)
-      expect(cell(71, 'booking_date').text()).toBe('-')
-      expect(toastMessages()).toContain('FL0000071: Flight booking date cleared.')
+      expect(p.find('button[data-date-clear]').exists()).toBe(false)
+      expect(clearFlightBooking).not.toHaveBeenCalled()
     })
 
-    it('one click confirms: the row moves at once, no double click, toast with Undo; Undo puts it back', async () => {
+    it('one click confirms: the row moves at once, no double click, toast without Undo', async () => {
       let resolve!: (value: unknown) => void
       vi.mocked(confirmFlight).mockReturnValue(new Promise((r) => (resolve = r)) as never)
-      await mountStep('/flight', 'admin')
+      await mountStep('/flight')
       const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
 
       await confirmButton(73).trigger('click')
@@ -1458,20 +1441,9 @@ describe('Step pages (one per step)', () => {
       const toast = useToast().toasts.value.find(
         (t) => t.message === 'FL0000073: Flight confirmed',
       )!
-      expect(toast.action?.label).toBe('Undo')
+      expect(toast.action).toBeUndefined()
       expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
-
-      flightPendingRows = [
-        ...flightPendingRows,
-        flightRow(73, { clearance: '2026-10-11', booking: '2026-12-01' }),
-      ]
-      ROWS.confirmed = []
-      toast.action!.run()
-      await flushPromises()
-      expect(undoFlightConfirm).toHaveBeenCalledWith(73)
-      expect(toastMessages()).toContain('FL0000073: back in Pending.')
-      // Back with its booking date kept.
-      expect(cell(73, 'booking_date').text()).toBe('01-12-2026')
+      expect(undoFlightConfirm).not.toHaveBeenCalled()
     })
 
     it("puts the row back and shows the API's 422 message in a toast", async () => {
@@ -1620,10 +1592,10 @@ describe('Step pages (one per step)', () => {
       expect(markButton(62, 'clearance').element.parentElement!.getAttribute('title')).toBeNull()
     })
 
-    it('Mark done saves today in one click: the row changes at once, no double click, toast with Undo', async () => {
+    it('Mark done saves today in one click: the row changes at once, no double click, toast without Undo', async () => {
       let resolve!: (value: unknown) => void
       vi.mocked(markStepAction).mockReturnValue(new Promise((r) => (resolve = r)) as never)
-      await mountStep('/bmet', 'admin')
+      await mountStep('/bmet')
       const summaryBefore = vi.mocked(fetchWorkflowSummary).mock.calls.length
 
       await markButton(60, 'finger').trigger('click')
@@ -1639,15 +1611,8 @@ describe('Step pages (one per step)', () => {
       await flushPromises()
 
       const toast = useToast().toasts.value.find((t) => t.message === 'BM0000060: Finger done')!
-      expect(toast.action?.label).toBe('Undo')
+      expect(toast.action).toBeUndefined()
       expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
-
-      bmetPendingRows = [bmetRow(60), ...bmetPendingRows.slice(1)]
-      toast.action!.run()
-      await flushPromises()
-      expect(undoStepAction).toHaveBeenCalledWith(60, 'bmet', 'finger')
-      expect(toastMessages()).toContain('BM0000060: Finger undone.')
-      expect(markButton(60, 'finger').exists()).toBe(true)
     })
 
     it('puts the row back and shows the API error when marking fails', async () => {
@@ -1683,7 +1648,7 @@ describe('Step pages (one per step)', () => {
     })
 
     it('BMET clearance moves the row to BMET cleared and to Flight Pending', async () => {
-      await mountStep('/bmet', 'admin')
+      await mountStep('/bmet')
       vi.mocked(markStepAction).mockImplementation(async () => {
         // The API: BMET cleared, and Flight Pending.
         bmetPendingRows = bmetPendingRows.filter((r) => r.id !== 62)
@@ -1701,7 +1666,7 @@ describe('Step pages (one per step)', () => {
       expect(markStepAction).toHaveBeenCalledWith(62, 'bmet', 'clearance', undefined)
       const toast = useToast().toasts.value.find((t) => t.message.includes('BMET cleared'))!
       expect(toast.message).toBe('BM0000062: Moved to BMET cleared - now in Flight Pending')
-      expect(toast.action?.label).toBe('Undo')
+      expect(toast.action).toBeUndefined()
       expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryBefore)
       wrapper.unmount()
 

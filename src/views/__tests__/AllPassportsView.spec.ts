@@ -81,7 +81,7 @@ const page = (data: PassportOverview[]) => ({
 let wrapper: VueWrapper
 let router: Router
 
-async function mountPage(role: Role = 'admin', path = '/all-passports') {
+async function mountPage(role: Role = 'data_entry', path = '/all-passports') {
   const pinia = createPinia()
   setActivePinia(pinia)
   useAuthStore().user = makeUser({ role })
@@ -454,7 +454,7 @@ describe('All Passports (read-only overview)', () => {
     })
 
     it('lists references from the lookup (data entry) or the reports (accounts), limited to the chosen company', async () => {
-      await mountPage('admin', '/all-passports?company_id=3')
+      await mountPage('data_entry', '/all-passports?company_id=3')
       const fetchOf = () =>
         (filterSelect('Filter by reference').props() as { fetch: (q: string) => Promise<unknown> })
           .fetch
@@ -465,6 +465,13 @@ describe('All Passports (read-only overview)', () => {
       await mountPage('accounts')
       await fetchOf()('sea')
       expect(fetchReportReferences).toHaveBeenCalledWith({ q: 'sea', company_id: undefined })
+      wrapper.unmount()
+
+      // Admins see the passports read-only, through the reports, like accounts.
+      vi.mocked(fetchReportReferences).mockClear()
+      await mountPage('admin')
+      await fetchOf()('ab')
+      expect(fetchReportReferences).toHaveBeenCalledWith({ q: 'ab', company_id: undefined })
     })
   })
 

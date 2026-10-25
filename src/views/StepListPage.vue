@@ -30,7 +30,7 @@ import { businessToday, daysLeft, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { staffTitle } from '@/lib/pageTitle'
 import { referenceSubtitle, searchReferenceOptions } from '@/lib/referenceOptions'
-import { ADMIN_ROLES, canAccessArea } from '@/lib/roles'
+import { PASSPORT_MANAGER_ROLES, canAccessArea } from '@/lib/roles'
 import { STICKY_ACTIONS, TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
 import { finalStatuses, isRecordStep, statusLabel, stepResultPayload } from '@/lib/workflow'
 import { useAuthStore } from '@/stores/auth'
@@ -107,7 +107,7 @@ const previousStep = computed(() => {
   return index > 0 ? steps[index - 1]! : null
 })
 
-/** data_entry, admin and super_admin act; accounts (and anyone else) only read. */
+/** Data entry and the operations head act; everyone else only reads. */
 const canAct = computed(() => {
   const role = auth.user?.role
   return role !== undefined && canAccessArea(role, 'data_entry')
@@ -695,9 +695,9 @@ const UNDO_MS = 6000
 
 /**
  * Every undo (a BMET action, the flight booking or confirmation, a new step record) is for
- * admin and super_admin only; the API refuses the others.
+ * the operations head only; the API refuses the others.
  */
-const canUndo = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
+const canUndo = computed(() => !!auth.user && PASSPORT_MANAGER_ROLES.includes(auth.user.role))
 
 /* ---------- Flight: booking date and one-click confirm ---------- */
 

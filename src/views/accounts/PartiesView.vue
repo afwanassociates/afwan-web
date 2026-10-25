@@ -6,9 +6,8 @@ import PartyFormDialog from '@/components/accounts/PartyFormDialog.vue'
 import { deleteParty, listParties, updateParty } from '@/api/accounts'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
-import { balanceClass, formatBalance, formatMoney } from '@/lib/accounts'
+import { ACCOUNTS_MANAGER_ROLES, balanceClass, formatBalance, formatMoney } from '@/lib/accounts'
 import { errorMessage, errorStatus } from '@/lib/errors'
-import { ADMIN_ROLES } from '@/lib/roles'
 import { TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
 import { useAuthStore } from '@/stores/auth'
 import type { Paginated } from '@/types/auth'
@@ -26,7 +25,7 @@ const router = useRouter()
 const toast = useToast()
 const auth = useAuthStore()
 
-const canDelete = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
+const canDelete = computed(() => !!auth.user && ACCOUNTS_MANAGER_ROLES.includes(auth.user.role))
 
 const searchId = useId()
 const statusId = useId()
@@ -160,7 +159,7 @@ async function setActive(party: Party, active: boolean) {
   }
 }
 
-/* ---------- Delete (admins) ---------- */
+/* ---------- Delete (the accounts head) ---------- */
 
 const deleteTarget = ref<Party | null>(null)
 const deleteOpen = ref(false)

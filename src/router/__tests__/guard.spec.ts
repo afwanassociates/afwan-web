@@ -149,7 +149,7 @@ describe('router guard (real routes)', () => {
       ['/data-entry/process/bmet?tab=rejected', '/data-entry/bmet?tab=rejected'],
       ['/data-entry/process/flight', '/data-entry/flight'],
     ])('the old %s redirects to %s', async (from, to) => {
-      setSession('admin')
+      setSession('data_entry')
       await router.push(from)
 
       expect(router.currentRoute.value.fullPath).toBe(to)
@@ -181,6 +181,18 @@ describe('router guard (real routes)', () => {
       ['accounts', '/data-entry/medical?tab=unfit'],
       ['accounts', '/data-entry/passports/42'],
       ['accounts', '/staff/admin/users'],
+      // Add Passport to Flight is the data entry team's alone, even for admins.
+      ['admin', '/data-entry/passports'],
+      ['admin', '/data-entry/passports/new'],
+      ['admin', '/data-entry/medical'],
+      ['admin', '/data-entry/flight'],
+      ['super_admin', '/data-entry/passports'],
+      ['super_admin', '/data-entry/visa'],
+      // The operations head: passport work and its users, not accounts or the admin panel.
+      ['operation_head', '/staff/data-entry'],
+      ['operation_head', '/staff/admin'],
+      ['operation_head', '/accounts/parties'],
+      ['operation_head', '/staff/admin/companies'],
     ] as const)('%s opening %s gets the 403 page', async (role, path) => {
       setSession(role)
       await router.push(path)
@@ -207,17 +219,23 @@ describe('router guard (real routes)', () => {
   describe('right role', () => {
     it.each([
       ['super_admin', '/staff/super-admin'],
-      ['super_admin', '/data-entry/passports'],
       ['super_admin', '/reports/passports'],
+      ['data_entry', '/data-entry/passports'],
       ['data_entry', '/reports/passports'],
       // All Passports is read-only, so accounts may open it.
       ['accounts', '/reports/passports'],
       ['super_admin', '/staff/admin/users'],
       ['admin', '/staff/admin'],
-      ['admin', '/data-entry/passports'],
+      ['admin', '/reports/passports'],
       ['admin', '/staff/admin/users'],
       ['data_entry', '/staff/data-entry'],
       ['accounts', '/staff/accounts'],
+      ['operation_head', '/staff/operation-head'],
+      ['operation_head', '/data-entry/passports'],
+      ['operation_head', '/data-entry/medical'],
+      ['operation_head', '/data-entry/flight'],
+      ['operation_head', '/reports/passports'],
+      ['operation_head', '/staff/admin/users'],
     ] as const)('%s can open %s', async (role, path) => {
       setSession(role)
       await router.push(path)
@@ -230,6 +248,7 @@ describe('router guard (real routes)', () => {
       ['admin', 'staff-admin'],
       ['data_entry', 'staff-data-entry'],
       ['accounts', 'staff-accounts'],
+      ['operation_head', 'staff-operation-head'],
     ] as const)('%s opening /login is sent home (%s)', async (role, name) => {
       setSession(role)
       await router.push('/login')
@@ -295,7 +314,7 @@ describe('admin settings route', () => {
 
 describe('old Unfit Passports address', () => {
   it('redirects to the Unfit tab of the Medical page, keeping the search', async () => {
-    setSession('admin')
+    setSession('data_entry')
     await router.push('/data-entry/unfit?q=ZW0751612')
 
     expect(router.currentRoute.value.name).toBe('medical')

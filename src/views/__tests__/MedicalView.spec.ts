@@ -620,14 +620,14 @@ describe('Medical page', () => {
       expect(lastFilters()).not.toHaveProperty('mark')
     })
 
-    it('marking removes the row at once, refreshes the counts and offers Undo for ~6 s', async () => {
+    it('marking removes the row at once and refreshes the counts', async () => {
       const { updateEntryMode } = await import('@/api/passports')
       const { fetchWorkflowSummary } = await import('@/api/workflow')
       let finish: (value: PassportEntry) => void = () => {}
       vi.mocked(updateEntryMode).mockImplementation(
         () => new Promise((resolve) => (finish = resolve)),
       )
-      await mountMedical('/medical?tab=fit', 'admin')
+      await mountMedical('/medical?tab=fit')
       const summaryCalls = vi.mocked(fetchWorkflowSummary).mock.calls.length
 
       await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
@@ -643,25 +643,20 @@ describe('Medical page', () => {
       expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryCalls)
       const toast = toasts().find((t) => t.message.includes('Moved to Calling'))!
       expect(toast.message).toBe('FT0000070: Moved to Calling / Work Permit (Online)')
-      expect(toast.action?.label).toBe('Undo')
     })
 
-    it('only ever sends "online" or null as the mark', async () => {
+    it('only ever sends "online" as the mark', async () => {
       const { updateEntryMode } = await import('@/api/passports')
       vi.mocked(updateEntryMode).mockResolvedValue({
         ...A,
         entry_mode: { value: 'online', label: 'Online' },
       })
-      await mountMedical('/medical?tab=fit', 'admin')
+      await mountMedical('/medical?tab=fit')
       await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
-      await flushPromises()
-      toasts()
-        .find((t) => t.action)!
-        .action!.run()
       await flushPromises()
 
       const sent = vi.mocked(updateEntryMode).mock.calls.map(([, mode]) => mode)
-      expect(sent).toEqual(['online', null])
+      expect(sent).toEqual(['online'])
     })
 
     it('ignores a second click while the request is running', async () => {
@@ -677,7 +672,7 @@ describe('Medical page', () => {
       expect(updateEntryMode).toHaveBeenCalledTimes(1)
     })
 
-    it('data entry marks Online but gets no Undo (undo is for admins)', async () => {
+    it('data entry marks Online but gets no Undo (nobody can undo)', async () => {
       const { updateEntryMode } = await import('@/api/passports')
       vi.mocked(updateEntryMode).mockResolvedValue({
         ...A,
@@ -691,30 +686,6 @@ describe('Medical page', () => {
       const toast = toasts().find((t) => t.message.includes('Moved to Calling'))!
       expect(toast).toBeDefined()
       expect(toast.action).toBeUndefined()
-    })
-
-    it('Undo clears the mark (entry_mode null) and puts the row back', async () => {
-      const { updateEntryMode } = await import('@/api/passports')
-      vi.mocked(updateEntryMode).mockResolvedValue({
-        ...A,
-        entry_mode: { value: 'online', label: 'Online' },
-      })
-      await mountMedical('/medical?tab=fit', 'admin')
-      vi.mocked(listPassports).mockResolvedValue(page([B]))
-      await rowOf('FT0000070')!.get('button[data-mark="online"]').trigger('click')
-      await flushPromises()
-      expect(rowOf('FT0000070')).toBeUndefined()
-
-      vi.mocked(updateEntryMode).mockResolvedValue({ ...A, entry_mode: null })
-      vi.mocked(listPassports).mockResolvedValue(page([A, B]))
-      toasts()
-        .find((t) => t.action)!
-        .action!.run()
-      await flushPromises()
-
-      expect(updateEntryMode).toHaveBeenLastCalledWith(70, null)
-      expect(rowOf('FT0000070')).toBeDefined()
-      expect(toasts().map((t) => t.message)).toContain('FT0000070: back on the Fit tab.')
     })
 
     it('an error puts the row back and shows the message', async () => {

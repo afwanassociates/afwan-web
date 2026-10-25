@@ -46,7 +46,7 @@ const FIT_MEDICAL = {
 
 let wrapper: VueWrapper
 
-async function mountDetail(passport: Partial<PassportEntry>, role: Role = 'admin') {
+async function mountDetail(passport: Partial<PassportEntry>, role: Role = 'operation_head') {
   vi.mocked(getPassport).mockResolvedValue(makePassport({ id: 20, ...passport }))
   const pinia = createPinia()
   setActivePinia(pinia)
@@ -86,7 +86,7 @@ beforeEach(() => {
 })
 afterEach(() => wrapper?.unmount())
 
-describe('Passport page: undo in the Steps section (admins only)', () => {
+describe('Passport page: undo in the Steps section (operations head only)', () => {
   it('offers "Undo latest step" under the latest step record, not in the header', async () => {
     vi.mocked(listStepRecords).mockResolvedValue({
       calling: [

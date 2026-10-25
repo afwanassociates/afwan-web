@@ -1,8 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { prefersReducedMotion } from '@/lib/scroll'
-import { ADMIN_ROLES, ROLES, USER_MANAGER_ROLES, homeRouteFor } from '@/lib/roles'
-import { ACCOUNTS_ROLES } from '@/lib/accounts'
+import { ADMIN_ROLES, PASSPORT_ROLES, ROLES, USER_MANAGER_ROLES, homeRouteFor } from '@/lib/roles'
+import { ACCOUNTS_ROLES, APPROVALS_ROLES } from '@/lib/accounts'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
 import { useAuthStore } from '@/stores/auth'
@@ -71,9 +71,11 @@ const router = createRouter({
         areaRoute('admin'),
         areaRoute('data_entry'),
         areaRoute('accounts_head'),
+        areaRoute('operation_head'),
         areaRoute('accounts'),
         {
-          // Admins manage heads, accounts and data entry users; the accounts head, accounts users.
+          // Admins manage heads, accounts and data entry users; the accounts head, accounts
+          // users; the operations head, data entry users.
           path: 'admin/users',
           name: 'staff-users',
           component: () => import('@/views/staff/UsersView.vue'),
@@ -95,13 +97,14 @@ const router = createRouter({
       ],
     },
     {
-      // Passport data entry and medical: data_entry, admin and super_admin.
+      // Passport entry, medical and every workflow step (Add Passport to Flight): the data
+      // entry team and its operations head. Admins see the passports through the reports.
       path: '/data-entry',
       meta: {
         requiresAuth: true,
         layout: 'staff',
         area: 'data_entry',
-        roles: ['data_entry', 'admin', 'super_admin'],
+        roles: PASSPORT_ROLES,
       },
       children: [
         { path: '', redirect: { name: 'passports' } },
@@ -207,8 +210,9 @@ const router = createRouter({
       ],
     },
     {
-      // Accounts: parties / owners with their ledgers, and cash management.
-      // accounts, admin and super_admin (deleting is admin-only).
+      // Accounts: parties / owners with their ledgers, and cash management, for the accounts
+      // team (deleting parties and the opening balance: the accounts head). Admins only open
+      // the Approvals page.
       path: '/accounts',
       meta: { requiresAuth: true, layout: 'staff', roles: ACCOUNTS_ROLES },
       children: [
@@ -231,7 +235,7 @@ const router = createRouter({
           path: 'approvals',
           name: 'accounts-approvals',
           component: () => import('@/views/accounts/ApprovalsView.vue'),
-          meta: { title: staffTitle('Approvals') },
+          meta: { roles: APPROVALS_ROLES, title: staffTitle('Approvals') },
         },
         {
           // Cash management: the layout shows today's cash in hand and the tabs.

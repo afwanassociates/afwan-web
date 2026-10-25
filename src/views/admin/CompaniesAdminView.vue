@@ -200,9 +200,7 @@ const actionClass =
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
         <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Companies</h1>
-        <p class="mt-1 text-sm text-muted">
-          Create, edit and deactivate employer companies.
-        </p>
+        <p class="mt-1 text-sm text-muted">Create, edit and deactivate employer companies.</p>
       </div>
       <button type="button" class="btn btn-accent" data-create @click="openCreate">
         New company

@@ -5,7 +5,7 @@ import ApprovalBadge from '@/components/accounts/ApprovalBadge.vue'
 import ReturnReasonDialog from '@/components/accounts/ReturnReasonDialog.vue'
 import { fetchApprovals } from '@/api/accounts'
 import { useApprovalActions, type ApprovalTarget } from '@/composables/useApprovalActions'
-import { formatMoney } from '@/lib/accounts'
+import { ACCOUNTS_ROLES, formatMoney } from '@/lib/accounts'
 import { toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { staffTitle } from '@/lib/pageTitle'
@@ -26,6 +26,8 @@ const router = useRouter()
 const auth = useAuthStore()
 
 const isApprover = computed(() => !!auth.user && APPROVER_ROLES.includes(auth.user.role))
+/** Admins approve here but have no parties or cash pages, so they get no links to them. */
+const canOpenEntries = computed(() => !!auth.user && ACCOUNTS_ROLES.includes(auth.user.role))
 const typeId = useId()
 
 const TYPES: { value: ApprovalType; label: string }[] = [
@@ -223,11 +225,15 @@ const actionClass =
                 <td :class="TABLE_TD">
                   <span class="font-semibold">{{ item.kind }}</span>
                   <RouterLink
+                    v-if="canOpenEntries"
                     :to="openLink(item)"
                     class="block font-mono text-xs text-primary-800 underline-offset-4 hover:underline"
                   >
                     {{ item.reference ?? 'Open ledger' }}
                   </RouterLink>
+                  <span v-else-if="item.reference" class="block font-mono text-xs text-muted">
+                    {{ item.reference }}
+                  </span>
                 </td>
                 <td :class="TABLE_TD">
                   <span class="font-medium">{{ item.title }}</span>

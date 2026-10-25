@@ -4,7 +4,10 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import SettingsLayout from '../SettingsLayout.vue'
 import SettingsIndexView from '../SettingsIndexView.vue'
-import { SETTINGS_PAGES } from '@/lib/settingsPages'
+import { SETTINGS_PAGES, settingsPagesFor } from '@/lib/settingsPages'
+
+/** The pages an admin may open (Danger zone is for the super admin only). */
+const ADMIN_PAGES = settingsPagesFor('admin')
 import { useAuthStore } from '@/stores/auth'
 import { makeUser } from '@/test/helpers'
 
@@ -43,14 +46,15 @@ describe('Settings section', () => {
     await mountSettings()
 
     const tabs = wrapper.findAll('nav[aria-label="Settings sections"] a').map((a) => a.text())
-    expect(tabs).toEqual(['Overview', ...SETTINGS_PAGES.map((p) => p.label)])
+    expect(tabs).toEqual(['Overview', ...ADMIN_PAGES.map((p) => p.label)])
+    expect(tabs).not.toContain('Danger zone')
   })
 
   it('lists every settings page as a card on the overview', async () => {
     await mountSettings()
 
     const cards = wrapper.findAll('section ul a')
-    expect(cards).toHaveLength(SETTINGS_PAGES.length)
+    expect(cards).toHaveLength(ADMIN_PAGES.length)
     expect(cards[0]!.text()).toContain(SETTINGS_PAGES[0]!.label)
     expect(cards[0]!.text()).toContain(SETTINGS_PAGES[0]!.description)
     expect(cards[0]!.attributes('href')).toBe(`/admin/settings/${SETTINGS_PAGES[0]!.path}`)

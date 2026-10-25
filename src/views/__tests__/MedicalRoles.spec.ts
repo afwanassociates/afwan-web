@@ -180,8 +180,9 @@ describe('Medical history buttons', () => {
     expect(labels.some((l) => l.startsWith('Edit'))).toBe(true)
   })
 
-  it('admin sees Delete', () => {
-    expect(buttons('admin', [record()]).some((l) => l.startsWith('Delete'))).toBe(true)
+  it('the operations head sees Delete; admins do not', () => {
+    expect(buttons('operation_head', [record()]).some((l) => l.startsWith('Delete'))).toBe(true)
+    expect(buttons('admin', [record()]).some((l) => l.startsWith('Delete'))).toBe(false)
   })
 
   it('hides Edit when the API says no (another user’s record)', () => {

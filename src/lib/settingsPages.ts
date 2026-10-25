@@ -36,6 +36,16 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
     roles: SETTINGS_ROLES,
     component: () => import('@/views/admin/CountriesSettingsView.vue'),
   },
+  {
+    // Super admin only: the API refuses everyone else as well.
+    name: 'settings-danger-zone',
+    path: 'danger-zone',
+    label: 'Danger zone',
+    description:
+      'Delete all data in one step (passports, companies, accounts), with a backup first. Users and settings are kept.',
+    roles: ['super_admin'],
+    component: () => import('@/views/admin/DataResetSettingsView.vue'),
+  },
 ]
 
 /** The settings pages a role may open. */

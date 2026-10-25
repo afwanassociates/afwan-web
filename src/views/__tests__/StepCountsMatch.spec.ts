@@ -292,7 +292,7 @@ describe('Flight counts', () => {
     expect(threeCounts('flight')).toEqual(['2', '2', '2'])
   })
 
-  it('stay equal after a booking, Mark flight confirm and its Undo', async () => {
+  it('stay equal after a booking and Mark flight confirm', async () => {
     await wrapper.get('tr[data-row="42"] button[data-booking]').trigger('click')
     await flushPromises()
     const form = new DOMWrapper(document.body.querySelector('[data-date-popover]')!)
@@ -302,19 +302,12 @@ describe('Flight counts', () => {
     expect(bookFlight).toHaveBeenCalledWith(42, '2026-12-03')
     expect(threeCounts('flight')).toEqual(['2', '2', '2'])
 
-    // Undo is for admins: switch to an admin before confirming, so the toast offers it.
-    useAuthStore().user = makeUser({ role: 'admin' })
     await wrapper.get('tr[data-row="41"] button[data-confirm]').trigger('click')
     await flushPromises()
     expect(threeCounts('flight')).toEqual(['1', '1', '1'])
     expect(wrapper.get('[role="tab"][data-tab="confirmed"] [data-tab-count]').text()).toBe('2')
-
-    useToast()
-      .toasts.value.find((t) => t.action?.label === 'Undo')!
-      .action!.run()
-    await flushPromises()
-    expect(undoFlightConfirm).toHaveBeenCalledWith(41)
-    expect(threeCounts('flight')).toEqual(['2', '2', '2'])
+    // Nobody can undo a confirmed flight.
+    expect(useToast().toasts.value.some((t) => t.action?.label === 'Undo')).toBe(false)
   })
 })
 

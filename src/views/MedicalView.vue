@@ -17,7 +17,7 @@ import { listPassports, updateEntryMode } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { useDebounce } from '@/composables/useDebounce'
 import { errorMessage, errorStatus, firstFieldError } from '@/lib/errors'
-import { ADMIN_ROLES, canAccessArea } from '@/lib/roles'
+import { PASSPORT_MANAGER_ROLES, canAccessArea } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { MedicalCenterSummary, MedicalResult, MedicalStatus } from '@/types/medical'
@@ -301,7 +301,7 @@ const emptyText = computed(() =>
     : undefined,
 )
 
-/** data_entry, admin and super_admin may act; accounts (and anyone else) only read. */
+/** Data entry and the operations head may act; everyone else only reads. */
 const canAct = computed(() => {
   const role = auth.user?.role
   return role !== undefined && canAccessArea(role, 'data_entry')
@@ -436,8 +436,8 @@ async function confirmResult() {
 const ONLINE: { value: EntryMode; label: string } = { value: 'online', label: 'Online' }
 /** How long the "Undo" toast stays. */
 const UNDO_MS = 6000
-/** Undo (clearing the Online mark) is for admin and super_admin only; the API refuses others. */
-const canUndo = computed(() => !!auth.user && ADMIN_ROLES.includes(auth.user.role))
+/** Undo (clearing the Online mark) is for the operations head only; the API refuses others. */
+const canUndo = computed(() => !!auth.user && PASSPORT_MANAGER_ROLES.includes(auth.user.role))
 
 /** Passports with a mark request running (no double clicks). */
 const marking = ref(new Set<number>())

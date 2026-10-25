@@ -1,6 +1,7 @@
 /** Types matching the afwan-api contract. */
 
-export type Role = 'super_admin' | 'admin' | 'accounts_head' | 'accounts' | 'data_entry'
+export type Role =
+  'super_admin' | 'admin' | 'accounts_head' | 'operation_head' | 'accounts' | 'data_entry'
 
 export interface User {
   id: number

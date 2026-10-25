@@ -25,9 +25,12 @@ describe('SETTINGS_PAGES registry', () => {
     expect(new Set(SETTINGS_PAGES.map((p) => p.path)).size).toBe(SETTINGS_PAGES.length)
   })
 
-  it('gives admins and super admins every page and other roles none', () => {
+  it('gives super admins every page, admins all but the Danger zone, and other roles none', () => {
     expect(settingsPagesFor('super_admin')).toHaveLength(SETTINGS_PAGES.length)
-    expect(settingsPagesFor('admin')).toHaveLength(SETTINGS_PAGES.length)
+    expect(settingsPagesFor('admin').map((p) => p.name)).toEqual(
+      SETTINGS_PAGES.map((p) => p.name).filter((name) => name !== 'settings-danger-zone'),
+    )
+    expect(settingsPagesFor('accounts_head')).toEqual([])
     expect(settingsPagesFor('data_entry')).toEqual([])
     expect(settingsPagesFor('accounts')).toEqual([])
     expect([...SETTINGS_SECTION_ROLES].sort()).toEqual(['admin', 'super_admin'])
