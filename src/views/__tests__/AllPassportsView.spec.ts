@@ -49,6 +49,7 @@ vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 function overview(overrides: Partial<PassportOverview> = {}): PassportOverview {
   return {
     id: 7,
+    entry_no: 7,
     passport_name: 'ESTELLE TILLMAN',
     passport_number: 'PR8212426',
     date_of_birth: '1990-05-17',
@@ -234,6 +235,7 @@ describe('All Passports (read-only overview)', () => {
     await mountPage()
 
     expect(wrapper.findAll('thead th').map((th) => th.text().trim())).toEqual([
+      'No.',
       'Passport name',
       'Passport number',
       'Latest status',

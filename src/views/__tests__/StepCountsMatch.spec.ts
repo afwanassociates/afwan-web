@@ -65,6 +65,7 @@ let flight: Record<'pending' | 'confirmed', StepListRow[]> = {
 
 const row = (id: number): StepListRow => ({
   id,
+  entry_no: id,
   passport_name: `PASSPORT ${id}`,
   passport_number: `CL00000${id}`,
   reference: { id: 7, name: 'Green Field' },

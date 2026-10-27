@@ -467,6 +467,7 @@ const inputClass =
             :current-user-id="auth.user?.id ?? null"
             :columns="['reference', 'company', 'received', 'entered_by']"
             split-name-number
+            show-entry-no
             @delete="askDelete"
           >
             <template #extra-actions="{ entry }">

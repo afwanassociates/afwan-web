@@ -1349,6 +1349,7 @@ const STICKY = STICKY_ACTIONS
                           @change="toggleAllOnPage"
                         />
                       </th>
+                      <th scope="col" :class="[th, 'text-right']">No.</th>
                       <th scope="col" :class="th">Passport name</th>
                       <th scope="col" :class="th">Passport number</th>
                       <th scope="col" :class="th">Reference</th>
@@ -1438,6 +1439,12 @@ const STICKY = STICKY_ACTIONS
                           data-select-row
                           @change="toggleRow(row.id)"
                         />
+                      </td>
+                      <td
+                        class="py-3 pr-4 text-right text-slate-700 tabular-nums"
+                        data-cell="entry_no"
+                      >
+                        {{ row.entry_no }}
                       </td>
                       <td class="py-3 pr-4" data-cell="passport_name">
                         <RouterLink

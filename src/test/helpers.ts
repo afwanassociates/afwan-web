@@ -49,6 +49,7 @@ export function httpError(
 export function makePassport(overrides: Partial<PassportEntry> = {}): PassportEntry {
   return {
     id: 42,
+    entry_no: 7,
     passport_name: 'MD RAHIM',
     passport_number: 'AB1234567',
     country: { code: 'BD', name: 'Bangladesh' },

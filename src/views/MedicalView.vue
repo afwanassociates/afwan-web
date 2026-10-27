@@ -712,6 +712,7 @@ const actionClass =
               :columns="tab.columns"
               :custom-columns="tab.key === 'pending' ? ['medical_date'] : []"
               split-name-number
+              show-entry-no
               :default-actions="canAct && !showMarks"
               sticky-actions
             >

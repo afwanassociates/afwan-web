@@ -133,7 +133,7 @@ describe('CompanyView', () => {
 
     expect(fetchCompanyPassports).toHaveBeenCalledWith(7, { page: 1, per_page: 15 })
     const headers = wrapper.findAll('[data-passports] thead th').map((th) => th.text())
-    expect(headers).toEqual(['Name', 'Passport no', 'Reference', 'Latest status', 'Progress'])
+    expect(headers).toEqual(['No.', 'Name', 'Passport no', 'Reference', 'Latest status', 'Progress'])
 
     const first = wrapper.get('[data-passport-row="11"]')
     expect(first.text()).toContain('KARIM UDDIN')

@@ -55,6 +55,8 @@ export type CompanySummary = Pick<Company, 'id' | 'name' | 'country'>
 
 export interface PassportEntry {
   id: number
+  /** Serial number given when the passport is added (1, 2, 3, …), shown as "No.". */
+  entry_no: number
   passport_name: string
   passport_number: string
   /** Country of the passport (optional). */
@@ -222,6 +224,8 @@ export interface LatestStatus {
 /** A lean item of GET /passports?view=overview (the All Passports screen). */
 export interface PassportOverview {
   id: number
+  /** Serial number given when the passport is added (1, 2, 3, …). */
+  entry_no: number
   passport_name: string
   passport_number: string
   date_of_birth: string | null

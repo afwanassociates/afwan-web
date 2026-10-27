@@ -20,6 +20,7 @@ const enteredOn = (createdAt: string) => {
 const typeLabel = (type: string) => (type === 'agency' ? 'Agency' : 'Person')
 
 const headers = [
+  'No.',
   'Passport name',
   'Passport number',
   'Latest status',
@@ -49,6 +50,9 @@ const headers = [
           {{ entry.passport_number }}
         </span>
       </component>
+      <p class="mt-1 text-xs text-muted" data-entry-no>
+        No. <span class="font-semibold text-ink tabular-nums">{{ entry.entry_no }}</span>
+      </p>
       <div class="mt-2 text-base">
         <LatestStatusText :latest-status="entry.latest_status" />
       </div>
@@ -96,6 +100,9 @@ const headers = [
       </thead>
       <tbody class="divide-y divide-stroke">
         <tr v-for="entry in entries" :key="entry.id" class="align-top" data-row>
+          <td class="py-3 pr-4 text-right text-slate-700 tabular-nums" data-cell="entry_no">
+            {{ entry.entry_no }}
+          </td>
           <td class="py-3 pr-4">
             <RouterLink
               v-if="linked"

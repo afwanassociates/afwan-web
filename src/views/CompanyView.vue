@@ -253,6 +253,7 @@ const th = 'py-3 pr-4 font-semibold'
               <table class="w-full text-left text-sm" data-passports>
                 <thead class="border-b border-stroke text-xs tracking-wider text-muted uppercase">
                   <tr>
+                    <th scope="col" :class="[th, 'text-right']">No.</th>
                     <th scope="col" :class="th">Name</th>
                     <th scope="col" :class="th">Passport no</th>
                     <th scope="col" :class="th">Reference</th>
@@ -267,6 +268,12 @@ const th = 'py-3 pr-4 font-semibold'
                     class="align-top"
                     :data-passport-row="p.id"
                   >
+                    <td
+                      class="py-3 pr-4 text-right text-slate-700 tabular-nums"
+                      data-cell="entry_no"
+                    >
+                      {{ p.entry_no }}
+                    </td>
                     <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
                       {{ p.passport_name }}
                     </th>

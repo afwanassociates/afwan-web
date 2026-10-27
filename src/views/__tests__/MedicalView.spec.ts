@@ -286,14 +286,15 @@ describe('Medical page', () => {
       expect(rows[0]!.text()).toContain('Star') // the reference
     })
 
-    it('shows Passport name and Passport number as two columns, plus Medical date', async () => {
+    it('shows No. first, Passport name and Passport number as two columns, plus Medical date', async () => {
       await mountMedical()
 
-      expect(headers().slice(0, 2)).toEqual(['Passport name', 'Passport number'])
+      expect(headers().slice(0, 3)).toEqual(['No.', 'Passport name', 'Passport number'])
       expect(headers()).toContain('Medical date')
       const row = wrapper.get('tr[data-row]')
       expect(row.get('[data-cell="passport_name"]').text()).toBe('MD RAHIM')
       expect(row.get('[data-cell="passport_number"]').text()).toBe('AB1234567')
+      expect(row.get('[data-cell="entry_no"]').text()).toBe('7')
     })
 
     it('Medical date shows DD-MM-YYYY on the result tabs, "-" when not entered', async () => {

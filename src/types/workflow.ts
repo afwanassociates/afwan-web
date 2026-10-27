@@ -133,6 +133,8 @@ export interface StepListRecord {
 /** A row of a step page (lean: no permissions; actions follow the role). */
 export interface StepListRow {
   id: number
+  /** Serial number given when the passport is added (1, 2, 3, …), shown as "No.". */
+  entry_no: number
   passport_name: string
   passport_number: string
   reference: { id: number; name: string } | null

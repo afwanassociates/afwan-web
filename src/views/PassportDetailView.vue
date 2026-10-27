@@ -240,6 +240,10 @@ const dd = 'font-medium text-ink'
             {{ passport.passport_name }}
           </h1>
           <p class="font-mono tracking-wider text-slate-700">{{ passport.passport_number }}</p>
+          <p class="mt-1 text-sm text-muted" data-entry-no>
+            Entry no.
+            <span class="font-semibold text-ink tabular-nums">{{ passport.entry_no }}</span>
+          </p>
         </div>
         <div class="flex flex-wrap gap-2">
           <button

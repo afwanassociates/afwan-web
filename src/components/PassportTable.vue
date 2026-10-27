@@ -28,6 +28,8 @@ withDefaults(
     defaultActions?: boolean
     /** Keep the actions column visible at the right edge when the table scrolls sideways. */
     stickyActions?: boolean
+    /** Show the serial number ("No.") first (the Passport Entry List). */
+    showEntryNo?: boolean
   }>(),
   {
     columns: () => ['reference', 'company', 'received', 'entered_by'],
@@ -36,6 +38,7 @@ withDefaults(
     customColumns: () => [],
     defaultActions: true,
     stickyActions: false,
+    showEntryNo: false,
   },
 )
 defineEmits<{ delete: [entry: PassportEntry] }>()
@@ -71,6 +74,9 @@ const actionClass =
           {{ entry.passport_number }}
         </span>
       </RouterLink>
+      <p v-if="showEntryNo" class="mt-1 text-xs text-muted" data-entry-no>
+        No. <span class="font-semibold text-ink tabular-nums">{{ entry.entry_no }}</span>
+      </p>
       <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-sm">
         <template v-for="column in columns" :key="column">
           <dt class="text-muted">{{ COLUMN_LABELS[column] }}</dt>
@@ -119,6 +125,7 @@ const actionClass =
     <table class="w-full text-left text-sm">
       <thead :class="TABLE_HEAD">
         <tr>
+          <th v-if="showEntryNo" scope="col" class="py-3 pr-4 text-right font-semibold">No.</th>
           <template v-if="splitNameNumber">
             <th scope="col" class="py-3 pr-4 font-semibold whitespace-nowrap">Passport name</th>
             <th scope="col" class="py-3 pr-4 font-semibold whitespace-nowrap">Passport number</th>
@@ -145,6 +152,13 @@ const actionClass =
           :class="rowClass?.(entry)"
           data-row
         >
+          <td
+            v-if="showEntryNo"
+            class="py-3 pr-4 text-right text-slate-700 tabular-nums"
+            data-cell="entry_no"
+          >
+            {{ entry.entry_no }}
+          </td>
           <td class="py-3 pr-4" data-cell="passport_name">
             <RouterLink
               :to="{ name: 'passport-detail', params: { id: entry.id } }"

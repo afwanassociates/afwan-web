@@ -179,11 +179,12 @@ describe('Passport List ("Passport entered" only)', () => {
   })
 
   describe('columns', () => {
-    it('shows Passport name and Passport number as two columns, and no Medical column', async () => {
+    it('shows No. first, Passport name and Passport number as two columns, and no Medical column', async () => {
       await mountList()
 
       const headers = wrapper.findAll('thead th').map((th) => th.text().trim())
       expect(headers).toEqual([
+        'No.',
         'Passport name',
         'Passport number',
         'Reference',

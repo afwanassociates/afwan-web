@@ -64,6 +64,7 @@ const TODAY = businessToday()
 function row(overrides: Partial<StepListRow> = {}): StepListRow {
   return {
     id: 50,
+    entry_no: 50,
     passport_name: 'KARIM UDDIN',
     passport_number: 'NW5000001',
     reference: { id: 7, name: 'Green Field' },
@@ -480,6 +481,7 @@ describe('Step pages (one per step)', () => {
       await mountStep('/calling')
 
       expect(headers()).toEqual([
+        'No.',
         'Passport name',
         'Passport number',
         'Reference',
@@ -726,6 +728,7 @@ describe('Step pages (one per step)', () => {
         await mountStep('/calling?tab=permitted')
 
         expect(headers()).toEqual([
+          'No.',
           'Passport name',
           'Passport number',
           'Reference',
@@ -883,6 +886,7 @@ describe('Step pages (one per step)', () => {
       await mountStep('/visa')
 
       expect(headers()).toEqual([
+        'No.',
         'Passport name',
         'Passport number',
         'Reference',
@@ -1283,6 +1287,7 @@ describe('Step pages (one per step)', () => {
       await mountStep('/flight')
 
       expect(headers()).toEqual([
+        'No.',
         'Passport name',
         'Passport number',
         'Reference',
@@ -1565,6 +1570,7 @@ describe('Step pages (one per step)', () => {
       await mountStep('/bmet')
 
       expect(headers()).toEqual([
+        'No.',
         'Passport name',
         'Passport number',
         'Reference',
@@ -1672,6 +1678,7 @@ describe('Step pages (one per step)', () => {
 
       await mountStep('/bmet?tab=cleared')
       expect(headers()).toEqual([
+        'No.',
         'Passport name',
         'Passport number',
         'Reference',
