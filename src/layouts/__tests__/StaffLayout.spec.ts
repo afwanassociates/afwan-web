@@ -45,7 +45,9 @@ const ROUTE_NAMES = [
   'process',
   'unfit',
   'companies',
+  'reference-report',
   'admin-companies',
+  'admin-references',
   'accounts-parties',
   'accounts-cash-book',
   'accounts-approvals',
@@ -105,10 +107,10 @@ describe('StaffLayout menu', () => {
       [
         'Dashboard',
         'Company Report',
+        'Reference Report',
         'All Passports',
         'Approvals',
         'Users',
-        'Companies',
         'Settings',
       ],
     ],
@@ -117,10 +119,10 @@ describe('StaffLayout menu', () => {
       [
         'Dashboard',
         'Company Report',
+        'Reference Report',
         'All Passports',
         'Approvals',
         'Users',
-        'Companies',
         'Settings',
       ],
     ],
@@ -129,6 +131,7 @@ describe('StaffLayout menu', () => {
       [
         'Dashboard',
         'Company Report',
+        'Reference Report',
         'All Passports',
         'Add Passport',
         'Passport Entry List',
@@ -144,6 +147,7 @@ describe('StaffLayout menu', () => {
       [
         'Dashboard',
         'Company Report',
+        'Reference Report',
         'All Passports',
         'Add Passport',
         'Passport Entry List',
@@ -153,12 +157,34 @@ describe('StaffLayout menu', () => {
         'BMET Clearance',
         'Flight',
         'Users',
+        'Companies',
+        'References',
       ],
     ],
-    ['accounts', ['Dashboard', 'Company Report', 'All Passports', 'Parties', 'Cash', 'My entries']],
+    [
+      'accounts',
+      [
+        'Dashboard',
+        'Company Report',
+        'Reference Report',
+        'All Passports',
+        'Parties',
+        'Cash',
+        'My entries',
+      ],
+    ],
     [
       'accounts_head',
-      ['Dashboard', 'Company Report', 'All Passports', 'Parties', 'Cash', 'Approvals', 'Users'],
+      [
+        'Dashboard',
+        'Company Report',
+        'Reference Report',
+        'All Passports',
+        'Parties',
+        'Cash',
+        'Approvals',
+        'Users',
+      ],
     ],
   ] as const)('shows %s one "Dashboard" and its own screens', async (role, labels) => {
     await mountAs(role)
@@ -167,7 +193,7 @@ describe('StaffLayout menu', () => {
   })
 
   it.each(['super_admin', 'admin', 'data_entry', 'accounts'] as const)(
-    'shows %s the "Company Report" under Dashboard in the sidebar',
+    'shows %s the "Company Report" and "Reference Report" under Dashboard in the sidebar',
     async (role) => {
       await mountAs(role, '/companies')
 
@@ -175,22 +201,25 @@ describe('StaffLayout menu', () => {
       expect(links[1]!.find('[data-label]').text()).toBe('Company Report')
       expect(links[1]!.attributes('href')).toBe('/companies')
       expect(wrapper.find('nav[aria-label="Reports"]').exists()).toBe(false)
-      expect(navLabels()).not.toContain('Reference Report')
+      expect(links[2]!.find('[data-label]').text()).toBe('Reference Report')
+      expect(links[2]!.attributes('href')).toBe('/reference-report')
     },
   )
 
   it.each([
-    ['admin', true],
-    ['super_admin', true],
+    ['operation_head', true],
+    ['admin', false],
+    ['super_admin', false],
     ['data_entry', false],
     ['accounts', false],
-  ] as const)('admin panel "Companies" in the sidebar for %s: %s', async (role, shown) => {
+  ] as const)('"Companies" and "References" in the sidebar for %s: %s', async (role, shown) => {
     await mountAs(role)
 
-    const link = wrapper
+    const hrefs = wrapper
       .findAll('nav[aria-label="Staff portal"] a')
-      .find((a) => a.attributes('href') === '/admin-companies')
-    expect(Boolean(link)).toBe(shown)
+      .map((a) => a.attributes('href'))
+    expect(hrefs.includes('/admin-companies')).toBe(shown)
+    expect(hrefs.includes('/admin-references')).toBe(shown)
   })
 
   it('shows the four steps as top-level items right after Medical, with no "Process" heading', async () => {

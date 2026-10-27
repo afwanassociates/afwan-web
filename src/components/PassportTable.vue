@@ -15,7 +15,7 @@ import type { PassportEntry } from '@/types/passport'
 withDefaults(
   defineProps<{
     entries: PassportEntry[]
-    /** Id of the logged-in user, to show "You" in "Entered by". */
+    /** Id of the logged-in user (kept for callers; "Entered by" shows the real name). */
     currentUserId: number | null
     columns?: PassportColumn[]
     /** Extra classes for a row or card, e.g. to mark unfit passports. */

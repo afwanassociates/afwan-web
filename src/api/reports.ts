@@ -7,6 +7,8 @@ import type {
   CompanyPassport,
   CompanyReport,
   CompanyReportParams,
+  ReferenceReport,
+  ReferenceReportParams,
 } from '@/types/report'
 
 const BASE = '/api/reports'
@@ -74,6 +76,40 @@ export async function fetchCompanyPassports(
     { params },
   )
   return data
+}
+
+/* ---------- Reference report ---------- */
+
+/** One page of the reference report with the totals of every filtered reference. */
+export async function fetchReferenceReport(
+  params: ReferenceReportParams,
+): Promise<ReferenceReport> {
+  const { data } = await api.get<ReferenceReport>(`${BASE}/reference-report`, { params })
+  return data
+}
+
+/** Downloads the reference report as CSV (same filters and sort, every page). */
+export function downloadReferenceReportCsv(
+  params: Omit<ReferenceReportParams, 'page' | 'per_page'>,
+): Promise<string> {
+  return downloadCsv(`${BASE}/reference-report`, params, 'reference-report')
+}
+
+/** A reference's passports, newest first (15 per page by default). */
+export async function fetchReferencePassports(
+  referenceId: number,
+  params: { page?: number; per_page?: number } = {},
+): Promise<Paginated<CompanyPassport>> {
+  const { data } = await api.get<Paginated<CompanyPassport>>(
+    `${BASE}/reference-report/${referenceId}/passports`,
+    { params },
+  )
+  return data
+}
+
+/** Downloads every passport of a reference as CSV (newest first). Returns the file name. */
+export function downloadReferencePassportsCsv(referenceId: number): Promise<string> {
+  return downloadCsv(`${BASE}/reference-report/${referenceId}/passports`, {}, 'reference-passports')
 }
 
 /* ---------- Reference options ---------- */

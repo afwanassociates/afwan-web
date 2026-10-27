@@ -1,7 +1,13 @@
 import { useCountriesStore } from '@/stores/countries'
-import type { CompanyCounts, CompanyReportRow, CompanyReportSortKey } from '@/types/report'
+import type {
+  CompanyCounts,
+  CompanyReportRow,
+  CompanyReportSortKey,
+  ReferenceReportRow,
+  ReferenceReportSortKey,
+} from '@/types/report'
 
-/** Roles that may open the Companies report (the API's CompanyPolicy::viewReport). */
+/** Roles that may open the Company and Reference reports (the API's viewReport policies). */
 export const REPORT_ROLES = [
   'data_entry',
   'operation_head',
@@ -28,6 +34,13 @@ export const SORTABLE: readonly CompanyReportSortKey[] = [
   'quota',
   ...COUNT_COLUMNS.map((c) => c.key),
   'balance',
+]
+
+/** Sortable columns of the reference report (no quota or balance). */
+export const REFERENCE_SORTABLE: readonly ReferenceReportSortKey[] = [
+  'name',
+  'type',
+  ...COUNT_COLUMNS.map((c) => c.key),
 ]
 
 /**
@@ -101,4 +114,15 @@ export function rememberRows(rows: readonly CompanyReportRow[]) {
 
 export function rememberedRow(id: number): CompanyReportRow | undefined {
   return seenRows.get(id)
+}
+
+/* The same for the reference report: its rows, for the reference page's header. */
+const seenReferenceRows = new Map<number, ReferenceReportRow>()
+
+export function rememberReferenceRows(rows: readonly ReferenceReportRow[]) {
+  for (const row of rows) seenReferenceRows.set(row.id, row)
+}
+
+export function rememberedReferenceRow(id: number): ReferenceReportRow | undefined {
+  return seenReferenceRows.get(id)
 }

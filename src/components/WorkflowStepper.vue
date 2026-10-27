@@ -2,7 +2,9 @@
 import { computed, onMounted } from 'vue'
 import { RouterLink, type RouteLocationRaw } from 'vue-router'
 import { STEP_STATE_TEXT, stepTone, type StepTone } from '@/lib/medical'
+import { canAccessArea } from '@/lib/roles'
 import { humanize, stepPendingCount } from '@/lib/workflow'
+import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { StepState, WorkflowStep } from '@/types/medical'
 
@@ -30,6 +32,12 @@ const props = withDefaults(
 )
 
 const workflow = useWorkflowStore()
+const auth = useAuthStore()
+/** Only the passport team opens the step pages; everyone else sees the counts read only. */
+const canOpenSteps = computed(() => {
+  const role = auth.user?.role
+  return role !== undefined && canAccessArea(role, 'data_entry')
+})
 onMounted(() => {
   if (props.steps) return
   workflow.load()
@@ -147,7 +155,7 @@ const summarySteps = computed<SummaryStep[]>(() => {
       shortLabel: step.short_label ?? step.label,
       enabled: step.enabled,
       isFinal: i === ordered.length - 1,
-      to: step.enabled ? linkFor(step.key, i) : null,
+      to: step.enabled && canOpenSteps.value ? linkFor(step.key, i) : null,
       count,
       chips,
     }
@@ -293,7 +301,21 @@ const passportSummary = computed(() =>
     class="snap-x snap-mandatory overflow-x-auto pb-1"
     data-mode="summary"
   >
-    <p v-if="!summarySteps.length" class="py-3 text-sm text-muted">Loading the steps…</p>
+    <p
+      v-if="!summarySteps.length && workflow.loadFailed"
+      class="py-3 text-sm text-muted"
+      data-steps-error
+    >
+      The steps could not be loaded.
+      <button
+        type="button"
+        class="font-semibold text-primary-700 underline-offset-4 hover:underline"
+        @click="workflow.load()"
+      >
+        Try again
+      </button>
+    </p>
+    <p v-else-if="!summarySteps.length" class="py-3 text-sm text-muted">Loading the steps…</p>
     <ol v-else class="flex min-w-max items-stretch gap-1.5 xl:min-w-0">
       <template v-for="(step, i) in summarySteps" :key="step.key">
         <li v-if="i > 0" class="flex w-3 shrink-0 items-center" aria-hidden="true">
@@ -382,8 +404,9 @@ const passportSummary = computed(() =>
         <span class="h-0.5 w-full bg-slate-300" />
       </li>
       <li v-if="!hideCompleted" class="w-28 shrink-0 snap-start" data-step="completed">
-        <RouterLink
-          :to="completedLink"
+        <component
+          :is="canOpenSteps ? RouterLink : 'div'"
+          v-bind="canOpenSteps ? { to: completedLink } : {}"
           class="flex h-full flex-col justify-center gap-1 rounded-xl border px-2.5 py-2"
           :class="
             activeStep === 'completed'
@@ -413,7 +436,7 @@ const passportSummary = computed(() =>
             }}</span
             >)
           </span>
-        </RouterLink>
+        </component>
       </li>
     </ol>
   </nav>

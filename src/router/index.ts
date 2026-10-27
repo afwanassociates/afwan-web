@@ -1,7 +1,13 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import HomeView from '@/views/HomeView.vue'
 import { prefersReducedMotion } from '@/lib/scroll'
-import { ADMIN_ROLES, PASSPORT_ROLES, ROLES, USER_MANAGER_ROLES, homeRouteFor } from '@/lib/roles'
+import {
+  PASSPORT_MANAGER_ROLES,
+  PASSPORT_ROLES,
+  ROLES,
+  USER_MANAGER_ROLES,
+  homeRouteFor,
+} from '@/lib/roles'
 import { ACCOUNTS_ROLES, APPROVALS_ROLES } from '@/lib/accounts'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
@@ -82,11 +88,18 @@ const router = createRouter({
           meta: { roles: USER_MANAGER_ROLES, title: staffTitle('Users') },
         },
         {
-          // Admin panel › Companies: admin and super_admin only.
+          // Companies management (create, edit, deactivate, delete): the operations head only.
           path: 'admin/companies',
           name: 'admin-companies',
           component: () => import('@/views/admin/CompaniesAdminView.vue'),
-          meta: { area: 'admin', roles: ADMIN_ROLES, title: staffTitle('Companies') },
+          meta: { roles: PASSPORT_MANAGER_ROLES, title: staffTitle('Companies') },
+        },
+        {
+          // References management, the same way as companies: the operations head only.
+          path: 'admin/references',
+          name: 'admin-references',
+          component: () => import('@/views/admin/ReferencesAdminView.vue'),
+          meta: { roles: PASSPORT_MANAGER_ROLES, title: staffTitle('References') },
         },
         {
           path: 'forbidden',
@@ -183,7 +196,7 @@ const router = createRouter({
       ],
     },
     {
-      // Read-only reports: data_entry, accounts, admin and super_admin.
+      // Read-only reports (Company, Reference, All Passports): every staff role.
       path: '/reports',
       meta: { requiresAuth: true, layout: 'staff', roles: REPORT_ROLES },
       children: [
@@ -206,6 +219,19 @@ const router = createRouter({
           name: 'company-report',
           component: () => import('@/views/CompanyView.vue'),
           meta: { title: staffTitle('Company') },
+        },
+        {
+          // Reference-wise report: like the company report, without quota or balance.
+          path: 'references',
+          name: 'reference-report',
+          component: () => import('@/views/ReferenceReportView.vue'),
+          meta: { title: staffTitle('Reference report') },
+        },
+        {
+          path: 'references/:id(\\d+)',
+          name: 'reference-report-detail',
+          component: () => import('@/views/ReferenceView.vue'),
+          meta: { title: staffTitle('Reference') },
         },
       ],
     },

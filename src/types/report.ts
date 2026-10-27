@@ -1,9 +1,8 @@
 /**
- * The company-wise report (afwan-api /api/reports/...): data_entry,
- * accounts and admins.
+ * The company-wise and reference-wise reports (afwan-api /api/reports/...): every staff role.
  */
 
-import type { LatestStatus, PassportEntry, ReferenceSummary } from '@/types/passport'
+import type { LatestStatus, PassportEntry, ReferenceSummary, ReferenceType } from '@/types/passport'
 
 /** Passport counts of one company (or of all companies, in the totals row). */
 export interface CompanyCounts {
@@ -74,4 +73,46 @@ export interface CompanyReportParams {
 export interface CompanyPassport extends Omit<PassportEntry, 'can'> {
   latest_status: LatestStatus
   can_edit_passport: boolean
+}
+
+/* ---------- Reference report (like the company report, without quota or balance) ---------- */
+
+/** One row of GET /reports/reference-report. */
+export interface ReferenceReportRow extends CompanyCounts {
+  id: number
+  name: string
+  type: ReferenceType
+  type_label: string
+  phone: string | null
+  is_active: boolean
+}
+
+export interface ReferenceReport {
+  data: ReferenceReportRow[]
+  /** Sums over every filtered reference (not only the current page). */
+  totals: CompanyCounts
+  /** The chosen reference / company filter, with names (null when not filtered). */
+  filters?: {
+    reference: ReferenceSummary | null
+    company: { id: number; name: string; country_code: string } | null
+  }
+  meta: { current_page: number; last_page: number; per_page: number; total: number }
+}
+
+/** Columns the reference report may be sorted by. */
+export type ReferenceReportSortKey = 'name' | 'type' | keyof CompanyCounts
+
+export interface ReferenceReportParams {
+  /** Part of the reference name or phone. */
+  search?: string
+  type?: ReferenceType
+  /** Only this reference. */
+  reference_id?: number
+  /** Count only this company's passports (and list only references that have some). */
+  company_id?: number
+  /** A sortable column, '-' prefixed for descending. */
+  sort?: string
+  page?: number
+  /** Up to 100 (default 50). */
+  per_page?: number
 }

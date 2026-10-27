@@ -3,6 +3,10 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import WorkflowStepper from '../WorkflowStepper.vue'
+import { fetchWorkflowSummary } from '@/api/workflow'
+import { useAuthStore } from '@/stores/auth'
+import { makeUser } from '@/test/helpers'
+import type { Role } from '@/types/auth'
 import stepperSource from '../WorkflowStepper.vue?raw'
 import type { WorkflowStep } from '@/types/medical'
 
@@ -57,9 +61,10 @@ vi.mock('@/api/workflow', () => ({
 
 let wrapper: VueWrapper
 
-async function mountStepper(props: Record<string, unknown> = {}) {
+async function mountStepper(props: Record<string, unknown> = {}, role: Role = 'data_entry') {
   const pinia = createPinia()
   setActivePinia(pinia)
+  useAuthStore().user = makeUser({ role })
   const Empty = { template: '<div />' }
   const router = createRouter({
     history: createMemoryHistory(),
@@ -79,6 +84,33 @@ const step = (key: string) => wrapper.get(`[data-step="${key}"]`)
 afterEach(() => wrapper.unmount())
 
 describe('WorkflowStepper (summary bar)', () => {
+  it.each(['admin', 'super_admin', 'accounts', 'accounts_head'] as const)(
+    'shows %s the counts read only, with no links to the passport-entry step pages',
+    async (role) => {
+      await mountStepper({}, role)
+
+      expect(step('alpha').get('[data-count]').text()).toBe('28')
+      expect(wrapper.findAll('[data-step] a')).toHaveLength(0)
+    },
+  )
+
+  it('links the steps for the passport team', async () => {
+    await mountStepper({}, 'operation_head')
+
+    expect(wrapper.findAll('[data-step] a').length).toBeGreaterThan(0)
+  })
+
+  it('says when the steps could not be loaded, with a retry, instead of loading forever', async () => {
+    vi.mocked(fetchWorkflowSummary).mockRejectedValueOnce(new Error('403'))
+    await mountStepper({}, 'admin')
+
+    expect(wrapper.text()).not.toContain('Loading the steps…')
+    expect(wrapper.get('[data-steps-error]').text()).toContain('The steps could not be loaded.')
+    await wrapper.get('[data-steps-error] button').trigger('click')
+    await flushPromises()
+    expect(step('alpha').get('[data-count]').text()).toBe('28')
+  })
+
   it('renders the six steps from the summary, in order, with counts', async () => {
     await mountStepper()
 

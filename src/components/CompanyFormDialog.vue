@@ -10,7 +10,7 @@ import type { CountrySummary } from '@/types/country'
 import type { Company } from '@/types/passport'
 
 /**
- * Admin create / edit form for a company: name, country and quota, all required. `company`
+ * Create / edit form for a company (the operations head): name, country and quota, all required. `company`
  * null creates a new one (always active; companies are (de)activated from the list).
  */
 const open = defineModel<boolean>('open', { required: true })
@@ -74,7 +74,7 @@ async function save() {
       errors.value = fieldErrors(error)
       if (Object.keys(errors.value).length === 0) banner.value = errorMessage(error)
     } else if (errorStatus(error) === 403) {
-      banner.value = 'Only admins can manage companies.'
+      banner.value = 'Only the operations head can manage companies.'
     } else if (errorStatus(error) !== 401) {
       banner.value = errorMessage(error, 'Could not save the company. Please try again.')
     }

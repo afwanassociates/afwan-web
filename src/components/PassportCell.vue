@@ -26,10 +26,11 @@ const left = computed(() => {
   return m.days_left ?? daysLeft(m.valid_until, props.today)
 })
 
+/** The real name of who entered it (from the API), else the user's number. */
 const enteredBy = computed(() => {
   const id = props.entry.created_by
   if (id === null) return '—'
-  return id === props.currentUserId ? 'You' : `Staff #${id}`
+  return props.entry.entered_by?.name ?? `Staff #${id}`
 })
 </script>
 

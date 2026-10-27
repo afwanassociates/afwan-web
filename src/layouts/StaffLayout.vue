@@ -7,7 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import { ACCOUNTS_ROLES, APPROVALS_ROLES } from '@/lib/accounts'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import {
-  ADMIN_ROLES,
+  PASSPORT_MANAGER_ROLES,
   APPROVER_ROLES,
   USER_MANAGER_ROLES,
   canAccessArea,
@@ -67,10 +67,15 @@ const navItems = computed(() => {
   const role = auth.user?.role
   if (!role) return []
   const items: NavItem[] = [{ name: homeRouteFor(role).name, label: 'Dashboard' }]
-  // The company-wise report, right under Dashboard for every role that may see it.
+  // The company-wise and reference-wise reports, right under Dashboard for every role.
   const canSeeReports = (REPORT_ROLES as readonly string[]).includes(role)
   if (canSeeReports) {
     items.push({ name: 'companies', label: 'Company Report', section: '/reports/companies' })
+    items.push({
+      name: 'reference-report',
+      label: 'Reference Report',
+      section: '/reports/references',
+    })
   }
   // All Passports is read-only, so accounts see it too (without the data-entry screens).
   if (canSeeReports) items.push({ name: 'all-passports', label: 'All Passports' })
@@ -130,8 +135,11 @@ const navItems = computed(() => {
   }
   // Users: for every role that manages another (admins, and the accounts head for accounts users).
   if (USER_MANAGER_ROLES.includes(role)) items.push({ name: 'staff-users', label: 'Users' })
-  // Admin panel › Companies (create / edit / deactivate).
-  if (ADMIN_ROLES.includes(role)) items.push({ name: 'admin-companies', label: 'Companies' })
+  // Companies and References management (create / edit / deactivate): the operations head.
+  if (PASSPORT_MANAGER_ROLES.includes(role)) {
+    items.push({ name: 'admin-companies', label: 'Companies' })
+    items.push({ name: 'admin-references', label: 'References' })
+  }
   if (settingsPagesFor(role).length > 0) {
     items.push({ name: 'settings', label: 'Settings', section: '/admin/settings' })
   }

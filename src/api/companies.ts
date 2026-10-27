@@ -16,7 +16,7 @@ export async function createCompany(payload: NewCompany): Promise<Company> {
   return data.data
 }
 
-/* ---------- Admin (admin and super_admin) ---------- */
+/* ---------- Management (the operations head) ---------- */
 
 const ADMIN = '/api/admin/companies'
 

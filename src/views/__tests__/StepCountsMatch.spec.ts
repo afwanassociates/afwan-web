@@ -218,6 +218,8 @@ async function mountAt(path: string) {
     'passports',
     'medical',
     'companies',
+    'reference-report',
+    'admin-references',
     // The admin's sidebar links (the Flight test switches to an admin to Undo).
     'staff-admin',
     'staff-users',

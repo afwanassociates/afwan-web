@@ -174,10 +174,11 @@ async function confirmEarlyUndo() {
 const medical = computed(() => passport.value?.current_medical ?? null)
 const isUnfit = computed(() => passport.value?.medical_status === 'unfit')
 
+/** The real name of who entered it (from the API), else the user's number. */
 const enteredBy = computed(() => {
   const id = passport.value?.created_by
   if (id === null || id === undefined) return '—'
-  return id === auth.user?.id ? 'You' : `Staff #${id}`
+  return passport.value?.entered_by?.name ?? `Staff #${id}`
 })
 
 const medicalDaysLeft = computed(() => {

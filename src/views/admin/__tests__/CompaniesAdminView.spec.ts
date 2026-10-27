@@ -62,7 +62,7 @@ let router: Router
 async function mountView(path = '/admin/companies') {
   const pinia = createPinia()
   setActivePinia(pinia)
-  useAuthStore().user = makeUser({ role: 'admin' })
+  useAuthStore().user = makeUser({ role: 'operation_head' })
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -93,7 +93,7 @@ beforeEach(() => {
 })
 afterEach(() => wrapper.unmount())
 
-describe('Admin › Companies', () => {
+describe('Companies (operations head)', () => {
   it('lists every company with its quota, passports and status (no agent columns)', async () => {
     await mountView()
 

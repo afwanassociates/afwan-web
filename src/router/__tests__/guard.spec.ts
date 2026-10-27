@@ -76,21 +76,24 @@ describe('router guard (real routes)', () => {
     })
   })
 
-  describe('admin panel › Companies (/staff/admin/companies)', () => {
-    it.each(['admin', 'super_admin'] as const)('%s can open it', async (role) => {
-      setSession(role)
+  describe('Companies (/staff/admin/companies): the operations head only', () => {
+    it('operation_head can open it', async () => {
+      setSession('operation_head')
       await router.push('/staff/admin/companies')
 
       expect(router.currentRoute.value.name).toBe('admin-companies')
     })
 
-    it.each(['data_entry', 'accounts'] as const)('%s gets the 403 page', async (role) => {
-      setSession(role)
-      await router.push('/staff/admin/companies?status=inactive')
+    it.each(['admin', 'super_admin', 'data_entry', 'accounts'] as const)(
+      '%s gets the 403 page',
+      async (role) => {
+        setSession(role)
+        await router.push('/staff/admin/companies?status=inactive')
 
-      expect(router.currentRoute.value.name).toBe('forbidden')
-      expect(router.currentRoute.value.query.from).toBe('/staff/admin/companies?status=inactive')
-    })
+        expect(router.currentRoute.value.name).toBe('forbidden')
+        expect(router.currentRoute.value.query.from).toBe('/staff/admin/companies?status=inactive')
+      },
+    )
 
     it('sends guests to login', async () => {
       setSession(null)
@@ -109,9 +112,20 @@ describe('router guard (real routes)', () => {
       },
     )
 
-    it('has no Reference report any more', () => {
-      expect(router.hasRoute('references-report')).toBe(false)
-      expect(router.hasRoute('reference-report')).toBe(false)
+    it.each([
+      'data_entry',
+      'operation_head',
+      'accounts',
+      'accounts_head',
+      'admin',
+      'super_admin',
+    ] as const)('%s can open the Reference report and a reference', async (role) => {
+      setSession(role)
+      await router.push('/reports/references?type=agency')
+      expect(router.currentRoute.value.name).toBe('reference-report')
+
+      await router.push('/reports/references/7')
+      expect(router.currentRoute.value.name).toBe('reference-report-detail')
     })
   })
 
@@ -188,11 +202,14 @@ describe('router guard (real routes)', () => {
       ['admin', '/data-entry/flight'],
       ['super_admin', '/data-entry/passports'],
       ['super_admin', '/data-entry/visa'],
+      // References management, like Companies: the operations head only.
+      ['admin', '/staff/admin/references'],
+      ['super_admin', '/staff/admin/references'],
+      ['data_entry', '/staff/admin/references'],
       // The operations head: passport work and its users, not accounts or the admin panel.
       ['operation_head', '/staff/data-entry'],
       ['operation_head', '/staff/admin'],
       ['operation_head', '/accounts/parties'],
-      ['operation_head', '/staff/admin/companies'],
     ] as const)('%s opening %s gets the 403 page', async (role, path) => {
       setSession(role)
       await router.push(path)
@@ -236,6 +253,7 @@ describe('router guard (real routes)', () => {
       ['operation_head', '/data-entry/flight'],
       ['operation_head', '/reports/passports'],
       ['operation_head', '/staff/admin/users'],
+      ['operation_head', '/staff/admin/references?type=agency'],
     ] as const)('%s can open %s', async (role, path) => {
       setSession(role)
       await router.push(path)

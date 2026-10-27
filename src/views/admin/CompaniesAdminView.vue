@@ -11,7 +11,7 @@ import type { Paginated } from '@/types/auth'
 import type { Company } from '@/types/passport'
 
 /**
- * Admin panel › Companies (admin and super_admin): every company with search and an active
+ * Companies (the operations head): every company with search and an active
  * filter, plus create, edit, (de)activate and delete. A company with passports cannot be
  * deleted; it is deactivated instead.
  */

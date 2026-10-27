@@ -27,6 +27,8 @@ export interface Reference {
   phone: string | null
   notes: string | null
   is_active: boolean
+  /** Only in the management list and its responses. */
+  passports_count?: number
   created_at: string
   updated_at: string
 }
@@ -106,6 +108,8 @@ export interface PassportEntry {
   /** Date problems worth a look (never blocking). */
   warnings?: WorkflowWarning[]
   created_by: number | null
+  /** Who entered it, by name (null when the user is gone). */
+  entered_by?: { id: number; name: string } | null
   updated_by: number | null
   created_at: string
   updated_at: string
@@ -176,6 +180,14 @@ export interface NewReference {
   type: ReferenceType
   name: string
   phone?: string | null
+}
+
+/** The reference management form (the operations head). */
+export interface AdminReferencePayload {
+  type: ReferenceType
+  name: string
+  phone: string | null
+  notes: string | null
 }
 
 export interface NewCompany {
