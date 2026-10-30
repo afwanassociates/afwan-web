@@ -6,7 +6,7 @@ import LatestStatusText from '@/components/LatestStatusText.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import ValidityBadge from '@/components/ValidityBadge.vue'
 import { toDisplayDate } from '@/lib/dates'
-import { STEP_STATE_TEXT, isMedicalAdmin, stepTone } from '@/lib/medical'
+import { STEP_STATE_TEXT, stepTone } from '@/lib/medical'
 import { TONE_BADGE } from '@/lib/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { Role } from '@/types/auth'
@@ -16,10 +16,9 @@ import type { StepRecord, StepRecordSummary } from '@/types/workflow'
 
 /**
  * A passport's steps as a vertical timeline: each step's state, latest record and older
- * records (collapsed). Read-only: steps are recorded and changed on their own pages. For
- * admins, each undo sits in its own step: "Undo latest step" under the latest record,
- * "Undo medical result" in Medical and "Undo Online mark" in the first recorded step (where
- * the Online badge is).
+ * records (collapsed). Read-only: steps are recorded and changed on their own pages. Records
+ * are never deleted; the operations head's "Undo Online mark" sits in the first recorded step
+ * (where the Online badge is).
  */
 const props = defineProps<{
   passport: PassportEntry
@@ -27,24 +26,12 @@ const props = defineProps<{
   history: Record<string, StepRecord[]>
   role: Role | undefined
   userId: number | null
-  /** Admins, before any step record: the Online mark or the medical result to undo. */
-  earlyUndo?: { kind: 'mark' | 'medical'; label: string } | null
+  /** The operations head, before any step record: the Online mark to undo. */
+  earlyUndo?: { kind: 'mark'; label: string } | null
 }>()
-defineEmits<{ undo: [record: StepRecord]; earlyUndo: [] }>()
+defineEmits<{ earlyUndo: [] }>()
 
 const workflow = useWorkflowStore()
-
-/** The newest record of the furthest step that has records: what "undo" removes. */
-const latestRecord = computed<StepRecord | null>(() => {
-  const keys = props.passport.workflow.steps.map((s) => s.key)
-  for (const key of [...keys].reverse()) {
-    const first = props.history[key]?.[0]
-    if (first) return first
-  }
-  return null
-})
-
-const isAdmin = computed(() => isMedicalAdmin(props.role))
 
 /** A recorded step (Calling onwards) the passport has reached and not finished: link to its page. */
 const showsPageLink = (step: { key: string; state: StepState }) =>
@@ -52,9 +39,6 @@ const showsPageLink = (step: { key: string; state: StepState }) =>
   step.key !== 'medical' &&
   step.state !== 'locked' &&
   props.history[step.key]?.[0]?.status !== 'completed'
-
-const canUndo = (record: StepRecord) =>
-  isAdmin.value && record.can.delete && record.id === latestRecord.value?.id
 
 /** Labels that read better here than the config's (the calling permit's expiry). */
 const TIMELINE_LABEL: Record<string, Record<string, string>> = {
@@ -256,17 +240,6 @@ const smallButton =
                 <dd class="break-words text-ink">{{ record.remarks }}</dd>
               </template>
             </dl>
-            <div v-if="canUndo(record)" class="mt-2 -ml-2 flex flex-wrap gap-1">
-              <button
-                v-if="canUndo(record)"
-                type="button"
-                :class="[smallButton, 'text-red-700 hover:bg-red-50']"
-                data-undo
-                @click="$emit('undo', record)"
-              >
-                Undo latest step
-              </button>
-            </div>
           </div>
         </template>
 
@@ -294,11 +267,8 @@ const smallButton =
         </details>
       </template>
 
-      <!-- Admins: undo the Online mark (by its badge) or the medical result (in Medical) -->
-      <div
-        v-if="earlyUndo && step.key === (earlyUndo.kind === 'mark' ? firstRecordStep : 'medical')"
-        class="mt-2 -ml-2 flex flex-wrap gap-1"
-      >
+      <!-- The operations head: undo the Online mark (by its badge) -->
+      <div v-if="earlyUndo && step.key === firstRecordStep" class="mt-2 -ml-2 flex flex-wrap gap-1">
         <button
           type="button"
           :class="[smallButton, 'text-red-700 hover:bg-red-50']"

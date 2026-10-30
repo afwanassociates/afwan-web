@@ -115,8 +115,67 @@ export interface PassportEntry {
   updated_by: number | null
   created_at: string
   updated_at: string
+  /** Set while the passport is returned to its owner (null when it is in the workflow). */
+  returned?: PassportReturnInfo | null
   /** What the current user may do with this entry (decided by the API's policy). */
-  can: { update: boolean; delete: boolean; record_medical: boolean }
+  can: {
+    update: boolean
+    record_medical: boolean
+    /** Return the passport (the operations head, while it is not returned). */
+    return?: boolean
+    /** Undo the return (the operations head, while it is returned). */
+    undo_return?: boolean
+  }
+}
+
+/** A passport handed back to its owner: who collected it, when and at which step. */
+export interface PassportReturnInfo {
+  id: number
+  /** YYYY-MM-DD */
+  return_date: string
+  receiver_name: string
+  receiver_phone: string
+  /** NID or passport number of the receiver (optional). */
+  receiver_id_no: string | null
+  remarks: string | null
+  /** The step the passport was at ('medical', 'visa', …, 'completed'). */
+  stage: string
+  stage_label: string
+  returned_by: { id: number; name: string } | null
+  /** ISO timestamp of when the return was recorded. */
+  returned_at: string
+}
+
+/** Body of POST /passports/{id}/return. */
+export interface PassportReturnPayload {
+  /** YYYY-MM-DD, today or earlier */
+  return_date: string
+  receiver_name: string
+  receiver_phone: string
+  receiver_id_no: string | null
+  remarks: string | null
+}
+
+/** One row of GET /reports/returned-passports. */
+export interface ReturnedPassport extends PassportReturnInfo {
+  passport: { id: number; entry_no: number; passport_name: string; passport_number: string }
+  reference: Pick<Reference, 'id' | 'name'> | null
+  company: Pick<Company, 'id' | 'name'>
+  /** Whether the current user may undo this return. */
+  can_undo: boolean
+}
+
+/** Query of GET /reports/returned-passports. Dates are YYYY-MM-DD. */
+export interface ReturnedPassportFilters {
+  /** Part of the passport name or number. */
+  q?: string
+  company_id?: number
+  reference_id?: number
+  /** Return date range. */
+  date_from?: string
+  date_to?: string
+  page?: number
+  per_page?: number
 }
 
 /** Body of POST /passports and PATCH /passports/{id}. */
@@ -237,6 +296,8 @@ export interface PassportOverview {
   entered_by: { id: number; name: string } | null
   created_at: string
   latest_status: LatestStatus
+  /** Set while the passport is returned to its owner. */
+  returned?: PassportReturnInfo | null
 }
 
 /** One row of GET /passports/{id}/history: what happened, from entry to flight. */

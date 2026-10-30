@@ -30,6 +30,7 @@ const SUMMARY_CARDS: { key: keyof CompanyCounts; label: string; tone: string }[]
     label: 'In process',
     tone: 'border-orange-200 bg-orange-50 text-orange-900',
   },
+  { key: 'returned', label: 'Returned', tone: 'border-slate-200 bg-slate-50 text-slate-900' },
 ]
 
 const summary = ref<CompanyCounts | null>(null)

@@ -38,6 +38,7 @@ const COUNTS: CompanyCounts = {
   bmet_done: 1,
   flight_done: 1,
   in_process: 2,
+  returned: 0,
 }
 
 function row(overrides: Partial<ReferenceReportRow>): ReferenceReportRow {
@@ -110,6 +111,7 @@ describe('Reference report', () => {
       'BMET',
       'Flight done',
       'In process',
+      'Returned',
     ])
     expect(wrapper.text()).not.toContain('Balance')
     expect(wrapper.text()).not.toContain('Quota')

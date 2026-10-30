@@ -11,7 +11,7 @@ import { makePassport, makeUser, notStartedPassport } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { PassportEntry, PassportFilters } from '@/types/passport'
 
-vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), deletePassport: vi.fn() }))
+vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), returnPassport: vi.fn() }))
 vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 vi.mock('@/api/medical', () => ({ updateMedicalSlip: vi.fn() }))
 vi.mock('@/api/medicalCenters', () => ({
@@ -46,7 +46,7 @@ const ENTERED = makePassport({
   passport_name: 'KARIM UDDIN',
   passport_number: 'NW5000001',
   ...notStartedPassport(),
-  can: { update: true, delete: true, record_medical: true },
+  can: { update: true, record_medical: true, return: true, undo_return: false },
 })
 
 let wrapper: VueWrapper
@@ -205,7 +205,7 @@ describe('Passport List ("Passport entered" only)', () => {
       expect(wrapper.text()).not.toMatch(/scan/i)
     })
 
-    it('keeps the row actions: Add medical slip, Edit and Delete', async () => {
+    it('has the row actions Add medical slip, Edit and Return (no Delete)', async () => {
       await mountList()
 
       const actions = wrapper
@@ -217,7 +217,8 @@ describe('Passport List ("Passport entered" only)', () => {
             .replace(/\s+(for )?passport.*$/, '')
             .trim(),
         )
-      expect(actions).toEqual(expect.arrayContaining(['Add medical slip', 'Edit', 'Delete']))
+      expect(actions).toEqual(expect.arrayContaining(['Add medical slip', 'Edit', 'Return']))
+      expect(actions).not.toContain('Delete')
     })
   })
 

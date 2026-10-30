@@ -8,6 +8,9 @@ import type {
   PassportHistoryEvent,
   PassportOverview,
   PassportPayload,
+  PassportReturnPayload,
+  ReturnedPassport,
+  ReturnedPassportFilters,
 } from '@/types/passport'
 
 const BASE = '/api/data-entry/passports'
@@ -121,8 +124,39 @@ export async function updatePassport(
   return data.data
 }
 
-export async function deletePassport(id: number): Promise<void> {
-  await api.delete(`${BASE}/${id}`)
+/**
+ * Returns the passport to its owner (the operations head): it leaves every working list and
+ * no step can be recorded on it until the return is undone. 422 when it is already returned.
+ */
+export async function returnPassport(
+  id: number,
+  payload: PassportReturnPayload,
+): Promise<PassportEntry> {
+  const { data } = await api.post<{ data: PassportEntry }>(`${BASE}/${id}/return`, payload)
+  return data.data
+}
+
+/** Undoes the return: the passport goes back to the step it was at (the operations head). */
+export async function undoPassportReturn(id: number): Promise<PassportEntry> {
+  const { data } = await api.delete<{ data: PassportEntry }>(`${BASE}/${id}/return`)
+  return data.data
+}
+
+/** Returned passports, newest return first (every role, read only). */
+export async function listReturnedPassports(
+  filters: ReturnedPassportFilters,
+): Promise<Paginated<ReturnedPassport>> {
+  const { data } = await api.get<Paginated<ReturnedPassport>>('/api/reports/returned-passports', {
+    params: filters,
+  })
+  return data
+}
+
+/** Downloads the returned passports as CSV (same filters, every page). Returns the file name. */
+export function downloadReturnedPassportsCsv(
+  filters: Omit<ReturnedPassportFilters, 'page' | 'per_page'>,
+): Promise<string> {
+  return downloadCsv('/api/reports/returned-passports', filters, 'returned-passports')
 }
 
 /** A passport's history from entry to flight, oldest first. */

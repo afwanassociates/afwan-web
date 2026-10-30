@@ -9,7 +9,7 @@ import type { PassportEntry } from '@/types/passport'
 /**
  * Passport entries as a table on wide screens and as cards on narrow ones.
  * The passport name (linked to its detail page) and number always come first; `columns`
- * picks the rest. The `actions` slot replaces the default Edit / Delete buttons;
+ * picks the rest. The `actions` slot replaces the default Edit / Return buttons;
  * `extra-actions` adds buttons before them.
  */
 withDefaults(
@@ -24,7 +24,7 @@ withDefaults(
     splitNameNumber?: boolean
     /** Columns the page draws itself through the `cell` slot (default: none). */
     customColumns?: PassportColumn[]
-    /** Show the default Edit / Delete buttons when a row has no page actions (default: yes). */
+    /** Show the default Edit / Return buttons when a row has no page actions (default: yes). */
     defaultActions?: boolean
     /** Keep the actions column visible at the right edge when the table scrolls sideways. */
     stickyActions?: boolean
@@ -41,7 +41,7 @@ withDefaults(
     showEntryNo: false,
   },
 )
-defineEmits<{ delete: [entry: PassportEntry] }>()
+defineEmits<{ return: [entry: PassportEntry] }>()
 defineSlots<{
   actions?(props: { entry: PassportEntry }): unknown
   'extra-actions'?(props: { entry: PassportEntry }): unknown
@@ -108,12 +108,13 @@ const actionClass =
             Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
           </RouterLink>
           <button
-            v-if="defaultActions && entry.can.delete"
+            v-if="defaultActions && entry.can.return"
             type="button"
-            :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-            @click="$emit('delete', entry)"
+            :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
+            :data-return-action="entry.id"
+            @click="$emit('return', entry)"
           >
-            Delete<span class="sr-only"> passport {{ entry.passport_number }}</span>
+            Return<span class="sr-only"> passport {{ entry.passport_number }}</span>
           </button>
         </slot>
       </div>
@@ -212,12 +213,13 @@ const actionClass =
                   Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
                 </RouterLink>
                 <button
-                  v-if="defaultActions && entry.can.delete"
+                  v-if="defaultActions && entry.can.return"
                   type="button"
-                  :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-                  @click="$emit('delete', entry)"
+                  :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
+                  :data-return-action="entry.id"
+                  @click="$emit('return', entry)"
                 >
-                  Delete<span class="sr-only"> passport {{ entry.passport_number }}</span>
+                  Return<span class="sr-only"> passport {{ entry.passport_number }}</span>
                 </button>
               </slot>
             </div>

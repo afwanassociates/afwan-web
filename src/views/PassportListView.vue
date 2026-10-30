@@ -2,14 +2,13 @@
 import { computed, onMounted, ref, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import ArrowIcon from '@/components/ArrowIcon.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import PassportTable from '@/components/PassportTable.vue'
+import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import { searchCompanies } from '@/api/companies'
-import { deletePassport, listPassports } from '@/api/passports'
+import { listPassports } from '@/api/passports'
 import { useDebounce } from '@/composables/useDebounce'
-import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { referenceSubtitle, searchReferenceOptions } from '@/lib/referenceOptions'
 import { useAuthStore } from '@/stores/auth'
@@ -22,7 +21,6 @@ const PER_PAGE = 15
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
-const toast = useToast()
 const workflow = useWorkflowStore()
 workflow.load()
 
@@ -252,44 +250,19 @@ const slipAction = (entry: PassportEntry) =>
 const rowActionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap hover:bg-primary-50 focus-visible:bg-primary-50'
 
-/* ---------- Delete ---------- */
+/* ---------- Return (the operations head) ---------- */
 
-const deleteTarget = ref<PassportEntry | null>(null)
-const deleteOpen = ref(false)
-const deleteBusy = ref(false)
-const deleteError = ref<string | null>(null)
+const returnTarget = ref<PassportEntry | null>(null)
+const returnOpen = ref(false)
 
-function askDelete(entry: PassportEntry) {
-  deleteTarget.value = entry
-  deleteError.value = null
-  deleteOpen.value = true
+function askReturn(entry: PassportEntry) {
+  returnTarget.value = entry
+  returnOpen.value = true
 }
 
-async function confirmDelete() {
-  const entry = deleteTarget.value
-  if (!entry) return
-  deleteBusy.value = true
-  deleteError.value = null
-  try {
-    await deletePassport(entry.id)
-    deleteOpen.value = false
-    toast.success(`Passport ${entry.passport_number} deleted.`)
-    load()
-    workflow.refresh()
-  } catch (error) {
-    const status = errorStatus(error)
-    if (status === 404) {
-      // Already gone: just refresh.
-      deleteOpen.value = false
-      load()
-    } else if (status === 403) {
-      deleteError.value = 'Only admins can delete passport entries.'
-    } else if (status !== 401) {
-      deleteError.value = errorMessage(error, 'Could not delete the entry. Please try again.')
-    }
-  } finally {
-    deleteBusy.value = false
-  }
+function afterReturn() {
+  load()
+  workflow.refresh()
 }
 
 const inputClass =
@@ -468,7 +441,7 @@ const inputClass =
             :columns="['reference', 'company', 'received', 'entered_by']"
             split-name-number
             show-entry-no
-            @delete="askDelete"
+            @return="askReturn"
           >
             <template #extra-actions="{ entry }">
               <button
@@ -527,20 +500,10 @@ const inputClass =
       @saved="afterSlip"
     />
 
-    <ConfirmDialog
-      v-model:open="deleteOpen"
-      title="Delete passport entry"
-      confirm-label="Delete"
-      danger
-      :busy="deleteBusy"
-      :error="deleteError"
-      @confirm="confirmDelete"
-    >
-      <p v-if="deleteTarget">
-        Delete the entry for <strong>{{ deleteTarget.passport_name }}</strong> (passport
-        <span class="font-mono">{{ deleteTarget.passport_number }}</span
-        >)? It will disappear from the list.
-      </p>
-    </ConfirmDialog>
+    <ReturnPassportDialog
+      v-model:open="returnOpen"
+      :passport="returnTarget"
+      @returned="afterReturn"
+    />
   </div>
 </template>

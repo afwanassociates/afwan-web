@@ -209,6 +209,13 @@ const router = createRouter({
           meta: { title: staffTitle('All passports') },
         },
         {
+          // Passports handed back to their owners (undo: the operations head).
+          path: 'returned-passports',
+          name: 'returned-passports',
+          component: () => import('@/views/ReturnedPassportsView.vue'),
+          meta: { title: staffTitle('Returned passports') },
+        },
+        {
           path: 'companies',
           name: 'companies',
           component: () => import('@/views/CompaniesView.vue'),

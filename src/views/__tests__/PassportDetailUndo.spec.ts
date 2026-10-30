@@ -3,9 +3,8 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import PassportDetailView from '../PassportDetailView.vue'
-import { deleteMedical } from '@/api/medical'
-import { getPassport, updateEntryMode } from '@/api/passports'
-import { deleteStepRecord, listStepRecords } from '@/api/steps'
+import { getPassport, undoPassportReturn, updateEntryMode } from '@/api/passports'
+import { listStepRecords } from '@/api/steps'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
@@ -18,15 +17,15 @@ vi.mock('@/api/passports', () => ({
   getPassportHistory: vi.fn(async () => []),
   listPassports: vi.fn(),
   updateEntryMode: vi.fn(),
+  returnPassport: vi.fn(),
+  undoPassportReturn: vi.fn(),
 }))
 vi.mock('@/api/medical', () => ({
   listMedicals: vi.fn(async () => []),
-  deleteMedical: vi.fn(),
   updateMedicalSlip: vi.fn(),
 }))
 vi.mock('@/api/steps', () => ({
   listStepRecords: vi.fn(async () => ({})),
-  deleteStepRecord: vi.fn(),
 }))
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowSummary: vi.fn(async () => null),
@@ -59,6 +58,7 @@ async function mountDetail(passport: Partial<PassportEntry>, role: Role = 'opera
       { path: '/data-entry/passports/:id/edit', name: 'passport-edit', component: Empty },
       { path: '/data-entry/passports', name: 'passports', component: Empty },
       { path: '/medical', name: 'medical', component: Empty },
+      { path: '/returned', name: 'returned-passports', component: Empty },
       { path: '/:step', name: 'step-page', component: Empty },
     ],
   })
@@ -70,12 +70,12 @@ async function mountDetail(passport: Partial<PassportEntry>, role: Role = 'opera
   await flushPromises()
 }
 
-/** Clicks "Undo" in the dialog with this title (both undo dialogs are in the page). */
-async function confirmDialog(title: string) {
+/** Clicks the confirm button (`label`) in the dialog with this title. */
+async function confirmDialog(title: string, label = 'Undo') {
   const dialog = [...wrapper.findAll('dialog')].find((d) => d.get('h2').text() === title)!
   await dialog
     .findAll('button')
-    .find((b) => b.text() === 'Undo')!
+    .find((b) => b.text() === label)!
     .trigger('click')
   await flushPromises()
 }
@@ -87,7 +87,7 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount())
 
 describe('Passport page: undo in the Steps section (operations head only)', () => {
-  it('offers "Undo latest step" under the latest step record, not in the header', async () => {
+  it('offers no "Undo latest step": step records are never deleted', async () => {
     vi.mocked(listStepRecords).mockResolvedValue({
       calling: [
         {
@@ -116,16 +116,10 @@ describe('Passport page: undo in the Steps section (operations head only)', () =
       } as PassportEntry['workflow'],
     })
 
-    const steps = wrapper.get('section[aria-labelledby="timeline-heading"]')
-    expect(steps.get('button[data-undo]').text()).toBe('Undo latest step')
-    expect(wrapper.find('button[data-undo-latest]').exists()).toBe(false)
-    // Calling has a record, so there is no Online mark / medical undo.
+    expect(wrapper.find('button[data-undo]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Undo latest step')
+    // Calling has a record, so there is no Online mark undo either.
     expect(wrapper.find('button[data-early-undo]').exists()).toBe(false)
-
-    await steps.get('button[data-undo]').trigger('click')
-    await flushPromises()
-    await confirmDialog('Undo latest step')
-    expect(deleteStepRecord).toHaveBeenCalledWith(9)
   })
 
   it('offers "Undo Online mark" in the first recorded step (by its Online badge)', async () => {
@@ -145,22 +139,13 @@ describe('Passport page: undo in the Steps section (operations head only)', () =
     await confirmDialog('Undo Online mark')
 
     expect(updateEntryMode).toHaveBeenCalledWith(20, null)
-    expect(deleteMedical).not.toHaveBeenCalled()
   })
 
-  it('offers "Undo medical result" when there is no mark and no step record', async () => {
-    vi.mocked(deleteMedical).mockResolvedValue()
+  it('offers no "Undo medical result": medical records are never deleted', async () => {
     await mountDetail({ current_medical: FIT_MEDICAL, medical_status: 'fit', entry_mode: null })
 
-    // Inside step 2, Medical (not below the timeline).
-    const button = wrapper.get('[data-timeline-step="medical"] button[data-early-undo]')
-    expect(button.text()).toBe('Undo medical result')
-    expect(wrapper.findAll('button[data-early-undo]')).toHaveLength(1)
-    await button.trigger('click')
-    await flushPromises()
-    await confirmDialog('Undo medical result')
-
-    expect(deleteMedical).toHaveBeenCalledWith(55)
+    expect(wrapper.find('button[data-early-undo]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Undo medical result')
   })
 
   it('has no slip undo: a slip without a result shows no undo (Edit slip changes it)', async () => {
@@ -200,5 +185,58 @@ describe('Passport page: undo in the Steps section (operations head only)', () =
 
     expect(wrapper.find('button[data-early-undo]').exists()).toBe(false)
     expect(wrapper.find('button[data-undo]').exists()).toBe(false)
+  })
+})
+
+const RETURNED = {
+  id: 3,
+  return_date: '2026-10-28',
+  receiver_name: 'Rahim',
+  receiver_phone: '01711000000',
+  receiver_id_no: null,
+  remarks: null,
+  stage: 'visa',
+  stage_label: 'Visa',
+  returned_by: { id: 1, name: 'Head One' },
+  returned_at: '2026-10-28T06:00:00Z',
+}
+
+describe('Passport page: return to the owner', () => {
+  it('offers "Return passport" when the API allows it', async () => {
+    await mountDetail({
+      can: { update: true, record_medical: false, return: true, undo_return: false },
+    })
+
+    expect(wrapper.get('button[data-return-passport]').text()).toBe('Return passport')
+    expect(wrapper.find('button[data-undo-return]').exists()).toBe(false)
+    expect(wrapper.find('[data-returned]').exists()).toBe(false)
+  })
+
+  it('shows who collected a returned passport and undoes the return', async () => {
+    vi.mocked(undoPassportReturn).mockResolvedValue(makePassport({ id: 20 }))
+    await mountDetail({
+      returned: RETURNED,
+      can: { update: true, record_medical: false, return: false, undo_return: true },
+    })
+
+    expect(wrapper.get('[data-returned]').text()).toContain(
+      'Returned on 28-10-2026 to Rahim (01711000000)',
+    )
+    expect(wrapper.get('[data-returned]').text()).toContain('Visa')
+    expect(wrapper.find('button[data-return-passport]').exists()).toBe(false)
+
+    await wrapper.get('button[data-undo-return]').trigger('click')
+    await flushPromises()
+    await confirmDialog('Undo return', 'Undo return')
+
+    expect(undoPassportReturn).toHaveBeenCalledWith(20)
+  })
+
+  it('shows the return but no buttons to data entry', async () => {
+    await mountDetail({ returned: RETURNED }, 'data_entry')
+
+    expect(wrapper.find('[data-returned]').exists()).toBe(true)
+    expect(wrapper.find('button[data-undo-return]').exists()).toBe(false)
+    expect(wrapper.find('button[data-return-passport]').exists()).toBe(false)
   })
 })

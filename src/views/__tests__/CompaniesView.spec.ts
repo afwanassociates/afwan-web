@@ -48,6 +48,7 @@ function row(overrides: Partial<CompanyReportRow>): CompanyReportRow {
     bmet_done: 0,
     flight_done: 0,
     in_process: 3,
+    returned: 0,
     balance: 6,
     ...overrides,
   }
@@ -73,6 +74,7 @@ const REPORT: CompanyReport = {
     bmet_done: 0,
     flight_done: 0,
     in_process: 6,
+    returned: 0,
     balance: 3,
   },
   meta: { current_page: 1, last_page: 1, per_page: 50, total: 3 },
@@ -128,6 +130,7 @@ describe('CompaniesView', () => {
       'BMET',
       'Flight done',
       'In process',
+      'Returned',
       'Balance',
     ])
     expect(rowEl(1).text()).toContain('ABC Sdn Bhd')

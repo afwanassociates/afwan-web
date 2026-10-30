@@ -27,6 +27,7 @@ export const COUNT_COLUMNS: readonly { key: keyof CompanyCounts; label: string }
   { key: 'bmet_done', label: 'BMET' },
   { key: 'flight_done', label: 'Flight done' },
   { key: 'in_process', label: 'In process' },
+  { key: 'returned', label: 'Returned' },
 ]
 
 export const SORTABLE: readonly CompanyReportSortKey[] = [

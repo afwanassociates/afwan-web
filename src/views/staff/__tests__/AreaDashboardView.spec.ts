@@ -16,6 +16,7 @@ const SUMMARY: CompanyCounts = {
   bmet_done: 3,
   flight_done: 3,
   in_process: 0,
+  returned: 0,
 }
 
 vi.mock('@/api/reports', () => ({ fetchReportSummary: vi.fn(async () => SUMMARY) }))
@@ -58,6 +59,7 @@ describe('AreaDashboardView', () => {
       ['BMET', '3'],
       ['Flight done', '3'],
       ['In process', '0'],
+      ['Returned', '0'],
     ])
     expect(wrapper.get('[data-card="medical_fit"]').classes()).toContain('bg-green-50')
     expect(wrapper.get('[data-card="medical_unfit"]').classes()).toContain('bg-red-50')

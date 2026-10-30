@@ -215,6 +215,7 @@ async function mountAt(path: string) {
     'login',
     'staff-data-entry',
     'all-passports',
+    'returned-passports',
     'passport-new',
     'passports',
     'medical',

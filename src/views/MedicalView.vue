@@ -3,6 +3,7 @@ import { computed, ref, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import PassportListBody from '@/components/PassportListBody.vue'
 import PassportTable from '@/components/PassportTable.vue'
+import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalDateCell from '@/components/MedicalDateCell.vue'
 import MedicalFitDialog from '@/components/MedicalFitDialog.vue'
@@ -516,6 +517,21 @@ const inputClass =
   'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus:border-primary-600'
 const actionClass =
   'rounded-full px-3 py-1.5 text-sm font-semibold whitespace-nowrap focus-visible:outline-offset-1'
+
+/* ---------- Return (the operations head, any tab) ---------- */
+
+const returnTarget = ref<PassportEntry | null>(null)
+const returnOpen = ref(false)
+
+function askReturn(entry: PassportEntry) {
+  returnTarget.value = entry
+  returnOpen.value = true
+}
+
+function afterReturn() {
+  load()
+  workflow.refresh()
+}
 </script>
 
 <template>
@@ -725,6 +741,17 @@ const actionClass =
                   @saved="onDateSaved"
                 />
               </template>
+              <template #extra-actions="{ entry }">
+                <button
+                  v-if="entry.can.return"
+                  type="button"
+                  :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
+                  :data-return-action="entry.id"
+                  @click="askReturn(entry)"
+                >
+                  Return<span class="sr-only"> passport {{ entry.passport_number }}</span>
+                </button>
+              </template>
               <template #actions="{ entry }">
                 <template v-if="tab.key === 'pending' && canAct">
                   <span
@@ -804,5 +831,11 @@ const actionClass =
     />
 
     <MedicalSlipModal v-model:open="slipOpen" :passport="slipPassport" @saved="load" />
+
+    <ReturnPassportDialog
+      v-model:open="returnOpen"
+      :passport="returnTarget"
+      @returned="afterReturn"
+    />
   </div>
 </template>

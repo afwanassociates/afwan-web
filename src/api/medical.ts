@@ -49,10 +49,6 @@ export async function recordMedicalResult(
   return data
 }
 
-export async function deleteMedical(id: number): Promise<void> {
-  await api.delete(`${BASE}/medicals/${id}`)
-}
-
 /**
  * Saves a passport's medical slip (MYGRAM date, number, centre). Entering the date moves the
  * passport from "not started" into Medical → Pending. Returns the updated passport.

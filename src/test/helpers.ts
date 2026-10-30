@@ -74,7 +74,7 @@ export function makePassport(overrides: Partial<PassportEntry> = {}): PassportEn
     updated_by: 5,
     created_at: '',
     updated_at: '',
-    can: { update: true, delete: false, record_medical: true },
+    can: { update: true, record_medical: true, return: false, undo_return: false },
     ...overrides,
   }
 }

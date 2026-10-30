@@ -52,7 +52,7 @@ function makeEntry(overrides: Partial<PassportEntry> = {}): PassportEntry {
     country: null,
     reference: AGENCY,
     company: COMPANY,
-    can: { update: true, delete: false, record_medical: true },
+    can: { update: true, record_medical: true, return: false, undo_return: false },
     // Saved entries have a scan (required on create); edits may leave it as it is.
     has_scan: true,
     scan_original_name: 'passport.jpg',

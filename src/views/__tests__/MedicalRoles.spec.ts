@@ -33,7 +33,6 @@ vi.mock('@/api/passports', () => ({
 }))
 vi.mock('@/api/medical', () => ({
   listMedicals: vi.fn(),
-  deleteMedical: vi.fn(),
   recordMedicalResult: vi.fn(),
   updateMedicalDate: vi.fn(),
   updateMedicalSlip: vi.fn(),
@@ -44,7 +43,6 @@ vi.mock('@/api/workflow', () => ({
 }))
 vi.mock('@/api/steps', () => ({
   listStepRecords: vi.fn(async () => ({})),
-  deleteStepRecord: vi.fn(),
   recordStep: vi.fn(),
   updateStepRecord: vi.fn(),
 }))
@@ -71,7 +69,7 @@ const UNFIT: PassportEntry = makePassport({
     recorded_by: { id: 5, name: 'Admin' },
     created_at: '',
   },
-  can: { update: true, delete: true, record_medical: true },
+  can: { update: true, record_medical: true, return: false, undo_return: false },
 })
 
 function record(overrides: Partial<MedicalRecord> = {}): MedicalRecord {
@@ -174,16 +172,14 @@ describe('Medical history buttons', () => {
       .findAll('button')
       .map((b) => b.text())
 
-  it('data_entry never sees Delete, even when the API allows it', () => {
-    const labels = buttons('data_entry', [record()])
-    expect(labels.some((l) => l.startsWith('Delete'))).toBe(false)
-    expect(labels.some((l) => l.startsWith('Edit'))).toBe(true)
-  })
-
-  it('the operations head sees Delete; admins do not', () => {
-    expect(buttons('operation_head', [record()]).some((l) => l.startsWith('Delete'))).toBe(true)
-    expect(buttons('admin', [record()]).some((l) => l.startsWith('Delete'))).toBe(false)
-  })
+  it.each(['data_entry', 'operation_head', 'admin'] as const)(
+    'never offers Delete (%s): medical records are never deleted',
+    (role) => {
+      const labels = buttons(role, [record()])
+      expect(labels.some((l) => l.startsWith('Delete'))).toBe(false)
+      expect(labels.some((l) => l.startsWith('Edit'))).toBe(true)
+    },
+  )
 
   it('hides Edit when the API says no (another user’s record)', () => {
     const labels = buttons('data_entry', [record({ can: { update: false, delete: false } })])

@@ -385,18 +385,13 @@ describe('StepTimeline', () => {
     expect(wrapper.find('[data-edit-record]').exists()).toBe(false)
   })
 
-  it('operation_head: no Edit, and Undo on the latest step only', async () => {
-    const wrapper = await mountTimeline('operation_head', 1)
+  it.each(['operation_head', 'admin', 'super_admin'] as const)(
+    '%s: no Edit and no Undo (step records are never deleted)',
+    async (role) => {
+      const wrapper = await mountTimeline(role, 1)
 
-    expect(wrapper.find('[data-edit-record]').exists()).toBe(false)
-    expect(wrapper.findAll('[data-undo]')).toHaveLength(1)
-    expect(stepEl(wrapper, 'visa').find('[data-undo]').exists()).toBe(true)
-  })
-
-  it.each(['admin', 'super_admin'] as const)('%s: no Edit and no Undo', async (role) => {
-    const wrapper = await mountTimeline(role, 1)
-
-    expect(wrapper.find('[data-edit-record]').exists()).toBe(false)
-    expect(wrapper.find('[data-undo]').exists()).toBe(false)
-  })
+      expect(wrapper.find('[data-edit-record]').exists()).toBe(false)
+      expect(wrapper.find('[data-undo]').exists()).toBe(false)
+    },
+  )
 })

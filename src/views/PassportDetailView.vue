@@ -5,12 +5,17 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import PassportHistoryTable from '@/components/PassportHistoryTable.vue'
 import PassportScanCard from '@/components/PassportScanCard.vue'
+import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
-import { deleteStepRecord, listStepRecords } from '@/api/steps'
-import { deleteMedical } from '@/api/medical'
-import { getPassport, getPassportHistory, updateEntryMode } from '@/api/passports'
+import { listStepRecords } from '@/api/steps'
+import {
+  getPassport,
+  getPassportHistory,
+  undoPassportReturn,
+  updateEntryMode,
+} from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { businessToday, daysLeft, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
@@ -70,68 +75,23 @@ function afterChange() {
   workflow.refresh()
 }
 
-/* ---------- Steps 3+: undo (recording is on the step pages) ---------- */
-
-const undoTarget = ref<StepRecord | null>(null)
-const undoOpen = ref(false)
-const undoBusy = ref(false)
-const undoError = ref<string | null>(null)
-
-function askUndo(record: StepRecord) {
-  undoTarget.value = record
-  undoError.value = null
-  undoOpen.value = true
-}
-
-async function confirmUndo() {
-  const record = undoTarget.value
-  if (!record) return
-  undoBusy.value = true
-  undoError.value = null
-  try {
-    await deleteStepRecord(record.id)
-    undoOpen.value = false
-    toast.success(`${record.step_label}: ${record.status_label} undone.`)
-    afterChange()
-  } catch (error) {
-    const code = errorStatus(error)
-    if (code === 403) undoError.value = 'Only admins can undo a step.'
-    else if (code === 404) {
-      undoOpen.value = false
-      afterChange()
-    } else if (code !== 401)
-      undoError.value = errorMessage(error, 'Could not undo the step. Please try again.')
-  } finally {
-    undoBusy.value = false
-  }
-}
-
 /*
- * ---------- Steps 1-2: undo for admins ----------
- * Before Calling there is no step record, so "Undo latest step" (above) has nothing to
- * remove. Admins can still go back one step at a time, latest first: the Online mark, then
- * the medical result. (The slip has no undo: the Medical page's Edit slip changes it.) The timeline shows each button in its own step. Undo is for admin and
- * super_admin only (the API refuses others).
+ * ---------- Undo the Online mark (the operations head) ----------
+ * Before Calling starts, the Online mark can be cleared. Records (medical results, steps) are
+ * never deleted, so there is no other undo here. The API refuses everyone else.
  */
 
-type EarlyUndo = { kind: 'mark' | 'medical'; label: string; text: string }
+type EarlyUndo = { kind: 'mark'; label: string; text: string }
 
 const earlyUndo = computed<EarlyUndo | null>(() => {
   const p = passport.value
-  if (!p || !isMedicalAdmin(auth.user?.role)) return null
+  if (!p || p.returned || !isMedicalAdmin(auth.user?.role)) return null
   if (Object.values(stepHistory.value).some((records) => records.length > 0)) return null
   if (p.entry_mode)
     return {
       kind: 'mark',
       label: 'Undo Online mark',
       text: 'Clear the Online mark? The passport goes back to the Medical Fit tab.',
-    }
-  const m = p.current_medical
-  if (m)
-    return {
-      kind: 'medical',
-      label: 'Undo medical result',
-      text: `Remove the medical result “${m.result === 'fit' ? 'Fit' : 'Unfit'}” of ${toDisplayDate(m.medical_date)}? The passport goes back to Medical pending (or its previous result).`,
     }
   return null
 })
@@ -152,16 +112,13 @@ async function confirmEarlyUndo() {
   earlyUndoBusy.value = true
   earlyUndoError.value = null
   try {
-    if (undo.kind === 'mark') await updateEntryMode(p.id, null)
-    else if (p.current_medical) await deleteMedical(p.current_medical.id)
+    await updateEntryMode(p.id, null)
     earlyUndoOpen.value = false
-    toast.success(
-      `${p.passport_number}: ${undo.kind === 'mark' ? 'Online mark' : 'medical result'} undone.`,
-    )
+    toast.success(`${p.passport_number}: Online mark undone.`)
     afterChange()
   } catch (error) {
     const code = errorStatus(error)
-    if (code === 403) earlyUndoError.value = 'Only admins can undo a step.'
+    if (code === 403) earlyUndoError.value = 'Only the Operations Head can undo a step.'
     else if (code !== 401)
       earlyUndoError.value = errorMessage(error, 'Could not undo. Please try again.')
   } finally {
@@ -198,10 +155,52 @@ const medicalAction = computed(() => {
 })
 
 const backLink = computed(() =>
-  isUnfit.value
-    ? { to: { name: 'medical', query: { tab: 'unfit' } }, label: 'Medical · Unfit' }
-    : { to: { name: 'passports' }, label: 'Passport Entry List' },
+  passport.value?.returned
+    ? { to: { name: 'returned-passports' }, label: 'Returned Passports' }
+    : isUnfit.value
+      ? { to: { name: 'medical', query: { tab: 'unfit' } }, label: 'Medical · Unfit' }
+      : { to: { name: 'passports' }, label: 'Passport Entry List' },
 )
+
+/* ---------- Return to the owner (the operations head) ---------- */
+
+const returnOpen = ref(false)
+const undoReturnOpen = ref(false)
+const undoReturnBusy = ref(false)
+const undoReturnError = ref<string | null>(null)
+
+/** "Returned on 28-10-2026 to Rahim (017…)". */
+const returnedText = computed(() => {
+  const r = passport.value?.returned
+  return r
+    ? `Returned on ${toDisplayDate(r.return_date)} to ${r.receiver_name} (${r.receiver_phone})`
+    : ''
+})
+
+function askUndoReturn() {
+  undoReturnError.value = null
+  undoReturnOpen.value = true
+}
+
+async function confirmUndoReturn() {
+  const p = passport.value
+  if (!p) return
+  undoReturnBusy.value = true
+  undoReturnError.value = null
+  try {
+    await undoPassportReturn(p.id)
+    undoReturnOpen.value = false
+    toast.success(`${p.passport_number}: return undone. It is back in the workflow.`)
+    afterChange()
+  } catch (error) {
+    const code = errorStatus(error)
+    if (code === 403) undoReturnError.value = 'Only the Operations Head can undo a return.'
+    else if (code !== 401)
+      undoReturnError.value = errorMessage(error, 'Could not undo the return. Please try again.')
+  } finally {
+    undoReturnBusy.value = false
+  }
+}
 
 /* ---------- Medical slip ---------- */
 
@@ -256,8 +255,50 @@ const dd = 'font-medium text-ink'
           >
             {{ medicalAction.label }}
           </button>
+          <button
+            v-if="passport.can.return"
+            type="button"
+            class="btn btn-primary text-sm"
+            data-return-passport
+            @click="returnOpen = true"
+          >
+            Return passport
+          </button>
+          <button
+            v-if="passport.can.undo_return"
+            type="button"
+            class="btn text-sm"
+            data-undo-return
+            @click="askUndoReturn"
+          >
+            Undo return
+          </button>
         </div>
       </div>
+
+      <!-- Returned to its owner: out of every working list -->
+      <section
+        v-if="passport.returned"
+        class="mt-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+        role="status"
+        data-returned
+      >
+        <p class="font-semibold">{{ returnedText }}</p>
+        <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+          <dt>Was at</dt>
+          <dd class="font-medium">{{ passport.returned.stage_label }}</dd>
+          <template v-if="passport.returned.receiver_id_no">
+            <dt>NID / Passport no.</dt>
+            <dd class="font-medium">{{ passport.returned.receiver_id_no }}</dd>
+          </template>
+          <template v-if="passport.returned.remarks">
+            <dt>Remarks</dt>
+            <dd class="font-medium break-words">{{ passport.returned.remarks }}</dd>
+          </template>
+          <dt>Returned by</dt>
+          <dd class="font-medium">{{ passport.returned.returned_by?.name ?? '—' }}</dd>
+        </dl>
+      </section>
 
       <!-- Date warnings from the API (never blocking) -->
       <ul
@@ -286,7 +327,6 @@ const dd = 'font-medium text-ink'
             :role="auth.user?.role"
             :user-id="auth.user?.id ?? null"
             :early-undo="earlyUndo"
-            @undo="askUndo"
             @early-undo="askEarlyUndo"
           />
         </div>
@@ -410,19 +450,19 @@ const dd = 'font-medium text-ink'
 
     <MedicalSlipModal v-model:open="slipModalOpen" :passport="passport" @saved="afterChange" />
 
+    <ReturnPassportDialog v-model:open="returnOpen" :passport="passport" @returned="afterChange" />
+
     <ConfirmDialog
-      v-model:open="undoOpen"
-      title="Undo latest step"
-      confirm-label="Undo"
-      danger
-      :busy="undoBusy"
-      :error="undoError"
-      @confirm="confirmUndo"
+      v-model:open="undoReturnOpen"
+      title="Undo return"
+      confirm-label="Undo return"
+      :busy="undoReturnBusy"
+      :error="undoReturnError"
+      @confirm="confirmUndoReturn"
     >
-      <p v-if="undoTarget">
-        Remove the <strong>{{ undoTarget.step_label }}</strong> record “{{
-          undoTarget.status_label
-        }}” of {{ toDisplayDate(undoTarget.step_date) }}? The passport goes back to that step.
+      <p v-if="passport?.returned">
+        Bring <strong>{{ passport.passport_name }}</strong> back into the workflow? It goes back to
+        {{ passport.returned.stage_label }}, exactly where it was. The return stays in the history.
       </p>
     </ConfirmDialog>
 

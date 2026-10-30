@@ -16,8 +16,10 @@ export interface CompanyCounts {
   visa_done: number
   bmet_done: number
   flight_done: number
-  /** Not departed and not unfit. */
+  /** Not departed, not unfit and not returned. */
   in_process: number
+  /** Handed back to the owner (counted in the steps it reached, not in process). */
+  returned: number
 }
 
 /** One row of GET /reports/companies. */

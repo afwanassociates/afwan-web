@@ -4,7 +4,6 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import StepListPage from '../StepListPage.vue'
 import {
-  deleteStepRecord,
   listStepPassports,
   markStepAction,
   recordStepResult,
@@ -37,7 +36,6 @@ vi.mock('@/api/steps', () => ({
   clearFlightBooking: vi.fn(),
   confirmFlight: vi.fn(),
   undoFlightConfirm: vi.fn(),
-  deleteStepRecord: vi.fn(),
   markStepAction: vi.fn(),
   undoStepAction: vi.fn(),
 }))
@@ -333,7 +331,6 @@ beforeEach(() => {
   vi.mocked(startStep).mockResolvedValue(saved as never)
   vi.mocked(recordStepResult).mockResolvedValue(saved as never)
   vi.mocked(updateCalling).mockResolvedValue(saved as never)
-  vi.mocked(deleteStepRecord).mockResolvedValue(undefined as never)
 })
 afterEach(() => wrapper.unmount())
 
@@ -821,7 +818,6 @@ describe('Step pages (one per step)', () => {
 
         const toast = useToast().toasts.value.find((t) => t.message.includes('Moved to Visa'))!
         expect(toast.action).toBeUndefined()
-        expect(deleteStepRecord).not.toHaveBeenCalled()
       })
 
       it('puts the row back and shows the error when saving fails', async () => {
@@ -1502,6 +1498,15 @@ describe('Step pages (one per step)', () => {
       expect(cell(90, 'confirmed_date').text()).toBe('13-10-2026')
       expect(wrapper.findAll('tbody button')).toHaveLength(0)
       expect(wrapper.find('[data-booking], [data-date-popover]').exists()).toBe(false)
+    })
+
+    it('Flight done: no Return, even for the operations head (the flight is confirmed)', async () => {
+      ROWS.confirmed = [
+        flightRow(90, { clearance: '2026-10-11', booking: '2026-11-02', confirmed: '2026-10-13' }),
+      ]
+      await mountStep('/flight?tab=confirmed', 'operation_head')
+
+      expect(wrapper.find('[data-return-action]').exists()).toBe(false)
     })
 
     it('empty texts', async () => {

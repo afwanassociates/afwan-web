@@ -1,15 +1,14 @@
 <script setup lang="ts">
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import { toDisplayDate } from '@/lib/dates'
-import { isMedicalAdmin } from '@/lib/medical'
 import type { Role } from '@/types/auth'
 import type { MedicalRecord } from '@/types/medical'
 
 /**
  * A passport's medical records, newest first. Edit follows the API (own records for data
- * entry); Delete is for admin and super admin only.
+ * entry); medical records are never deleted.
  */
-const props = withDefaults(
+withDefaults(
   defineProps<{
     records: MedicalRecord[]
     role: Role | undefined
@@ -18,9 +17,7 @@ const props = withDefaults(
   }>(),
   { editable: true },
 )
-defineEmits<{ edit: [record: MedicalRecord]; delete: [record: MedicalRecord] }>()
-
-const canDelete = (record: MedicalRecord) => record.can.delete && isMedicalAdmin(props.role)
+defineEmits<{ edit: [record: MedicalRecord] }>()
 
 const actionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-primary-50 focus-visible:bg-primary-50'
@@ -49,14 +46,6 @@ const actionClass =
             @click="$emit('edit', record)"
           >
             Edit<span class="sr-only"> medical of {{ toDisplayDate(record.medical_date) }}</span>
-          </button>
-          <button
-            v-if="canDelete(record)"
-            type="button"
-            :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-            @click="$emit('delete', record)"
-          >
-            Delete<span class="sr-only"> medical of {{ toDisplayDate(record.medical_date) }}</span>
           </button>
         </div>
       </li>
@@ -99,16 +88,6 @@ const actionClass =
                   @click="$emit('edit', record)"
                 >
                   Edit<span class="sr-only">
-                    medical of {{ toDisplayDate(record.medical_date) }}</span
-                  >
-                </button>
-                <button
-                  v-if="canDelete(record)"
-                  type="button"
-                  :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-                  @click="$emit('delete', record)"
-                >
-                  Delete<span class="sr-only">
                     medical of {{ toDisplayDate(record.medical_date) }}</span
                   >
                 </button>

@@ -78,7 +78,10 @@ const navItems = computed(() => {
     })
   }
   // All Passports is read-only, so accounts see it too (without the data-entry screens).
-  if (canSeeReports) items.push({ name: 'all-passports', label: 'All Passports' })
+  if (canSeeReports) {
+    items.push({ name: 'all-passports', label: 'All Passports' })
+    items.push({ name: 'returned-passports', label: 'Returned Passports' })
+  }
   if (canAccessArea(role, 'data_entry')) {
     items.push({ name: 'passport-new', label: 'Add Passport' })
     const step2 = workflow.summary?.step2

@@ -59,11 +59,6 @@ export async function updateStepRecord(
   return data
 }
 
-/** Admin only: removes a record (undo). */
-export async function deleteStepRecord(id: number): Promise<void> {
-  await api.delete(`${BASE}/step-records/${id}`)
-}
-
 /* ---------- Step pages (one page per step) ---------- */
 
 /** One step's work list for a tab, in the API's fixed order for that tab. */

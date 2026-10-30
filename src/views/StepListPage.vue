@@ -4,6 +4,7 @@ import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import BulkActionBar, { type BulkAction } from '@/components/BulkActionBar.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import StepResultDialog from '@/components/StepResultDialog.vue'
+import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
 import StepStartPopover from '@/components/StepStartPopover.vue'
 import TopModal from '@/components/TopModal.vue'
 import DatePopover from '@/components/DatePopover.vue'
@@ -16,7 +17,6 @@ import {
   bulkStep,
   clearFlightBooking,
   confirmFlight,
-  deleteStepRecord,
   downloadStepListCsv,
   listStepPassports,
   markStepAction,
@@ -493,12 +493,13 @@ const isHandOverTab = computed(
   () => singleUpdate.value && !isPendingTab.value && nextStep.value !== null,
 )
 
-/** Tabs with row actions (for those who may act). */
+/** Tabs with row actions (for those who may act; the operations head's Return on every tab). */
 const tabHasActions = computed(
   () =>
-    canAct.value &&
-    !isMilestoneStep.value &&
-    (isPendingTab.value || activeTab.value === 'rejected' || isHandOverTab.value),
+    canReturn.value ||
+    (canAct.value &&
+      !isMilestoneStep.value &&
+      (isPendingTab.value || activeTab.value === 'rejected' || isHandOverTab.value)),
 )
 
 /** In Pending: started (in process) rows get the result (visa). */
@@ -694,7 +695,7 @@ function saveDateEdit() {
 const UNDO_MS = 6000
 
 /**
- * Every undo (a BMET action, the flight booking or confirmation, a new step record) is for
+ * Every undo (a BMET action, the flight booking or confirmation) is for
  * the operations head only; the API refuses the others.
  */
 const canUndo = computed(() => !!auth.user && PASSPORT_MANAGER_ROLES.includes(auth.user.role))
@@ -780,12 +781,12 @@ async function undoConfirm(row: StepListRow) {
   }
 }
 
-/* ---------- Permitted → the next step (optimistic, with Undo for admins) ---------- */
+/* ---------- Permitted → the next step (optimistic) ---------- */
 
 
 /**
  * Starts the next step (calling → visa) from the Permitted tab: the row leaves at once and
- * comes back on an error. The toast offers Undo to admins (deleting the new record).
+ * comes back on an error.
  */
 async function startNext(row: StepListRow, payload: Record<string, unknown>) {
   const next = nextStep.value
@@ -797,9 +798,6 @@ async function startNext(row: StepListRow, payload: Record<string, unknown>) {
     const tab = next.tabs?.[0]?.label ?? 'Pending'
     toast.success(`${row.passport_number}: Moved to ${next.short_label} (${tab})`, {
       duration: UNDO_MS,
-      ...(canUndo.value && response.data?.id
-        ? { action: { label: 'Undo', run: () => undoNext(row, response.data.id) } }
-        : {}),
     })
     for (const w of response.warnings) toast.warning(w.message)
   } catch (error) {
@@ -817,20 +815,6 @@ async function startNext(row: StepListRow, payload: Record<string, unknown>) {
   }
 }
 
-async function undoNext(row: StepListRow, recordId: number) {
-  try {
-    await deleteStepRecord(recordId)
-    toast.success(
-      `${row.passport_number}: back on ${tabs.value.find((t) => t.key === activeTab.value)?.label ?? 'this tab'}.`,
-    )
-  } catch (error) {
-    toast.error(errorMessage(error, 'Could not undo. Please try again.'))
-  } finally {
-    load()
-    workflow.refresh()
-  }
-}
-
 /*
  * ---------- Bulk update ----------
  * Tick passports, choose one action and its date once, Apply. Calling Permitted: start the
@@ -840,7 +824,7 @@ async function undoNext(row: StepListRow, recordId: number) {
  * button is; the ones it skips come back with the reason and stay selected.
  */
 
-type BulkUndo = 'record' | 'milestone' | 'booking' | 'confirm' | null
+type BulkUndo = 'milestone' | 'booking' | 'confirm' | null
 type BulkDef = BulkAction & {
   apiStep: string
   apiAction: string
@@ -867,7 +851,8 @@ const bulkActions = computed<BulkDef[]>(() => {
         apiStep: next.key,
         apiAction: 'start',
         build: (v) => ({ status: 'in_process', remarks: null, step_date: v.step_date }),
-        undo: 'record',
+        // Starting a step cannot be undone: that would delete its record.
+        undo: null,
       },
     ]
   }
@@ -1058,8 +1043,7 @@ async function undoBulk(def: BulkDef, updated: BulkResult['updated']) {
   let failed = 0
   for (const p of updated) {
     try {
-      if (def.undo === 'record' && p.record_id) await deleteStepRecord(p.record_id)
-      else if (def.undo === 'milestone')
+      if (def.undo === 'milestone')
         for (const action of [...(p.marked ?? [])].reverse())
           await undoStepAction(p.id, def.apiStep, action)
       else if (def.undo === 'confirm') await undoFlightConfirm(p.id)
@@ -1106,6 +1090,26 @@ const actionClass =
   'rounded-full px-3 py-1.5 text-sm font-semibold whitespace-nowrap focus-visible:outline-offset-1'
 const th = TABLE_TH
 const STICKY = STICKY_ACTIONS
+
+/* ---------- Return (the operations head, every tab) ---------- */
+
+/**
+ * Same people as Undo (canUndo is defined above), on every tab except Flight done: a passport
+ * cannot be returned once its flight is confirmed.
+ */
+const canReturn = computed(() => canUndo.value && !(isBookingStep.value && !isPendingTab.value))
+const returnTarget = ref<StepListRow | null>(null)
+const returnOpen = ref(false)
+
+function askReturn(row: StepListRow) {
+  returnTarget.value = row
+  returnOpen.value = true
+}
+
+function afterReturn() {
+  load()
+  workflow.refresh()
+}
 </script>
 
 <template>
@@ -1753,6 +1757,15 @@ const STICKY = STICKY_ACTIONS
                           >
                             Apply again<span class="sr-only">{{ ` ${row.passport_number}` }}</span>
                           </button>
+                          <button
+                            v-if="canReturn"
+                            type="button"
+                            :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
+                            :data-return-action="row.id"
+                            @click="askReturn(row)"
+                          >
+                            Return<span class="sr-only">{{ ` passport ${row.passport_number}` }}</span>
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1790,6 +1803,11 @@ const STICKY = STICKY_ACTIONS
         @close="start = null"
       />
       <span :id="blockedId" class="sr-only">{{ blockedHint }}</span>
+      <ReturnPassportDialog
+        v-model:open="returnOpen"
+        :passport="returnTarget"
+        @returned="afterReturn"
+      />
       <DatePopover
         v-if="booking"
         :key="`booking-${booking.row.id}`"
