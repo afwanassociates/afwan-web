@@ -17,8 +17,8 @@ import { TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
 import type { ApprovalStatus, CashTransfer, TransferDirection } from '@/types/accounts'
 
 /**
- * Accounts › Cash › Cash Transfer: cash in hand deposited to a bank, and cash withdrawn from a
- * bank. Filters live in the URL; the totals cover every matching transfer.
+ * Accounts › Cash › Deposit / Withdrawal: cash in hand deposited to a bank or mobile banking
+ * wallet (cash in), and cash withdrawn from one (cash out). Filters live in the URL; the totals cover every matching transfer.
  */
 const PER_PAGE = 20
 
@@ -214,26 +214,34 @@ const actionClass =
 <template>
   <div>
     <div class="flex flex-wrap items-end justify-between gap-4">
-      <h2 class="text-lg font-bold text-primary-900">Cash Transfer</h2>
+      <h2 class="text-lg font-bold text-primary-900">Deposit / Withdrawal</h2>
       <button type="button" class="btn btn-accent" data-create @click="openCreate">
-        New transfer
+        New deposit / withdrawal
       </button>
     </div>
 
-    <dl v-if="list" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4" data-totals>
+    <dl v-if="list" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5" data-totals>
       <div class="glass-card p-4">
-        <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Transfers</dt>
+        <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Entries</dt>
         <dd class="mt-1 text-lg font-bold text-ink tabular-nums">{{ list.meta.totals.count }}</dd>
       </div>
+      <div class="glass-card p-4 ring-1 ring-amber-300" data-pending-count>
+        <dt class="text-xs font-semibold tracking-wider text-amber-800 uppercase">
+          Pending approval
+        </dt>
+        <dd class="mt-1 text-lg font-bold text-ink tabular-nums">{{ list.meta.pending.count }}</dd>
+      </div>
       <div class="glass-card p-4">
-        <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Deposited to bank</dt>
+        <dt class="text-xs font-semibold tracking-wider text-muted uppercase">
+          Deposited / cash in
+        </dt>
         <dd class="mt-1 text-lg font-bold text-ink tabular-nums" data-total-deposit>
           ৳ {{ formatMoney(list.meta.totals.deposit) }}
         </dd>
       </div>
       <div class="glass-card p-4">
         <dt class="text-xs font-semibold tracking-wider text-muted uppercase">
-          Withdrawn from bank
+          Withdrawn / cash out
         </dt>
         <dd class="mt-1 text-lg font-bold text-ink tabular-nums" data-total-withdrawal>
           ৳ {{ formatMoney(list.meta.totals.withdrawal) }}
@@ -250,7 +258,7 @@ const actionClass =
     </dl>
     <p v-if="list" class="mt-2 text-xs text-muted">Totals count approved entries only.</p>
 
-    <section class="glass-card mt-4 p-4 sm:p-6" aria-label="Cash transfers">
+    <section class="glass-card mt-4 p-4 sm:p-6" aria-label="Deposits and withdrawals">
       <div role="search" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <div class="sm:col-span-2">
           <label :for="ids.search" class="block text-sm font-medium text-slate-700">Search</label>
@@ -259,7 +267,7 @@ const actionClass =
             v-model="search"
             type="search"
             autocomplete="off"
-            placeholder="Transfer no, bank or branch"
+            placeholder="Transfer no, bank, branch, slip, cheque or depositor"
             :class="inputClass"
             data-search
             @input="debounced.run()"
@@ -277,8 +285,8 @@ const actionClass =
           <label :for="ids.direction" class="block text-sm font-medium text-slate-700">Type</label>
           <select :id="ids.direction" v-model="direction" :class="inputClass" data-direction-filter>
             <option value="">All</option>
-            <option value="deposit">Deposit to bank</option>
-            <option value="withdrawal">Withdrawal from bank</option>
+            <option value="deposit">Deposit / cash in</option>
+            <option value="withdrawal">Withdrawal / cash out</option>
           </select>
         </div>
         <div>
@@ -322,7 +330,7 @@ const actionClass =
             class="btn btn-accent mt-5 text-sm"
             @click="openCreate"
           >
-            New transfer
+            New deposit / withdrawal
           </button>
         </div>
 
@@ -334,7 +342,7 @@ const actionClass =
                   <th scope="col" :class="TABLE_TH">Transfer no</th>
                   <th scope="col" :class="TABLE_TH">Date</th>
                   <th scope="col" :class="TABLE_TH">Type</th>
-                  <th scope="col" :class="TABLE_TH">Bank</th>
+                  <th scope="col" :class="TABLE_TH">Bank / wallet</th>
                   <th scope="col" :class="[TABLE_TH, 'text-right']">Amount</th>
                   <th scope="col" :class="TABLE_TH">Status</th>
                   <th scope="col" class="py-3"><span class="sr-only">Actions</span></th>
@@ -360,8 +368,34 @@ const actionClass =
                     <span v-if="t.note" class="block pt-1 text-xs text-muted">{{ t.note }}</span>
                   </td>
                   <td :class="TABLE_TD">
-                    {{ t.bank_name }}
-                    <span class="block text-xs text-muted">{{ t.bank_branch }}</span>
+                    <template v-if="t.channel === 'mobile_banking'">
+                      {{ t.mobile_provider_label }}
+                      <span class="block text-xs text-muted tabular-nums">{{
+                        t.mobile_number
+                      }}</span>
+                    </template>
+                    <template v-else>
+                      {{ t.bank_name }}
+                      <span class="block text-xs text-muted">{{ t.bank_branch }}</span>
+                    </template>
+                    <span v-if="t.cheque_no" class="block text-xs text-muted" data-cheque-no>
+                      Cheque {{ t.cheque_no }}
+                    </span>
+                    <span
+                      v-if="t.deposit_slip_no"
+                      class="block text-xs text-muted"
+                      data-deposit-details
+                    >
+                      Slip {{ t.deposit_slip_no }}
+                    </span>
+                    <span v-if="t.reference_name" class="block text-xs text-muted" data-reference>
+                      {{ t.direction === 'deposit' ? 'Deposited by' : 'Withdrawn by' }}
+                      {{ t.reference_name
+                      }}<template v-if="t.reference_mobile">, {{ t.reference_mobile }}</template
+                      ><template v-if="t.reference_nid_passport">
+                        · NID/Passport {{ t.reference_nid_passport }}</template
+                      >
+                    </span>
                   </td>
                   <td
                     :class="[TABLE_TD, 'text-right font-semibold tabular-nums whitespace-nowrap']"

@@ -80,7 +80,11 @@ const filters = computed<Filters>(() => {
       'drawing',
       'expense',
     ] as const),
-    payment_method: oneOf(text(route.query.payment_method), ['cash', 'bank'] as const),
+    payment_method: oneOf(text(route.query.payment_method), [
+      'cash',
+      'bank',
+      'mobile_banking',
+    ] as const),
     page: Number.isInteger(page) && page > 1 ? page : 1,
   }
 })
@@ -279,10 +283,16 @@ const actionClass =
       </button>
     </div>
 
-    <dl v-if="list" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5" data-totals>
+    <dl v-if="list" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7" data-totals>
       <div class="glass-card p-4">
         <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Payments</dt>
         <dd class="mt-1 text-lg font-bold text-ink tabular-nums">{{ list.meta.totals.count }}</dd>
+      </div>
+      <div class="glass-card p-4 ring-1 ring-amber-300" data-pending-count>
+        <dt class="text-xs font-semibold tracking-wider text-amber-800 uppercase">
+          Pending approval
+        </dt>
+        <dd class="mt-1 text-lg font-bold text-ink tabular-nums">{{ list.meta.pending.count }}</dd>
       </div>
       <div class="glass-card p-4 ring-2 ring-accent-400">
         <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Total paid</dt>
@@ -300,6 +310,12 @@ const actionClass =
         <dt class="text-xs font-semibold tracking-wider text-muted uppercase">From bank</dt>
         <dd class="mt-1 text-lg font-bold text-ink tabular-nums">
           ৳ {{ formatMoney(list.meta.totals.bank) }}
+        </dd>
+      </div>
+      <div class="glass-card p-4">
+        <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Mobile banking</dt>
+        <dd class="mt-1 text-lg font-bold text-ink tabular-nums" data-total-mobile>
+          ৳ {{ formatMoney(list.meta.totals.mobile_banking) }}
         </dd>
       </div>
       <div class="glass-card p-4 ring-1 ring-amber-300" data-pending-total>
@@ -322,7 +338,7 @@ const actionClass =
             v-model="search"
             type="search"
             autocomplete="off"
-            placeholder="Payment no, payee or purpose"
+            placeholder="Payment no, payee, purpose or bill no"
             :class="inputClass"
             data-search
             @input="debounced.run()"
@@ -351,7 +367,7 @@ const actionClass =
             <option value="">All</option>
             <option value="refund">Refund</option>
             <option value="loan_repayment">Loan repayment</option>
-            <option value="drawing">Owner drawing</option>
+            <option value="drawing">Payment to owner</option>
             <option value="expense">Expense</option>
           </select>
         </div>
@@ -361,6 +377,7 @@ const actionClass =
             <option value="">All</option>
             <option value="cash">Cash in hand</option>
             <option value="bank">Bank</option>
+            <option value="mobile_banking">Mobile banking</option>
           </select>
         </div>
         <div>
@@ -447,13 +464,28 @@ const actionClass =
                     <span v-if="p.note" class="block text-xs text-muted">{{ p.note }}</span>
                   </td>
                   <td :class="TABLE_TD">
-                    {{ p.payment_type_label }}
+                    {{ p.expense_category_label ?? p.payment_type_label }}
                     <span v-if="p.purpose" class="block text-xs text-muted">{{ p.purpose }}</span>
+                    <span v-if="p.loan_receipt" class="block text-xs text-muted" data-loan-no>
+                      Loan {{ p.loan_receipt.receipt_no }}
+                    </span>
+                    <span v-if="p.bill_no" class="block text-xs text-muted" data-bill-no>
+                      Bill no. {{ p.bill_no }}
+                    </span>
                   </td>
                   <td :class="TABLE_TD">
                     {{ p.payment_method_label }}
                     <span v-if="p.payment_method === 'bank'" class="block text-xs text-muted">
                       {{ p.bank_name }}, {{ p.bank_branch }}
+                      <template v-if="p.bank_account_number">
+                        <br />{{ p.bank_account_name }} · {{ p.bank_account_number }}
+                      </template>
+                    </span>
+                    <span
+                      v-else-if="p.payment_method === 'mobile_banking'"
+                      class="block text-xs text-muted"
+                    >
+                      {{ p.mobile_provider_label }}, {{ p.mobile_number }}
                     </span>
                   </td>
                   <td

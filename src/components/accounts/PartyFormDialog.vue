@@ -17,6 +17,7 @@ const emit = defineEmits<{ saved: [party: Party, created: boolean] }>()
 const id = useId()
 
 const type = ref<PartyType>('client')
+const rlNumber = ref('')
 const name = ref('')
 const mobile = ref('')
 const address = ref('')
@@ -29,6 +30,8 @@ const banner = ref<string | null>(null)
 const isSaving = ref(false)
 
 const isEdit = computed(() => props.party !== null)
+/** Only clients have an RL number; owners never see the field. */
+const isClient = computed(() => type.value === 'client')
 const title = computed(() =>
   isEdit.value
     ? `Edit ${props.party!.code}`
@@ -39,6 +42,7 @@ watch(open, (isOpen) => {
   if (!isOpen) return
   const p = props.party
   type.value = p?.type ?? props.defaultType
+  rlNumber.value = p?.rl_number ?? ''
   name.value = p?.name ?? ''
   mobile.value = p?.mobile ?? ''
   address.value = p?.address ?? ''
@@ -56,6 +60,7 @@ async function save() {
   if (isSaving.value) return
   banner.value = null
   const e: Record<string, string> = {}
+  if (isClient.value && !squish(rlNumber.value)) e.rl_number = 'Enter the RL number.'
   if (!squish(name.value)) e.name = 'Enter the name.'
   if (!squish(mobile.value)) e.mobile = 'Enter the mobile number.'
   else if (!MOBILE_PATTERN.test(squish(mobile.value)))
@@ -68,6 +73,7 @@ async function save() {
   if (Object.keys(e).length > 0) return
 
   const payload = {
+    rl_number: isClient.value ? squish(rlNumber.value).toUpperCase() : null,
     name: squish(name.value),
     mobile: squish(mobile.value),
     address: squish(address.value),
@@ -104,13 +110,24 @@ const describedBy = (field: string) => (errors.value[field] ? `${id}-${field}-er
 
 /** Fields in form order: [key, label, required, autocomplete]. */
 const textFields = [
+  ['rl_number', 'RL Number', true, 'off'],
   ['name', 'Name', true, 'off'],
   ['mobile', 'Mobile', true, 'off'],
   ['address', 'Address', true, 'off'],
   ['nid_passport', 'NID / Passport', true, 'off'],
   ['tin_bin', 'TIN / BIN (optional)', false, 'off'],
 ] as const
-const models = { name, mobile, address, nid_passport: nidPassport, tin_bin: tinBin }
+const visibleFields = computed(() =>
+  textFields.filter(([key]) => key !== 'rl_number' || isClient.value),
+)
+const models = {
+  rl_number: rlNumber,
+  name,
+  mobile,
+  address,
+  nid_passport: nidPassport,
+  tin_bin: tinBin,
+}
 </script>
 
 <template>
@@ -144,7 +161,11 @@ const models = { name, mobile, address, nid_passport: nidPassport, tin_bin: tinB
         {{ party!.type_label }} · ID <strong class="text-ink">{{ party!.code }}</strong>
       </p>
 
-      <div v-for="[key, label, required, autocomplete] in textFields" :key="key" :data-field="key">
+      <div
+        v-for="[key, label, required, autocomplete] in visibleFields"
+        :key="key"
+        :data-field="key"
+      >
         <label :for="`${id}-${key}`" class="block text-sm font-medium text-slate-700">
           {{ label }}<span v-if="required" class="text-red-700" aria-hidden="true"> *</span>
         </label>

@@ -14,6 +14,7 @@ import {
   homeRouteFor,
 } from '@/lib/roles'
 import { useApprovalBadge } from '@/composables/useApprovalBadge'
+import { fetchReportSummary } from '@/api/reports'
 import { settingsPagesFor } from '@/lib/settingsPages'
 import { isRecordStep, stepPendingCount } from '@/lib/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
@@ -63,6 +64,30 @@ watch(
   { immediate: true },
 )
 
+// The All Passports and Returned Passports badges: the passport summary's "Total" and
+// "Returned" counts, refreshed on every page change (passports are added and returned on
+// other pages).
+const totalCount = ref<number | null>(null)
+const returnedCount = ref<number | null>(null)
+let returnedRequest = 0
+watch(
+  () => [auth.user?.role, route.fullPath] as const,
+  async ([role]) => {
+    if (!role || !(REPORT_ROLES as readonly string[]).includes(role)) return
+    const id = ++returnedRequest
+    try {
+      const summary = await fetchReportSummary()
+      if (id === returnedRequest) {
+        totalCount.value = summary.total
+        returnedCount.value = summary.returned
+      }
+    } catch {
+      // The badge just stays as it was.
+    }
+  },
+  { immediate: true },
+)
+
 const navItems = computed(() => {
   const role = auth.user?.role
   if (!role) return []
@@ -79,8 +104,20 @@ const navItems = computed(() => {
   }
   // All Passports is read-only, so accounts see it too (without the data-entry screens).
   if (canSeeReports) {
-    items.push({ name: 'all-passports', label: 'All Passports' })
-    items.push({ name: 'returned-passports', label: 'Returned Passports' })
+    items.push({
+      name: 'all-passports',
+      label: 'All Passports',
+      badge:
+        totalCount.value === null ? undefined : { count: totalCount.value, label: 'passports' },
+    })
+    items.push({
+      name: 'returned-passports',
+      label: 'Returned Passports',
+      badge:
+        returnedCount.value === null
+          ? undefined
+          : { count: returnedCount.value, label: 'returned' },
+    })
   }
   if (canAccessArea(role, 'data_entry')) {
     items.push({ name: 'passport-new', label: 'Add Passport' })
@@ -120,8 +157,9 @@ const navItems = computed(() => {
   // with the entries waiting; the accounts team sees "My entries" with their own entries
   // returned for correction.
   if (ACCOUNTS_ROLES.includes(role)) {
-    items.push({ name: 'accounts-parties', label: 'Parties', section: '/accounts/parties' })
-    items.push({ name: 'accounts-cash-book', label: 'Cash', section: '/accounts/cash' })
+    items.push({ name: 'accounts-parties', label: 'Party / Owner', section: '/accounts/parties' })
+    items.push({ name: 'accounts-cash-book', label: 'Cash Management', section: '/accounts/cash' })
+    items.push({ name: 'accounts-owner-loans', label: 'Owner loans' })
   }
   if (APPROVALS_ROLES.includes(role)) {
     items.push({

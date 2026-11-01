@@ -74,7 +74,11 @@ const filters = computed<Filters>(() => {
     to: ymd(text(route.query.to)),
     party_type: oneOf(text(route.query.party_type), ['client', 'owner'] as const),
     receipt_type: oneOf(text(route.query.receipt_type), ['cash', 'loan'] as const),
-    payment_method: oneOf(text(route.query.payment_method), ['cash', 'bank'] as const),
+    payment_method: oneOf(text(route.query.payment_method), [
+      'cash',
+      'bank',
+      'mobile_banking',
+    ] as const),
     page: Number.isInteger(page) && page > 1 ? page : 1,
   }
 })
@@ -277,10 +281,16 @@ const actionClass =
       </button>
     </div>
 
-    <dl v-if="list" class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-5" data-totals>
+    <dl v-if="list" class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7" data-totals>
       <div class="glass-card p-4">
         <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Receipts</dt>
         <dd class="mt-1 text-lg font-bold text-ink tabular-nums">{{ list.meta.totals.count }}</dd>
+      </div>
+      <div class="glass-card p-4 ring-1 ring-amber-300" data-pending-count>
+        <dt class="text-xs font-semibold tracking-wider text-amber-800 uppercase">
+          Pending approval
+        </dt>
+        <dd class="mt-1 text-lg font-bold text-ink tabular-nums">{{ list.meta.pending.count }}</dd>
       </div>
       <div class="glass-card p-4 ring-2 ring-accent-400">
         <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Total received</dt>
@@ -298,6 +308,12 @@ const actionClass =
         <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Bank</dt>
         <dd class="mt-1 text-lg font-bold text-ink tabular-nums">
           ৳ {{ formatMoney(list.meta.totals.bank) }}
+        </dd>
+      </div>
+      <div class="glass-card p-4">
+        <dt class="text-xs font-semibold tracking-wider text-muted uppercase">Mobile banking</dt>
+        <dd class="mt-1 text-lg font-bold text-ink tabular-nums" data-total-mobile>
+          ৳ {{ formatMoney(list.meta.totals.mobile_banking) }}
         </dd>
       </div>
       <div class="glass-card p-4 ring-1 ring-amber-300" data-pending-total>
@@ -358,6 +374,7 @@ const actionClass =
             <option value="">All</option>
             <option value="cash">Cash in hand</option>
             <option value="bank">Bank</option>
+            <option value="mobile_banking">Mobile banking</option>
           </select>
         </div>
         <div>
@@ -459,6 +476,15 @@ const actionClass =
                     {{ r.payment_method_label }}
                     <span v-if="r.payment_method === 'bank'" class="block text-xs text-muted">
                       {{ r.bank_name }}, {{ r.bank_branch }}
+                      <template v-if="r.bank_account_number">
+                        <br />{{ r.bank_account_name }} · {{ r.bank_account_number }}
+                      </template>
+                    </span>
+                    <span
+                      v-else-if="r.payment_method === 'mobile_banking'"
+                      class="block text-xs text-muted"
+                    >
+                      {{ r.mobile_provider_label }}, {{ r.mobile_number }}
                     </span>
                   </td>
                   <td

@@ -30,6 +30,7 @@ function ledger(overrides: Partial<PartyLedger> = {}): PartyLedger {
       code: 'PT-0005',
       type: 'client',
       type_label: 'Party / Client',
+      rl_number: null,
       name: 'Karim Traders',
       mobile: '01711000000',
       address: 'Dhaka',

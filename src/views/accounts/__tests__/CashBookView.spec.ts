@@ -13,7 +13,6 @@ import type { CashBook } from '@/types/accounts'
 vi.mock('@/api/accounts', () => ({
   fetchCashBook: vi.fn(),
   fetchCashSettings: vi.fn(),
-  updateCashSettings: vi.fn(),
 }))
 vi.mock('@/lib/dates', async (original) => ({
   ...(await original<typeof import('@/lib/dates')>()),
@@ -85,6 +84,7 @@ async function mountView(role: Role = 'accounts', path = '/accounts/cash/book') 
         ],
       },
       { path: '/accounts/parties/:id', name: 'accounts-party-ledger', component: Empty },
+      { path: '/accounts/approvals', name: 'accounts-approvals', component: Empty },
     ],
   })
   await router.push(path)
@@ -101,8 +101,13 @@ beforeEach(() => {
     opening_balance: 1000,
     opening_date: '2026-10-01',
     today: '2026-10-20',
+    opening_today: 1100,
+    total_received: 60000,
+    total_paid: 8800,
     cash_in_hand: 1200,
-    pending: { count: 0, in: 0, out: 0 },
+    bank_balance: 50000,
+    mobile_banking_balance: -300,
+    pending: { count: 2, in: 500, out: 0 },
   })
 })
 
@@ -112,22 +117,57 @@ afterEach(() => {
 })
 
 describe('Cash section', () => {
-  it("shows today's cash in hand and the opening balance, settable by the accounts head only", async () => {
-    await mountView()
+  it('shows the money summary and the opening balance to the accounts head only', async () => {
+    await mountView('accounts_head')
 
-    expect(wrapper.find('[data-cash-in-hand]').text()).toBe('৳ 1,200.00')
-    expect(wrapper.find('[data-opening]').text()).toContain('01-10-2026')
+    const cards = wrapper
+      .findAll('[data-cash-header] [data-closing]')
+      .map((c) => c.attributes('data-closing'))
+    expect(cards).toEqual(['received', 'paid', 'cash', 'bank', 'mobile', 'total'])
+    expect(wrapper.find('[data-closing="received"]').text()).toMatch(
+      /Total Received Amount\s*৳ 60,000.00/,
+    )
+    expect(wrapper.find('[data-closing="paid"]').text()).toMatch(/Total Paid Amount\s*৳ 8,800.00/)
+    expect(wrapper.find('[data-closing="cash"]').text()).toMatch(
+      /Closing Cash on Hand\s*৳ 1,200.00/,
+    )
+    expect(wrapper.find('[data-closing="bank"]').text()).toMatch(
+      /Closing Bank Balance\s*৳ 50,000.00/,
+    )
+    expect(wrapper.find('[data-closing="mobile"]').text()).toMatch(
+      /Closing Mobile Banking Balance\s*−৳ 300.00/,
+    )
+    // Cash + bank + mobile banking.
+    expect(wrapper.find('[data-closing="total"]').text()).toMatch(
+      /Grand Total Closing Balance\s*৳ 50,900.00/,
+    )
+    // Waiting approval is not shown at the top.
+    expect(wrapper.find('[data-cash-pending]').exists()).toBe(false)
+    // Today's opening cash is worked out; the starting balance sits under it.
+    expect(wrapper.find('[data-cash-header] [data-opening-today]').text()).toBe('৳ 1,100.00')
+    expect(wrapper.find('[data-cash-header] [data-opening]').text()).toMatch(
+      /Starting ৳ 1,000.00 on 01-10-2026/,
+    )
+    // The opening is worked out: nobody sets or changes it.
     expect(wrapper.find('[data-set-opening]').exists()).toBe(false)
+    expect(wrapper.text()).not.toMatch(/Set opening balance|Change/)
+
+    // Accounts users see the tabs but no summary cards (the API doesn't send them the money).
+    wrapper.unmount()
+    vi.mocked(fetchCashSettings).mockResolvedValue({
+      opening_date: '2026-10-01',
+      today: '2026-10-20',
+    })
+    await mountView('accounts')
+    expect(wrapper.find('[data-cash-header]').exists()).toBe(false)
+    expect(wrapper.find('[data-set-opening]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Closing Cash on Hand')
     expect(wrapper.findAll('[data-cash-tab]').map((t) => t.text())).toEqual([
       'Cash Book',
       'Cash Receive',
       'Cash Payment',
-      'Cash Transfer',
+      'Deposit / Withdrawal',
     ])
-
-    wrapper.unmount()
-    await mountView('accounts_head')
-    expect(wrapper.find('[data-set-opening]').text()).toBe('Change')
   })
 
   it('loads this month by default and shows each day with its closing', async () => {

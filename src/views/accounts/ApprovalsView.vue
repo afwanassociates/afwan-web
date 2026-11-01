@@ -33,7 +33,7 @@ const typeId = useId()
 const TYPES: { value: ApprovalType; label: string }[] = [
   { value: 'cash-receipts', label: 'Cash receive' },
   { value: 'cash-payments', label: 'Cash payment' },
-  { value: 'cash-transfers', label: 'Cash transfer' },
+  { value: 'cash-transfers', label: 'Deposit / withdrawal' },
   { value: 'party-transactions', label: 'Ledger entries' },
 ]
 

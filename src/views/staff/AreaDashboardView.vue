@@ -1,8 +1,32 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { fetchFinanceSummary } from '@/api/accounts'
 import { fetchReportSummary } from '@/api/reports'
+import FinanceSummaryCards from '@/components/accounts/FinanceSummaryCards.vue'
+import { FINANCE_SUMMARY_ROLES } from '@/lib/accounts'
 import { errorMessage } from '@/lib/errors'
+import { useAuthStore } from '@/stores/auth'
+import type { FinanceSummary } from '@/types/accounts'
 import type { CompanyCounts } from '@/types/report'
+
+/* ---------- Accounts summary (accounts head, admin, super admin): first ---------- */
+
+const auth = useAuthStore()
+const showFinance = computed(() => !!auth.user && FINANCE_SUMMARY_ROLES.includes(auth.user.role))
+const finance = ref<FinanceSummary | null>(null)
+const financeFailed = ref(false)
+
+async function loadFinance() {
+  if (!showFinance.value) return
+  financeFailed.value = false
+  try {
+    finance.value = await fetchFinanceSummary()
+  } catch {
+    financeFailed.value = true
+  }
+}
+
+loadFinance()
 
 /* ---------- Passport summary cards (same counts as the company report) ---------- */
 
@@ -53,6 +77,19 @@ loadSummary()
 </script>
 
 <template>
+  <section v-if="showFinance" aria-labelledby="finance-heading" class="mb-10" data-finance>
+    <h2 id="finance-heading" class="text-2xl font-bold text-primary-900 sm:text-3xl">
+      Accounts summary
+    </h2>
+    <p class="mt-1 text-sm text-muted">Approved entries up to today.</p>
+    <FinanceSummaryCards
+      class="mt-6"
+      variant="dashboard"
+      :summary="finance"
+      :failed="financeFailed"
+    />
+  </section>
+
   <section aria-labelledby="summary-heading" :aria-busy="isSummaryLoading">
     <h1 id="summary-heading" class="text-2xl font-bold text-primary-900 sm:text-3xl">
       Passport summary

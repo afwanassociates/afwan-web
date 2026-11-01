@@ -11,7 +11,7 @@ import type { CashBook, CashBookLine } from '@/types/accounts'
 /**
  * Accounts › Cash › Cash Book: every cash-in-hand entry grouped by day, each day with its
  * opening balance, entries (running balance), totals and closing balance. The range lives in
- * the URL and defaults to this month. Bank receipts and payments are not cash in hand.
+ * the URL and defaults to this month. Only approved cash receipts and payments count; bank and mobile banking ones are left out.
  */
 const route = useRoute()
 const router = useRouter()
@@ -243,7 +243,8 @@ const amount = (value: number) => (value ? formatMoney(value) : '')
         </tfoot>
       </table>
       <p class="mt-3 text-xs text-muted">
-        Only cash in hand is shown here. Receipts and payments through a bank go to the bank book.
+        Only receipts and payments made as cash in hand count here; bank and mobile banking ones are
+        left out.
       </p>
     </div>
   </section>

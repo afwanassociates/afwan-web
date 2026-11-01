@@ -1,6 +1,11 @@
 import { inject, type InjectionKey, type Ref } from 'vue'
 import type { Role } from '@/types/auth'
-import type { CashSettings, PartyType } from '@/types/accounts'
+import type {
+  CashSettings,
+  ExpenseCategory,
+  MobileBankingProvider,
+  PartyType,
+} from '@/types/accounts'
 
 /** Roles of the accounts screens (parties, cash): the accounts team only, not admins. */
 export const ACCOUNTS_ROLES: readonly Role[] = ['accounts', 'accounts_head']
@@ -8,12 +13,82 @@ export const ACCOUNTS_ROLES: readonly Role[] = ['accounts', 'accounts_head']
 /** Roles that set the cash opening balance and delete parties. */
 export const ACCOUNTS_MANAGER_ROLES: readonly Role[] = ['accounts_head']
 
+/**
+ * Roles that see the money summary cards (totals, closing balances): the accounts head on
+ * Cash Management and the dashboard, admins on the dashboard only. Not accounts users.
+ */
+export const FINANCE_SUMMARY_ROLES: readonly Role[] = ['accounts_head', 'admin', 'super_admin']
+
 /** Roles of the Approvals page: the accounts team (their own entries) and the approvers. */
 export const APPROVALS_ROLES: readonly Role[] = [...ACCOUNTS_ROLES, 'admin', 'super_admin']
 
 export const PARTY_TYPE_LABELS: Record<PartyType, string> = {
   client: 'Party / Client',
   owner: 'Owner',
+}
+
+/** Bangladesh mobile banking (MFS) services, most used first. Same list as the API. */
+export const MOBILE_BANKING_PROVIDERS: readonly { value: MobileBankingProvider; label: string }[] =
+  [
+    { value: 'bkash', label: 'bKash' },
+    { value: 'nagad', label: 'Nagad' },
+    { value: 'rocket', label: 'Rocket' },
+    { value: 'upay', label: 'Upay' },
+    { value: 'mcash', label: 'mCash' },
+    { value: 'tap', label: 'Tap' },
+    { value: 'ok_wallet', label: 'OK Wallet' },
+    { value: 'surecash', label: 'SureCash' },
+    { value: 'mycash', label: 'MYCash' },
+    { value: 'firstcash', label: 'FirstCash' },
+    { value: 'islamic_wallet', label: 'Islamic Wallet' },
+    { value: 'meghna_pay', label: 'Meghna Pay' },
+  ]
+
+/** What an expense was spent on. Same list as the API. */
+export const EXPENSE_CATEGORIES: readonly { value: ExpenseCategory; label: string }[] = [
+  { value: 'office_rent', label: 'Office rent' },
+  { value: 'utility_bill', label: 'Utility bill (electricity, water, gas)' },
+  { value: 'internet_phone', label: 'Internet & mobile bill' },
+  { value: 'salary', label: 'Salary & wages' },
+  { value: 'tea_entertainment', label: 'Tea & entertainment' },
+  { value: 'transport', label: 'Transport & conveyance' },
+  { value: 'stationery', label: 'Stationery & printing' },
+  { value: 'repair', label: 'Repair & maintenance' },
+  { value: 'government_fee', label: 'Government & embassy fees' },
+  { value: 'courier', label: 'Courier & postage' },
+  { value: 'other', label: 'Other' },
+]
+
+/** A Bangladesh mobile number as the API stores it: 01XXXXXXXXX (11 digits). */
+export const WALLET_NUMBER_PATTERN = /^01[3-9]\d{8}$/
+
+/** "+880 1712-345678" → "01712345678": digits only, country code dropped. */
+export function normalizeWalletNumber(value: string): string {
+  return value.replace(/\D+/g, '').replace(/^880?(?=1)/, '0')
+}
+
+/** "bKash number", or "Mobile banking number" before a service is chosen. */
+export function walletLabel(provider: MobileBankingProvider | ''): string {
+  const found = MOBILE_BANKING_PROVIDERS.find((p) => p.value === provider)
+  return `${found?.label ?? 'Mobile banking'} number`
+}
+
+/** The mobile banking part of a receipt or payment: field errors and the values to send. */
+export function checkMobileBanking(
+  provider: MobileBankingProvider | '',
+  number: string,
+): {
+  errors: Record<string, string>
+  mobile_provider: MobileBankingProvider | null
+  mobile_number: string
+} {
+  const wallet = normalizeWalletNumber(number)
+  const errors: Record<string, string> = {}
+  if (!provider) errors.mobile_provider = 'Choose the mobile banking service.'
+  if (!wallet) errors.mobile_number = `Enter the ${walletLabel(provider)}.`
+  else if (!WALLET_NUMBER_PATTERN.test(wallet))
+    errors.mobile_number = 'Enter an 11-digit mobile number, e.g. 01712345678.'
+  return { errors, mobile_provider: provider || null, mobile_number: wallet }
 }
 
 /** Largest amount the API stores (decimal 15,2). */

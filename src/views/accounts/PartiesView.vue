@@ -1,31 +1,26 @@
 <script setup lang="ts">
 import { computed, ref, shallowRef, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PartyFormDialog from '@/components/accounts/PartyFormDialog.vue'
-import { deleteParty, listParties, updateParty } from '@/api/accounts'
+import { listParties, updateParty } from '@/api/accounts'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
-import { ACCOUNTS_MANAGER_ROLES, balanceClass, formatBalance, formatMoney } from '@/lib/accounts'
+import { balanceClass, formatBalance, formatMoney } from '@/lib/accounts'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
-import { useAuthStore } from '@/stores/auth'
 import type { Paginated } from '@/types/auth'
 import type { Party, PartyType } from '@/types/accounts'
 
 /**
  * Accounts › Parties: clients and owners in two tabs, with search, an active filter, the
  * ledger totals (receivable, payment, refund, closing balance) and create / edit /
- * (de)activate. Admins may also delete a party that has no transactions.
+ * (de)activate. Parties and owners are never deleted (by anyone): deactivate instead.
  */
 const PER_PAGE = 15
 
 const route = useRoute()
 const router = useRouter()
 const toast = useToast()
-const auth = useAuthStore()
-
-const canDelete = computed(() => !!auth.user && ACCOUNTS_MANAGER_ROLES.includes(auth.user.role))
 
 const searchId = useId()
 const statusId = useId()
@@ -159,52 +154,6 @@ async function setActive(party: Party, active: boolean) {
   }
 }
 
-/* ---------- Delete (the accounts head) ---------- */
-
-const deleteTarget = ref<Party | null>(null)
-const deleteOpen = ref(false)
-const deleteBusy = ref(false)
-const deleteError = ref<string | null>(null)
-/** The API refused: the party has transactions. Offer to deactivate instead. */
-const deleteBlocked = ref(false)
-
-function askDelete(party: Party) {
-  deleteTarget.value = party
-  deleteError.value = null
-  deleteBlocked.value = false
-  deleteOpen.value = true
-}
-
-async function confirmDelete() {
-  const party = deleteTarget.value
-  if (!party) return
-  if (deleteBlocked.value) {
-    deleteOpen.value = false
-    await setActive(party, false)
-    return
-  }
-  deleteBusy.value = true
-  deleteError.value = null
-  try {
-    await deleteParty(party.id)
-    deleteOpen.value = false
-    toast.success(`${party.code} “${party.name}” deleted.`)
-    load()
-  } catch (error) {
-    const code = (error as { response?: { data?: { code?: string } } }).response?.data?.code
-    if (errorStatus(error) === 422 && code === 'party_has_transactions') {
-      deleteBlocked.value = true
-    } else if (errorStatus(error) === 404) {
-      deleteOpen.value = false
-      load()
-    } else if (errorStatus(error) !== 401) {
-      deleteError.value = errorMessage(error, 'Could not delete. Please try again.')
-    }
-  } finally {
-    deleteBusy.value = false
-  }
-}
-
 const inputClass =
   'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus:border-primary-600'
 const actionClass =
@@ -218,7 +167,7 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
   <div class="mx-auto max-w-7xl">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Parties</h1>
+        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Party / Owner</h1>
         <p class="mt-1 text-sm text-muted">
           Clients and owners with their balances. Open one to see its ledger.
         </p>
@@ -256,7 +205,7 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
             v-model="search"
             type="search"
             autocomplete="off"
-            placeholder="Name, ID, mobile or NID"
+            placeholder="Name, ID, RL no., mobile or NID"
             :class="inputClass"
             data-search
             @input="debounced.run()"
@@ -319,6 +268,7 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
               <thead :class="TABLE_HEAD">
                 <tr>
                   <th scope="col" :class="TABLE_TH">ID</th>
+                  <th v-if="query.type === 'client'" scope="col" :class="TABLE_TH">RL Number</th>
                   <th scope="col" :class="TABLE_TH">Name</th>
                   <th scope="col" :class="TABLE_TH">NID / Passport</th>
                   <th scope="col" :class="[TABLE_TH, 'text-right']">Opening</th>
@@ -340,6 +290,13 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
               <tbody class="divide-y divide-stroke">
                 <tr v-for="p in list.data" :key="p.id" class="align-top" :data-party="p.id">
                   <td :class="[TABLE_TD, 'font-mono text-xs whitespace-nowrap']">{{ p.code }}</td>
+                  <td
+                    v-if="query.type === 'client'"
+                    :class="[TABLE_TD, 'whitespace-nowrap']"
+                    data-rl
+                  >
+                    {{ p.rl_number ?? '—' }}
+                  </td>
                   <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
                     <RouterLink
                       :to="{ name: 'accounts-party-ledger', params: { id: p.id } }"
@@ -432,15 +389,6 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
                         {{ p.is_active ? 'Deactivate' : 'Activate'
                         }}<span class="sr-only"> {{ p.name }}</span>
                       </button>
-                      <button
-                        v-if="canDelete"
-                        type="button"
-                        :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-                        data-delete
-                        @click="askDelete(p)"
-                      >
-                        Delete<span class="sr-only"> {{ p.name }}</span>
-                      </button>
                     </div>
                   </td>
                 </tr>
@@ -485,25 +433,5 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
       :default-type="query.type"
       @saved="onSaved"
     />
-
-    <ConfirmDialog
-      v-model:open="deleteOpen"
-      :title="deleteBlocked ? 'This party cannot be deleted' : 'Delete party'"
-      :confirm-label="deleteBlocked ? 'Deactivate instead' : 'Delete'"
-      :danger="!deleteBlocked"
-      :busy="deleteBusy"
-      :error="deleteError"
-      @confirm="confirmDelete"
-    >
-      <p v-if="deleteBlocked && deleteTarget" data-delete-blocked>
-        <strong>{{ deleteTarget.code }} {{ deleteTarget.name }}</strong> has transactions, so it
-        can't be deleted. You can deactivate it instead: its ledger stays, but it can no longer be
-        chosen for new receipts.
-      </p>
-      <p v-else-if="deleteTarget">
-        Delete <strong>{{ deleteTarget.code }} {{ deleteTarget.name }}</strong
-        >? This cannot be undone.
-      </p>
-    </ConfirmDialog>
   </div>
 </template>

@@ -2,13 +2,22 @@
 import { computed, ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
-import { createCashReceipt, searchParties, updateCashReceipt } from '@/api/accounts'
-import { formatMoney, parseAmount } from '@/lib/accounts'
+import {
+  createCashReceipt,
+  fetchReceiptOptions,
+  searchParties,
+  updateCashReceipt,
+} from '@/api/accounts'
+import MobileBankingFields from '@/components/accounts/MobileBankingFields.vue'
+import { checkMobileBanking, formatMoney, parseAmount } from '@/lib/accounts'
 import { businessToday } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
+import type { CountryOption } from '@/types/country'
 import type {
+  BusinessType,
   CashReceipt,
   CashReceiptType,
+  MobileBankingProvider,
   Party,
   PartyType,
   PaymentMethod,
@@ -17,7 +26,12 @@ import type {
 /**
  * Cash receive form. "Received from" picks a party or an owner; their name, mobile and
  * address come from the party record (shown read only), so the ledger always points at one
- * real person. Type is cash or loan; the money came as cash in hand or into a bank.
+ * real person. A party's money is always cash (a payment against what they owe); an owner
+ * either adds cash to the company or lends it (only owners lend money);
+ * the money came as cash in hand, into a bank (naming the bank, branch and account), or by
+ * mobile banking (bKash, Nagad…). The amount is asked for once "Received via" is chosen.
+ * A party's money also names the business it is for (recruitment by default; land, solar,
+ * railway) and, for recruitment, the country (starting at the default country).
  * `receipt` null records a new one, optionally for `presetParty`.
  */
 type Payer = Pick<Party, 'id' | 'code' | 'type' | 'name' | 'mobile' | 'address'>
@@ -31,15 +45,55 @@ const id = useId()
 const partyType = ref<PartyType>('client')
 const party = ref<Payer | null>(null)
 const receiptType = ref<CashReceiptType>('cash')
+const businessType = ref<BusinessType>('recruitment')
+const countryCode = ref('')
 const amount = ref<string | number>('')
 const date = ref('')
-const method = ref<PaymentMethod>('cash')
+const method = ref<PaymentMethod | ''>('')
 const bankName = ref('')
 const bankBranch = ref('')
+const bankAccountName = ref('')
+const bankAccountNumber = ref('')
+const mobileProvider = ref<MobileBankingProvider | ''>('')
+const mobileNumber = ref('')
 const note = ref('')
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
+
+const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
+  { value: 'recruitment', label: 'Recruitment' },
+  { value: 'land', label: 'Land' },
+  { value: 'solar', label: 'Solar' },
+  { value: 'railway', label: 'Railway' },
+]
+
+/** Active countries and the default country, loaded once the form first opens. */
+const countries = ref<CountryOption[]>([])
+const defaultCountry = ref('')
+let optionsLoaded = false
+
+async function loadOptions() {
+  if (optionsLoaded) return
+  try {
+    const options = await fetchReceiptOptions()
+    optionsLoaded = true
+    countries.value = options.countries
+    defaultCountry.value = options.default_country.code
+    if (open.value && !countryCode.value && !props.receipt?.country) {
+      countryCode.value = defaultCountry.value
+    }
+  } catch {
+    // The country field shows its own error on save; the rest of the form still works.
+  }
+}
+
+/** The list, plus an edited receipt's country if it has been deactivated since. */
+const countryOptions = computed(() => {
+  const current = props.receipt?.country
+  if (!current || countries.value.some((c) => c.code === current.code)) return countries.value
+  return [{ ...current, is_pinned: false }, ...countries.value]
+})
 
 const isEdit = computed(() => props.receipt !== null)
 const title = computed(() =>
@@ -53,21 +107,39 @@ watch(open, (isOpen) => {
   partyType.value = preset?.type ?? 'client'
   party.value = preset
   receiptType.value = r?.receipt_type ?? 'cash'
+  businessType.value = r?.business_type ?? 'recruitment'
+  countryCode.value = r?.country?.code ?? defaultCountry.value
   amount.value = r ? r.amount.toFixed(2) : ''
   date.value = r?.date ?? businessToday()
-  method.value = r?.payment_method ?? 'cash'
+  method.value = r?.payment_method ?? ''
   bankName.value = r?.bank_name ?? ''
   bankBranch.value = r?.bank_branch ?? ''
+  bankAccountName.value = r?.bank_account_name ?? ''
+  bankAccountNumber.value = r?.bank_account_number ?? ''
+  mobileProvider.value = r?.mobile_provider ?? ''
+  mobileNumber.value = r?.mobile_number ?? ''
   note.value = r?.note ?? ''
   errors.value = {}
   banner.value = null
+  void loadOptions()
 })
 
 function setPartyType(type: PartyType) {
   if (partyType.value === type) return
   partyType.value = type
   party.value = null
+  if (!canLoan.value) receiptType.value = 'cash'
 }
+
+/**
+ * Only owners lend money. A party receipt saved as a loan before that rule keeps its
+ * Loan option while it is edited, so it can be changed to cash.
+ */
+const canLoan = computed(
+  () =>
+    partyType.value === 'owner' ||
+    (props.receipt?.receipt_type === 'loan' && props.receipt.party.type === partyType.value),
+)
 
 const fetchPayers = (q: string): Promise<Payer[]> => searchParties(partyType.value, q)
 const payerSubtitle = (p: Payer) => `${p.code} · ${p.mobile}`
@@ -77,7 +149,7 @@ const effect = computed(() => {
   const who = partyType.value === 'owner' ? 'owner' : 'party'
   if (receiptType.value === 'loan') return `A loan from the ${who}: we owe it back (Cr).`
   return partyType.value === 'owner'
-    ? 'Capital paid in by the owner (Cr).'
+    ? 'Cash the owner adds to the company: capital (Cr).'
     : 'A payment against what the party owes us (Cr).'
 })
 
@@ -88,26 +160,44 @@ async function save() {
   banner.value = null
   const e: Record<string, string> = {}
   if (!party.value) e.party_id = `Choose the ${partyType.value === 'owner' ? 'owner' : 'party'}.`
+  const isClient = partyType.value === 'client'
+  const isRecruitment = isClient && businessType.value === 'recruitment'
+  if (isRecruitment && !countryCode.value) e.country_code = 'Choose the country.'
   if (!date.value) e.date = 'Choose the date.'
   const parsed = parseAmount(amount.value)
-  if (parsed.error) e.amount = parsed.error
+  if (!method.value) e.payment_method = 'Choose how the money was received.'
+  else if (parsed.error) e.amount = parsed.error
   if (method.value === 'bank') {
     if (!squish(bankName.value)) e.bank_name = 'Enter the bank name.'
     if (!squish(bankBranch.value)) e.bank_branch = 'Enter the branch name.'
+    if (!squish(bankAccountName.value)) e.bank_account_name = 'Enter the bank account name.'
+    const accountNo = bankAccountNumber.value.replace(/\s+/g, '')
+    if (!accountNo) e.bank_account_number = 'Enter the bank account number.'
+    else if (!/^[0-9A-Za-z-]+$/.test(accountNo))
+      e.bank_account_number = 'Use only digits, letters and dashes.'
   }
+  const mobile = checkMobileBanking(mobileProvider.value, mobileNumber.value)
+  if (method.value === 'mobile_banking') Object.assign(e, mobile.errors)
   errors.value = e
   if (Object.keys(e).length > 0) return
 
   const isBank = method.value === 'bank'
+  const isMobile = method.value === 'mobile_banking'
   const payload = {
     date: date.value,
     party_type: partyType.value,
     party_id: party.value!.id,
     receipt_type: receiptType.value,
+    business_type: isClient ? businessType.value : null,
+    country_code: isRecruitment ? countryCode.value : null,
     amount: parsed.amount!,
-    payment_method: method.value,
+    payment_method: method.value as PaymentMethod,
     bank_name: isBank ? squish(bankName.value) : null,
     bank_branch: isBank ? squish(bankBranch.value) : null,
+    bank_account_name: isBank ? squish(bankAccountName.value) : null,
+    bank_account_number: isBank ? bankAccountNumber.value.replace(/\s+/g, '') : null,
+    mobile_provider: isMobile ? mobile.mobile_provider : null,
+    mobile_number: isMobile ? mobile.mobile_number : null,
     note: squish(note.value) || null,
   }
   isSaving.value = true
@@ -199,12 +289,59 @@ const segment = (active: boolean) =>
         <dd>{{ party.address }}</dd>
       </dl>
 
+      <template v-if="partyType === 'client'">
+        <fieldset data-field="business_type">
+          <legend class="block text-sm font-medium text-slate-700">
+            Business<span class="text-red-700" aria-hidden="true"> *</span>
+          </legend>
+          <div class="mt-1 flex flex-wrap gap-2">
+            <button
+              v-for="option in BUSINESS_TYPES"
+              :key="option.value"
+              type="button"
+              class="rounded-full px-4 py-2 text-sm font-semibold"
+              :class="segment(businessType === option.value)"
+              :aria-pressed="businessType === option.value"
+              :data-business="option.value"
+              @click="businessType = option.value"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+          <p v-if="errors.business_type" class="mt-1 text-sm text-red-700">
+            {{ errors.business_type }}
+          </p>
+        </fieldset>
+
+        <div v-if="businessType === 'recruitment'" data-field="country_code">
+          <label :for="`${id}-country`" class="block text-sm font-medium text-slate-700">
+            Country<span class="text-red-700" aria-hidden="true"> *</span>
+          </label>
+          <select
+            :id="`${id}-country`"
+            v-model="countryCode"
+            required
+            :class="[inputClass, border('country_code')]"
+            :aria-invalid="errors.country_code ? 'true' : undefined"
+          >
+            <option value="" disabled>Choose the country</option>
+            <option v-for="country in countryOptions" :key="country.code" :value="country.code">
+              {{ country.name }}
+            </option>
+          </select>
+          <p v-if="errors.country_code" class="mt-1 text-sm text-red-700">
+            {{ errors.country_code }}
+          </p>
+        </div>
+      </template>
+
       <div class="grid gap-4 sm:grid-cols-2">
-        <fieldset data-field="receipt_type">
+        <fieldset v-if="canLoan" data-field="receipt_type">
           <legend class="block text-sm font-medium text-slate-700">Type</legend>
           <div class="mt-2 flex gap-4">
             <label class="flex items-center gap-2">
-              <input v-model="receiptType" type="radio" value="cash" :name="`${id}-rtype`" /> Cash
+              <input v-model="receiptType" type="radio" value="cash" :name="`${id}-rtype`" />
+              {{ partyType === 'owner' ? 'Add cash' : 'Cash' }}
             </label>
             <label class="flex items-center gap-2">
               <input v-model="receiptType" type="radio" value="loan" :name="`${id}-rtype`" /> Loan
@@ -228,33 +365,16 @@ const segment = (active: boolean) =>
       </div>
       <p class="-mt-2 text-xs text-muted" data-effect>{{ effect }}</p>
 
-      <div data-field="amount">
-        <label :for="`${id}-amount`" class="block text-sm font-medium text-slate-700">
-          Amount<span class="text-red-700" aria-hidden="true"> *</span>
-        </label>
-        <input
-          :id="`${id}-amount`"
-          v-model="amount"
-          type="text"
-          inputmode="decimal"
-          placeholder="0.00"
-          required
-          :class="[inputClass, border('amount'), 'text-right text-lg tabular-nums']"
-          :aria-invalid="errors.amount ? 'true' : undefined"
-        />
-        <p v-if="errors.amount" class="mt-1 text-sm text-red-700">{{ errors.amount }}</p>
-        <p v-else-if="parseAmount(amount).amount" class="mt-1 text-right text-xs text-muted">
-          ৳ {{ formatMoney(parseAmount(amount).amount!) }}
-        </p>
-      </div>
-
       <fieldset data-field="payment_method">
-        <legend class="block text-sm font-medium text-slate-700">Received via</legend>
-        <div class="mt-1 flex gap-2">
+        <legend class="block text-sm font-medium text-slate-700">
+          Received via<span class="text-red-700" aria-hidden="true"> *</span>
+        </legend>
+        <div class="mt-1 flex flex-wrap gap-2">
           <button
             v-for="option in [
               { value: 'cash', label: 'Cash in hand' },
               { value: 'bank', label: 'Bank' },
+              { value: 'mobile_banking', label: 'Mobile banking' },
             ] as const"
             :key="option.value"
             type="button"
@@ -267,9 +387,47 @@ const segment = (active: boolean) =>
             {{ option.label }}
           </button>
         </div>
+        <p v-if="errors.payment_method" class="mt-1 text-sm text-red-700">
+          {{ errors.payment_method }}
+        </p>
       </fieldset>
 
       <div v-if="method === 'bank'" class="grid gap-4 sm:grid-cols-2">
+        <div data-field="bank_account_name">
+          <label :for="`${id}-account-name`" class="block text-sm font-medium text-slate-700">
+            Bank account name<span class="text-red-700" aria-hidden="true"> *</span>
+          </label>
+          <input
+            :id="`${id}-account-name`"
+            v-model="bankAccountName"
+            type="text"
+            maxlength="150"
+            autocomplete="off"
+            :class="[inputClass, border('bank_account_name')]"
+            :aria-invalid="errors.bank_account_name ? 'true' : undefined"
+          />
+          <p v-if="errors.bank_account_name" class="mt-1 text-sm text-red-700">
+            {{ errors.bank_account_name }}
+          </p>
+        </div>
+        <div data-field="bank_account_number">
+          <label :for="`${id}-account-number`" class="block text-sm font-medium text-slate-700">
+            Bank account number<span class="text-red-700" aria-hidden="true"> *</span>
+          </label>
+          <input
+            :id="`${id}-account-number`"
+            v-model="bankAccountNumber"
+            type="text"
+            inputmode="numeric"
+            maxlength="40"
+            autocomplete="off"
+            :class="[inputClass, border('bank_account_number'), 'tabular-nums']"
+            :aria-invalid="errors.bank_account_number ? 'true' : undefined"
+          />
+          <p v-if="errors.bank_account_number" class="mt-1 text-sm text-red-700">
+            {{ errors.bank_account_number }}
+          </p>
+        </div>
         <div data-field="bank_name">
           <label :for="`${id}-bank`" class="block text-sm font-medium text-slate-700">
             Bank name<span class="text-red-700" aria-hidden="true"> *</span>
@@ -302,6 +460,33 @@ const segment = (active: boolean) =>
             {{ errors.bank_branch }}
           </p>
         </div>
+      </div>
+
+      <MobileBankingFields
+        v-if="method === 'mobile_banking'"
+        v-model:provider="mobileProvider"
+        v-model:number="mobileNumber"
+        :errors="errors"
+      />
+
+      <div v-if="method" data-field="amount">
+        <label :for="`${id}-amount`" class="block text-sm font-medium text-slate-700">
+          Amount<span class="text-red-700" aria-hidden="true"> *</span>
+        </label>
+        <input
+          :id="`${id}-amount`"
+          v-model="amount"
+          type="text"
+          inputmode="decimal"
+          placeholder="0.00"
+          required
+          :class="[inputClass, border('amount'), 'text-right text-lg tabular-nums']"
+          :aria-invalid="errors.amount ? 'true' : undefined"
+        />
+        <p v-if="errors.amount" class="mt-1 text-sm text-red-700">{{ errors.amount }}</p>
+        <p v-else-if="parseAmount(amount).amount" class="mt-1 text-right text-xs text-muted">
+          ৳ {{ formatMoney(parseAmount(amount).amount!) }}
+        </p>
       </div>
 
       <div data-field="note">

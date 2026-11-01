@@ -3,7 +3,11 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import AreaDashboardView from '../AreaDashboardView.vue'
+import { fetchFinanceSummary } from '@/api/accounts'
+import { useAuthStore } from '@/stores/auth'
+import type { Role } from '@/types/auth'
 import type { CompanyCounts } from '@/types/report'
+import { makeUser } from '@/test/helpers'
 
 const SUMMARY: CompanyCounts = {
   total: 3,
@@ -20,6 +24,19 @@ const SUMMARY: CompanyCounts = {
 }
 
 vi.mock('@/api/reports', () => ({ fetchReportSummary: vi.fn(async () => SUMMARY) }))
+vi.mock('@/api/accounts', () => ({
+  fetchFinanceSummary: vi.fn(async () => ({
+    opening_balance: 100000,
+    opening_date: '2026-10-01',
+    today: '2026-11-01',
+    opening_today: 1100,
+    total_received: 1900000,
+    total_paid: 260000,
+    cash_in_hand: 1000000,
+    bank_balance: 450000,
+    mobile_banking_balance: 190000,
+  })),
+}))
 
 let wrapper: VueWrapper
 
@@ -28,8 +45,9 @@ afterEach(() => {
   vi.clearAllMocks()
 })
 
-async function mountDashboard() {
+async function mountDashboard(role?: Role) {
   setActivePinia(createPinia())
+  if (role) useAuthStore().user = makeUser({ role })
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: '/staff/accounts', component: AreaDashboardView, meta: { area: 'accounts' } }],
@@ -40,6 +58,38 @@ async function mountDashboard() {
 }
 
 describe('AreaDashboardView', () => {
+  it.each(['admin', 'super_admin', 'accounts_head'] as const)(
+    'shows the accounts summary first, then the passport summary, to %s',
+    async (role) => {
+      await mountDashboard(role)
+
+      expect(fetchFinanceSummary).toHaveBeenCalledOnce()
+      const headings = wrapper.findAll('h1, h2').map((h) => h.text())
+      expect(headings).toEqual(['Accounts summary', 'Passport summary'])
+      const cards = wrapper.findAll('[data-finance] [data-closing]').map((c) => c.text())
+      expect(cards).toEqual([
+        expect.stringMatching(/Total Received Amount\s*৳ 19,00,000.00/),
+        expect.stringMatching(/Total Paid Amount\s*৳ 2,60,000.00/),
+        expect.stringMatching(/Closing Cash on Hand\s*৳ 10,00,000.00/),
+        expect.stringMatching(/Closing Bank Balance\s*৳ 4,50,000.00/),
+        expect.stringMatching(/Closing Mobile Banking Balance\s*৳ 1,90,000.00/),
+        expect.stringMatching(/Grand Total Closing Balance\s*৳ 16,40,000.00/),
+      ])
+      // Read only on the dashboard: no Change button.
+      expect(wrapper.find('[data-set-opening]').exists()).toBe(false)
+    },
+  )
+
+  it.each(['accounts', 'data_entry', 'operation_head'] as const)(
+    'shows no accounts summary to %s',
+    async (role) => {
+      await mountDashboard(role)
+      expect(fetchFinanceSummary).not.toHaveBeenCalled()
+      expect(wrapper.find('[data-finance]').exists()).toBe(false)
+      expect(wrapper.find('[data-summary]').exists()).toBe(true)
+    },
+  )
+
   it('shows the passport summary as coloured cards, in the company report order', async () => {
     await mountDashboard()
 

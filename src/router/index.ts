@@ -254,7 +254,7 @@ const router = createRouter({
           path: 'parties',
           name: 'accounts-parties',
           component: () => import('@/views/accounts/PartiesView.vue'),
-          meta: { title: staffTitle('Parties') },
+          meta: { title: staffTitle('Party / Owner') },
         },
         {
           // The page sets its own title from the party.
@@ -262,6 +262,13 @@ const router = createRouter({
           name: 'accounts-party-ledger',
           component: () => import('@/views/accounts/PartyLedgerView.vue'),
           meta: { title: staffTitle('Party ledger') },
+        },
+        {
+          // Owners' capital and their loans, each open until fully repaid.
+          path: 'owner-loans',
+          name: 'accounts-owner-loans',
+          component: () => import('@/views/accounts/OwnerLoansView.vue'),
+          meta: { title: staffTitle('Owner loans') },
         },
         {
           // Entries waiting for approval (and returned ones); approvers approve here.
@@ -298,7 +305,7 @@ const router = createRouter({
               path: 'transfer',
               name: 'accounts-cash-transfers',
               component: () => import('@/views/accounts/CashTransfersView.vue'),
-              meta: { title: staffTitle('Cash Transfer') },
+              meta: { title: staffTitle('Deposit / Withdrawal') },
             },
           ],
         },

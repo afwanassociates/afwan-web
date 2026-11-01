@@ -22,7 +22,10 @@ import type {
   PartyType,
   PayeeType,
   PaymentMethod,
+  ReceiptOptions,
+  OwnerLoanReport,
   CashSettings,
+  FinanceSummary,
   CashTransfer,
   CashTransferPayload,
   CashTransferTotals,
@@ -73,11 +76,6 @@ export async function updateParty(
 ): Promise<Party> {
   const { data } = await api.patch<{ data: Party }>(`${BASE}/parties/${id}`, changes)
   return data.data
-}
-
-/** 422 with code party_has_transactions when the party has ledger lines. */
-export async function deleteParty(id: number): Promise<void> {
-  await api.delete(`${BASE}/parties/${id}`)
 }
 
 /** The ledger for an optional date range (from/to inclusive, 'YYYY-MM-DD'). */
@@ -163,6 +161,12 @@ export async function updateCashReceipt(
 
 export async function deleteCashReceipt(id: number): Promise<void> {
   await api.delete(`${BASE}/cash-receipts/${id}`)
+}
+
+/** Business types, active countries and the default country for the cash receive form. */
+export async function fetchReceiptOptions(): Promise<ReceiptOptions> {
+  const { data } = await api.get<{ data: ReceiptOptions }>(`${BASE}/receipt-options`)
+  return data.data
 }
 
 /* ---------- Cash payments ---------- */
@@ -269,11 +273,9 @@ export async function fetchCashSettings(): Promise<CashSettings> {
 }
 
 /** Admin only. 422 on opening_date (cash entries before it) or opening_balance (too low). */
-export async function updateCashSettings(payload: {
-  opening_balance: number
-  opening_date: string
-}): Promise<CashSettings> {
-  const { data } = await api.put<{ data: CashSettings }>(`${BASE}/cash-settings`, payload)
+/** The money summary for the dashboard: the accounts head, admin and super admin. */
+export async function fetchFinanceSummary(): Promise<FinanceSummary> {
+  const { data } = await api.get<{ data: FinanceSummary }>('/api/finance/summary')
   return data.data
 }
 
@@ -312,4 +314,17 @@ export async function approveEntry(type: ApprovalType, id: number): Promise<void
 /** Back to the preparer with a reason. An approved entry: admins only. */
 export async function returnEntry(type: ApprovalType, id: number, reason: string): Promise<void> {
   await api.post(`${BASE}/approvals/${type}/${id}/return`, { reason })
+}
+
+/* ---------- Owner loans ---------- */
+
+/**
+ * Owners' capital and every approved owner loan with what is repaid and still owed.
+ * `for_payment`: the loan repayment being edited, left out of pending_repaid.
+ */
+export async function getOwnerLoans(
+  params: { party_id?: number; status?: 'open' | 'settled'; for_payment?: number } = {},
+): Promise<OwnerLoanReport> {
+  const { data } = await api.get<OwnerLoanReport>(`${BASE}/owner-loans`, { params })
+  return data
 }

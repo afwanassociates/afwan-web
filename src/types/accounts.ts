@@ -1,5 +1,7 @@
 /** Types matching the afwan-api accounts contract (/api/accounts/…). */
 
+import type { CountryOption, CountrySummary } from '@/types/country'
+
 /* ---------- Approval (Prepared → Approved) ---------- */
 
 /** Only approved entries count in the cash book, cash in hand and ledgers. */
@@ -79,7 +81,48 @@ export type ManualTransactionType = 'receivable'
 
 export type CashReceiptType = 'cash' | 'loan'
 
-export type PaymentMethod = 'cash' | 'bank'
+/** Which business a party's money is for; only recruitment has a country (for now). */
+export type BusinessType = 'recruitment' | 'land' | 'solar' | 'railway'
+
+/** GET /accounts/receipt-options: what the cash receive form offers a party. */
+export interface ReceiptOptions {
+  business_types: { value: BusinessType; label: string }[]
+  default_business_type: BusinessType
+  countries: CountryOption[]
+  default_country: CountrySummary
+}
+
+/** How money came in or went out; only approved cash (not bank or mobile banking) counts in cash in hand. */
+export type PaymentMethod = 'cash' | 'bank' | 'mobile_banking'
+
+/** Bangladesh mobile financial services (MFS); labels in MOBILE_BANKING_PROVIDERS. */
+export type MobileBankingProvider =
+  | 'bkash'
+  | 'nagad'
+  | 'rocket'
+  | 'upay'
+  | 'mcash'
+  | 'tap'
+  | 'ok_wallet'
+  | 'surecash'
+  | 'mycash'
+  | 'firstcash'
+  | 'islamic_wallet'
+  | 'meghna_pay'
+
+/** What an expense (payment to an "other" payee) was spent on; labels in EXPENSE_CATEGORIES. */
+export type ExpenseCategory =
+  | 'office_rent'
+  | 'utility_bill'
+  | 'internet_phone'
+  | 'salary'
+  | 'tea_entertainment'
+  | 'transport'
+  | 'stationery'
+  | 'repair'
+  | 'government_fee'
+  | 'courier'
+  | 'other'
 
 /** Ledger totals of a party; closing_balance is positive when the party owes us. */
 export interface PartyTotals {
@@ -98,6 +141,7 @@ export interface Party {
   code: string
   type: PartyType
   type_label: string
+  rl_number: string | null
   name: string
   mobile: string
   address: string
@@ -114,6 +158,7 @@ export interface Party {
 /** Body of POST /parties (type only on create) and PATCH /parties/{id}. */
 export interface PartyPayload {
   type?: PartyType
+  rl_number: string | null
   name: string
   mobile: string
   address: string
@@ -182,11 +227,21 @@ export interface CashReceipt extends ApprovalFields {
   party: Pick<Party, 'id' | 'code' | 'type' | 'name' | 'mobile' | 'address'>
   receipt_type: CashReceiptType
   receipt_type_label: string
+  /** Party receipts only (null for owners). */
+  business_type: BusinessType | null
+  business_type_label: string | null
+  /** Recruitment receipts only. */
+  country: CountrySummary | null
   amount: number
   payment_method: PaymentMethod
   payment_method_label: string
   bank_name: string | null
   bank_branch: string | null
+  bank_account_name: string | null
+  bank_account_number: string | null
+  mobile_provider: MobileBankingProvider | null
+  mobile_provider_label: string | null
+  mobile_number: string | null
   note: string | null
   created_by?: string | null
   created_at: string
@@ -198,10 +253,16 @@ export interface CashReceiptPayload {
   party_type: PartyType
   party_id: number
   receipt_type: CashReceiptType
+  business_type: BusinessType | null
+  country_code: string | null
   amount: number
   payment_method: PaymentMethod
   bank_name: string | null
   bank_branch: string | null
+  bank_account_name: string | null
+  bank_account_number: string | null
+  mobile_provider: MobileBankingProvider | null
+  mobile_number: string | null
   note: string | null
 }
 
@@ -211,6 +272,7 @@ export interface CashReceiptTotals {
   amount: number
   cash: number
   bank: number
+  mobile_banking: number
 }
 
 /* ---------- Cash payments ---------- */
@@ -233,12 +295,22 @@ export interface CashPayment extends ApprovalFields {
   payee_name: string
   payment_type: CashPaymentType
   payment_type_label: string
+  /** The owner loan a loan repayment pays back. */
+  loan_receipt?: { id: number; receipt_no: string } | null
+  expense_category: ExpenseCategory | null
+  expense_category_label: string | null
   purpose: string | null
+  bill_no: string | null
   amount: number
   payment_method: PaymentMethod
   payment_method_label: string
   bank_name: string | null
   bank_branch: string | null
+  bank_account_name: string | null
+  bank_account_number: string | null
+  mobile_provider: MobileBankingProvider | null
+  mobile_provider_label: string | null
+  mobile_number: string | null
   note: string | null
   created_by?: string | null
   created_at: string
@@ -251,11 +323,18 @@ export interface CashPaymentPayload {
   party_id: number | null
   payee_name: string | null
   payment_type: CashPaymentType
+  loan_receipt_id: number | null
+  expense_category: ExpenseCategory | null
   purpose: string | null
+  bill_no: string | null
   amount: number
   payment_method: PaymentMethod
   bank_name: string | null
   bank_branch: string | null
+  bank_account_name: string | null
+  bank_account_number: string | null
+  mobile_provider: MobileBankingProvider | null
+  mobile_number: string | null
   note: string | null
 }
 
@@ -264,8 +343,11 @@ export type CashPaymentTotals = CashReceiptTotals
 
 /* ---------- Cash transfers ---------- */
 
-/** deposit: cash in hand → bank · withdrawal: bank → cash in hand. */
+/** deposit: cash in hand → bank or wallet (cash in) · withdrawal: back into cash in hand (cash out). */
 export type TransferDirection = 'deposit' | 'withdrawal'
+
+/** Where the cash goes to or comes from: a bank, or a mobile banking wallet. */
+export type TransferChannel = 'bank' | 'mobile_banking'
 
 export interface CashTransfer extends ApprovalFields {
   id: number
@@ -273,9 +355,23 @@ export interface CashTransfer extends ApprovalFields {
   date: string
   direction: TransferDirection
   direction_label: string
+  channel: TransferChannel
+  channel_label: string
   amount: number
-  bank_name: string
-  bank_branch: string
+  /** Bank transfers only. */
+  bank_name: string | null
+  bank_branch: string | null
+  /** Mobile banking transfers only. */
+  mobile_provider: MobileBankingProvider | null
+  mobile_provider_label: string | null
+  mobile_number: string | null
+  /** Withdrawals only. */
+  cheque_no: string | null
+  /* Deposits only. */
+  deposit_slip_no: string | null
+  reference_name: string | null
+  reference_mobile: string | null
+  reference_nid_passport: string | null
   note: string | null
   created_by?: string | null
   created_at: string
@@ -285,9 +381,17 @@ export interface CashTransfer extends ApprovalFields {
 export interface CashTransferPayload {
   date: string
   direction: TransferDirection
+  channel: TransferChannel
   amount: number
-  bank_name: string
-  bank_branch: string
+  bank_name: string | null
+  bank_branch: string | null
+  mobile_provider: MobileBankingProvider | null
+  mobile_number: string | null
+  cheque_no: string | null
+  deposit_slip_no: string | null
+  reference_name: string | null
+  reference_mobile: string | null
+  reference_nid_passport: string | null
   note: string | null
 }
 
@@ -330,12 +434,72 @@ export interface CashBook {
   closing_balance: number
 }
 
-/** The company's cash opening balance and today's cash in hand. */
-export interface CashSettings {
+/**
+ * The money summary: total received and paid so far, today's closing cash, bank and mobile
+ * banking balances (approved entries only) and the cash opening balance. Seen by the accounts
+ * head (Cash Management and dashboard) and admins (dashboard only); not by accounts users.
+ */
+export interface FinanceSummary {
   opening_balance: number
   opening_date: string | null
   today: string
+  /** Today's opening cash: yesterday's closing cash on hand (worked out, never typed). */
+  opening_today: number
+  /** Approved receipts / payments up to today, any method (transfers not counted). */
+  total_received: number
+  total_paid: number
   cash_in_hand: number
+  /** Bank receipts and deposits minus bank payments and withdrawals (starts at zero). */
+  bank_balance: number
+  /** Mobile banking receipts minus mobile banking payments (starts at zero). */
+  mobile_banking_balance: number
+}
+
+/**
+ * GET /accounts/cash-settings. Accounts users get the opening date and today only; the
+ * accounts head also gets the money summary and the pending entries.
+ */
+export interface CashSettings extends Partial<FinanceSummary> {
+  opening_date: string | null
+  today: string
   /** Cash entries waiting for approval (not in cash in hand yet). */
-  pending: { count: number; in: number; out: number }
+  pending?: { count: number; in: number; out: number }
+}
+
+/* ---------- Owner loans ---------- */
+
+/** An approved loan from an owner: open while something is still owed, then settled. */
+export interface OwnerLoan {
+  id: number
+  receipt_no: string
+  date: string
+  owner: Pick<Party, 'id' | 'code' | 'name'>
+  amount: number
+  /** Approved repayments only. */
+  repaid: number
+  still_owed: number
+  /** Repayments waiting for approval (not counting the payment being edited). */
+  pending_repaid: number
+  status: 'open' | 'settled'
+  note: string | null
+}
+
+export interface OwnerCapital {
+  id: number
+  code: string
+  name: string
+  /** Capital paid in, less payments to the owner. */
+  capital: number
+  loan_owed: number
+}
+
+export interface OwnerLoanReport {
+  summary: {
+    total_capital: number
+    loans_owed: number
+    open_count: number
+    settled_count: number
+    owners: OwnerCapital[]
+  }
+  data: OwnerLoan[]
 }

@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import CashReceiptFormDialog from '../CashReceiptFormDialog.vue'
-import { createCashReceipt, searchParties, updateCashReceipt } from '@/api/accounts'
+import {
+  createCashReceipt,
+  fetchReceiptOptions,
+  searchParties,
+  updateCashReceipt,
+} from '@/api/accounts'
 import { httpError } from '@/test/helpers'
 import type { CashReceipt, Party } from '@/types/accounts'
 
@@ -9,6 +14,7 @@ vi.mock('@/api/accounts', () => ({
   searchParties: vi.fn(),
   createCashReceipt: vi.fn(),
   updateCashReceipt: vi.fn(),
+  fetchReceiptOptions: vi.fn(),
 }))
 
 function party(overrides: Partial<Party> = {}): Party {
@@ -17,6 +23,7 @@ function party(overrides: Partial<Party> = {}): Party {
     code: 'PT-0007',
     type: 'client',
     type_label: 'Party / Client',
+    rl_number: null,
     name: 'Karim Traders',
     mobile: '01711000000',
     address: 'Mirpur, Dhaka',
@@ -55,6 +62,9 @@ function receipt(overrides: Partial<CashReceipt> = {}): CashReceipt {
     },
     receipt_type: 'cash',
     receipt_type_label: 'Cash',
+    business_type: 'recruitment',
+    business_type_label: 'Recruitment',
+    country: { code: 'MY', name: 'Malaysia' },
     amount: 2500,
     payment_method: 'bank',
     payment_method_label: 'Bank',
@@ -66,6 +76,11 @@ function receipt(overrides: Partial<CashReceipt> = {}): CashReceipt {
     can: { update: true, delete: true, approve: false, send_back: false },
     bank_name: 'Sonali Bank',
     bank_branch: 'Motijheel',
+    bank_account_name: 'Afwan Associates',
+    bank_account_number: '0123456789',
+    mobile_provider: null,
+    mobile_provider_label: null,
+    mobile_number: null,
     note: null,
     created_at: '',
     updated_at: '',
@@ -99,6 +114,15 @@ beforeEach(() => {
   vi.mocked(searchParties).mockImplementation(async (type) =>
     type === 'owner' ? [OWNER] : [party()],
   )
+  vi.mocked(fetchReceiptOptions).mockResolvedValue({
+    business_types: [],
+    default_business_type: 'recruitment',
+    countries: [
+      { code: 'MY', name: 'Malaysia', is_pinned: true },
+      { code: 'SA', name: 'Saudi Arabia', is_pinned: false },
+    ],
+    default_country: { code: 'MY', name: 'Malaysia' },
+  })
   vi.mocked(createCashReceipt).mockResolvedValue(receipt())
   vi.mocked(updateCashReceipt).mockResolvedValue(receipt())
 })
@@ -119,6 +143,7 @@ describe('CashReceiptFormDialog', () => {
     expect(payer).toContain('Mirpur, Dhaka')
     expect(wrapper.find('[data-effect]').text()).toMatch(/payment against what the party owes/)
 
+    await wrapper.find('[data-method="cash"]').trigger('click')
     await wrapper.find('[data-field="amount"] input').setValue('2,500')
     await wrapper.find('[data-field="note"] input').setValue('  first  instalment ')
     await wrapper.find('form').trigger('submit')
@@ -129,10 +154,16 @@ describe('CashReceiptFormDialog', () => {
         party_type: 'client',
         party_id: 7,
         receipt_type: 'cash',
+        business_type: 'recruitment',
+        country_code: 'MY',
         amount: 2500,
         payment_method: 'cash',
         bank_name: null,
         bank_branch: null,
+        bank_account_name: null,
+        bank_account_number: null,
+        mobile_provider: null,
+        mobile_number: null,
         note: 'first instalment',
       }),
     )
@@ -150,15 +181,144 @@ describe('CashReceiptFormDialog', () => {
     expect(searchParties).toHaveBeenLastCalledWith('owner', '')
     expect(wrapper.find('[data-effect]').text()).toMatch(/loan from the owner/)
 
+    await wrapper.find('[data-method="bank"]').trigger('click')
+    await wrapper.find('[data-field="bank_name"] input').setValue('DBBL')
+    await wrapper.find('[data-field="bank_branch"] input').setValue('Uttara')
+    await wrapper.find('[data-field="bank_account_name"] input').setValue('  Afwan  Associates ')
+    await wrapper.find('[data-field="bank_account_number"] input').setValue('0123 4567 89')
     await wrapper.find('[data-field="amount"] input').setValue('100')
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(createCashReceipt).toHaveBeenCalledWith(
-      expect.objectContaining({ party_type: 'owner', party_id: 9, receipt_type: 'loan' }),
+      expect.objectContaining({
+        party_type: 'owner',
+        party_id: 9,
+        receipt_type: 'loan',
+        business_type: null,
+        country_code: null,
+        bank_name: 'DBBL',
+        bank_branch: 'Uttara',
+        bank_account_name: 'Afwan Associates',
+        bank_account_number: '0123456789',
+      }),
     )
   })
 
-  it('requires a payer and an amount, and the bank name and branch for a bank deposit', async () => {
+  it('starts a party receipt at recruitment for the default country, and drops the country for other businesses', async () => {
+    await mountDialog()
+
+    expect(wrapper.find('[data-business="recruitment"]').attributes('aria-pressed')).toBe('true')
+    const country = wrapper.find('[data-field="country_code"] select')
+    expect((country.element as HTMLSelectElement).value).toBe('MY')
+    await country.setValue('SA')
+
+    await choosePayer('Karim Traders')
+    await wrapper.find('[data-method="cash"]').trigger('click')
+    await wrapper.find('[data-field="amount"] input').setValue('100')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).toHaveBeenLastCalledWith(
+      expect.objectContaining({ business_type: 'recruitment', country_code: 'SA' }),
+    )
+
+    await mountDialog()
+    await wrapper.find('[data-business="solar"]').trigger('click')
+    expect(wrapper.find('[data-field="country_code"]').exists()).toBe(false)
+    await choosePayer('Karim Traders')
+    await wrapper.find('[data-method="cash"]').trigger('click')
+    await wrapper.find('[data-field="amount"] input').setValue('100')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).toHaveBeenLastCalledWith(
+      expect.objectContaining({ business_type: 'solar', country_code: null }),
+    )
+  })
+
+  it('hides business and country for an owner', async () => {
+    await mountDialog()
+    await wrapper.find('[data-party-type="owner"]').trigger('click')
+    expect(wrapper.find('[data-field="business_type"]').exists()).toBe(false)
+    expect(wrapper.find('[data-field="country_code"]').exists()).toBe(false)
+  })
+
+  it('calls an owner\'s cash "Add cash" and records it as capital', async () => {
+    await mountDialog()
+
+    await wrapper.find('[data-party-type="owner"]').trigger('click')
+    expect(wrapper.find('[data-field="receipt_type"]').text()).toContain('Add cash')
+    expect(wrapper.find('[data-effect]').text()).toMatch(/owner adds to the company/)
+
+    await wrapper.find('input[value="loan"]').setValue(true)
+    await wrapper.find('[data-party-type="client"]').trigger('click')
+    // Only owners lend money: a party has no Type choice, and the loan is reset to cash.
+    expect(wrapper.find('[data-field="receipt_type"]').exists()).toBe(false)
+    expect(wrapper.find('[data-effect]').text()).toMatch(/payment against what the party owes/)
+  })
+
+  it('requires Received via, and shows Amount below it once a method is chosen', async () => {
+    await mountDialog({ presetParty: party() })
+
+    expect(wrapper.find('[data-field="payment_method"] legend').text()).toContain('*')
+    expect(wrapper.find('[aria-pressed="true"][data-method]').exists()).toBe(false)
+    expect(wrapper.find('[data-field="amount"]').exists()).toBe(false)
+
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-field="payment_method"]').text()).toContain(
+      'Choose how the money was received.',
+    )
+
+    for (const method of ['cash', 'bank', 'mobile_banking']) {
+      await wrapper.find(`[data-method="${method}"]`).trigger('click')
+      const fields = wrapper.findAll('[data-field]').map((f) => f.attributes('data-field'))
+      expect(fields.indexOf('amount')).toBeGreaterThan(fields.indexOf('payment_method'))
+    }
+  })
+
+  it('takes a mobile banking receipt with the service and wallet number', async () => {
+    await mountDialog({ presetParty: OWNER })
+
+    await wrapper.find('[data-method="mobile_banking"]').trigger('click')
+    expect(wrapper.find('[data-field="bank_name"]').exists()).toBe(false)
+    await wrapper.find('[data-field="amount"] input').setValue('500')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(createCashReceipt).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-field="mobile_provider"]').text()).toContain(
+      'Choose the mobile banking service.',
+    )
+    expect(wrapper.find('[data-field="mobile_number"]').text()).toContain(
+      'Enter the Mobile banking number.',
+    )
+
+    await wrapper.find('[data-field="mobile_provider"] select').setValue('bkash')
+    expect(wrapper.find('[data-field="mobile_number"] label').text()).toContain('bKash number')
+    const providers = wrapper.findAll('[data-field="mobile_provider"] option').map((o) => o.text())
+    expect(providers).toEqual(expect.arrayContaining(['bKash', 'Nagad', 'Rocket', 'mCash', 'Upay']))
+
+    await wrapper.find('[data-field="mobile_number"] input').setValue('0171234')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[data-field="mobile_number"]').text()).toContain('11-digit')
+
+    await wrapper.find('[data-field="mobile_number"] input').setValue('+880 1712-345678')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        party_type: 'owner',
+        payment_method: 'mobile_banking',
+        mobile_provider: 'bkash',
+        mobile_number: '01712345678',
+        bank_name: null,
+        bank_branch: null,
+      }),
+    )
+  })
+
+  it('requires a payer and an amount, and the bank, branch and account for a bank deposit', async () => {
     await mountDialog()
 
     await wrapper.find('[data-method="bank"]').trigger('click')
@@ -170,6 +330,19 @@ describe('CashReceiptFormDialog', () => {
     expect(wrapper.find('[data-field="amount"]').text()).toContain('Enter the amount.')
     expect(wrapper.find('[data-field="bank_name"]').text()).toContain('Enter the bank name.')
     expect(wrapper.find('[data-field="bank_branch"]').text()).toContain('Enter the branch name.')
+    expect(wrapper.find('[data-field="bank_account_name"]').text()).toContain(
+      'Enter the bank account name.',
+    )
+    expect(wrapper.find('[data-field="bank_account_number"]').text()).toContain(
+      'Enter the bank account number.',
+    )
+
+    await wrapper.find('[data-field="bank_account_number"] input').setValue('12/34')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.find('[data-field="bank_account_number"]').text()).toContain(
+      'Use only digits, letters and dashes.',
+    )
   })
 
   it('shows the API validation errors', async () => {
@@ -178,6 +351,7 @@ describe('CashReceiptFormDialog', () => {
     )
     await mountDialog({ presetParty: party() })
 
+    await wrapper.find('[data-method="cash"]').trigger('click')
     await wrapper.find('[data-field="amount"] input').setValue('10')
     await wrapper.find('form').trigger('submit')
     await flushPromises()

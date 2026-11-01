@@ -11,6 +11,9 @@ import type { Role } from '@/types/auth'
 vi.mock('@/api/accounts', () => ({
   fetchApprovalSummary: vi.fn(async () => ({ pending: 2, returned_mine: 1, is_approver: true })),
 }))
+vi.mock('@/api/reports', () => ({
+  fetchReportSummary: vi.fn(async () => ({ total: 25, returned: 4 })),
+}))
 vi.mock('@/api/workflow', () => ({
   fetchWorkflowSummary: vi.fn(async () => ({
     steps: [],
@@ -51,6 +54,7 @@ const ROUTE_NAMES = [
   'admin-references',
   'accounts-parties',
   'accounts-cash-book',
+  'accounts-owner-loans',
   'accounts-approvals',
 ]
 
@@ -174,8 +178,9 @@ describe('StaffLayout menu', () => {
         'Reference Report',
         'All Passports',
         'Returned Passports',
-        'Parties',
-        'Cash',
+        'Party / Owner',
+        'Cash Management',
+        'Owner loans',
         'My entries',
       ],
     ],
@@ -187,8 +192,9 @@ describe('StaffLayout menu', () => {
         'Reference Report',
         'All Passports',
         'Returned Passports',
-        'Parties',
-        'Cash',
+        'Party / Owner',
+        'Cash Management',
+        'Owner loans',
         'Approvals',
         'Users',
       ],
@@ -279,6 +285,21 @@ describe('StaffLayout menu', () => {
     const dashboard = wrapper.findAll('nav[aria-label="Staff portal"] a')[0]!
     expect(dashboard.attributes('href')).toBe(href)
   })
+
+  it.each(['data_entry', 'accounts', 'admin', 'super_admin'] as const)(
+    'shows the passport counts on "All Passports" and "Returned Passports" for %s',
+    async (role) => {
+      await mountAs(role)
+      await flushPromises()
+
+      const link = (label: string) =>
+        wrapper
+          .findAll('nav[aria-label="Staff portal"] a')
+          .find((a) => a.find('[data-label]').text() === label)!
+      expect(link('All Passports').find('[data-badge]').text()).toBe('25 passports')
+      expect(link('Returned Passports').find('[data-badge]').text()).toBe('4 returned')
+    },
+  )
 
   it('shows the pending count on "Medical" (Unfit is a tab of Medical, not a menu item)', async () => {
     await mountAs('data_entry')

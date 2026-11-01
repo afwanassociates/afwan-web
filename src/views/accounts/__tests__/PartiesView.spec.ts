@@ -3,9 +3,9 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import PartiesView from '../PartiesView.vue'
-import { createParty, deleteParty, listParties, updateParty } from '@/api/accounts'
+import { createParty, listParties, updateParty } from '@/api/accounts'
 import { useAuthStore } from '@/stores/auth'
-import { httpError, makeUser } from '@/test/helpers'
+import { makeUser } from '@/test/helpers'
 import type { Role } from '@/types/auth'
 import type { Party } from '@/types/accounts'
 
@@ -13,7 +13,6 @@ vi.mock('@/api/accounts', () => ({
   listParties: vi.fn(),
   createParty: vi.fn(),
   updateParty: vi.fn(),
-  deleteParty: vi.fn(),
 }))
 
 function party(overrides: Partial<Party> = {}): Party {
@@ -22,6 +21,7 @@ function party(overrides: Partial<Party> = {}): Party {
     code: 'PT-0001',
     type: 'client',
     type_label: 'Party / Client',
+    rl_number: null,
     name: 'Karim Traders',
     mobile: '01711000000',
     address: 'Dhaka',
@@ -105,7 +105,7 @@ describe('PartiesView', () => {
     expect(row.text()).toContain('1,000.00 Dr')
     expect(row.text()).toContain('5,000.00')
     expect(row.find('[data-closing]').text()).toBe('3,200.00 Dr')
-    // Only admins may delete.
+    // Nobody deletes a party.
     expect(row.find('[data-delete]').exists()).toBe(false)
   })
 
@@ -120,6 +120,30 @@ describe('PartiesView', () => {
     expect(wrapper.find('[data-create]').text()).toBe('New owner')
   })
 
+  it('hides the RL number for owners', async () => {
+    vi.mocked(createParty).mockResolvedValue(party({ id: 3, type: 'owner', code: 'OW-001' }))
+    await mountView()
+    await wrapper.find('[data-tab="owner"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-party="1"] [data-rl]').exists()).toBe(false)
+    await wrapper.find('[data-create]').trigger('click')
+    await flushPromises()
+    const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
+    expect(dialog.find('[data-field="rl_number"]').exists()).toBe(false)
+
+    await dialog.find('[data-field="name"] input').setValue('Md Afwan')
+    await dialog.find('[data-field="mobile"] input').setValue('01811-111111')
+    await dialog.find('[data-field="address"] input').setValue('Dhaka')
+    await dialog.find('[data-field="nid_passport"] input').setValue('N9')
+    await dialog.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(createParty).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'owner', rl_number: null }),
+    )
+  })
+
   it('creates a party with the form', async () => {
     vi.mocked(createParty).mockResolvedValue(party({ id: 2, code: 'PT-0002' }))
     await mountView()
@@ -127,6 +151,9 @@ describe('PartiesView', () => {
     await wrapper.find('[data-create]').trigger('click')
     await flushPromises()
     const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
+    const fields = dialog.findAll('[data-field] input[type="text"]')
+    expect(fields[0]!.element.closest('[data-field]')!.getAttribute('data-field')).toBe('rl_number')
+    await dialog.find('[data-field="rl_number"] input').setValue(' rl  1234 ')
     await dialog.find('[data-field="name"] input').setValue('  Rahim   Uddin ')
     await dialog.find('[data-field="mobile"] input').setValue('01811-111111')
     await dialog.find('[data-field="address"] input').setValue('Feni')
@@ -137,6 +164,7 @@ describe('PartiesView', () => {
 
     expect(createParty).toHaveBeenCalledWith({
       type: 'client',
+      rl_number: 'RL 1234',
       name: 'Rahim Uddin',
       mobile: '01811-111111',
       address: 'Feni',
@@ -159,6 +187,7 @@ describe('PartiesView', () => {
     await flushPromises()
 
     expect(createParty).not.toHaveBeenCalled()
+    expect(dialog.find('[data-field="rl_number"]').text()).toContain('Enter the RL number.')
     expect(dialog.find('[data-field="name"]').text()).toContain('Enter the name.')
     expect(dialog.find('[data-field="mobile"]').text()).toContain('valid mobile')
     expect(dialog.find('[data-field="nid_passport"]').text()).toContain('Enter the NID')
@@ -174,23 +203,15 @@ describe('PartiesView', () => {
     expect(updateParty).toHaveBeenCalledWith(1, { is_active: false })
   })
 
-  it('lets the accounts head delete, and offers to deactivate a party with transactions', async () => {
-    vi.mocked(deleteParty).mockRejectedValue(httpError(422, { code: 'party_has_transactions' }))
-    vi.mocked(updateParty).mockResolvedValue(party({ is_active: false }))
-    await mountView('accounts_head')
-
-    await wrapper.find('[data-delete]').trigger('click')
-    await flushPromises()
-    const confirm = () =>
-      wrapper.findAll('dialog button').find((b) => /Delete|Deactivate instead/.test(b.text()))!
-    await confirm().trigger('click')
-    await flushPromises()
-
-    expect(deleteParty).toHaveBeenCalledWith(1)
-    expect(wrapper.find('[data-delete-blocked]').exists()).toBe(true)
-
-    await confirm().trigger('click')
-    await flushPromises()
-    expect(updateParty).toHaveBeenCalledWith(1, { is_active: false })
-  })
+  it.each(['accounts', 'accounts_head'] as const)(
+    'offers no Delete to %s: parties and owners are never deleted',
+    async (role) => {
+      await mountView(role)
+      expect(wrapper.find('[data-party="1"]').exists()).toBe(true)
+      expect(wrapper.find('[data-delete]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Delete')
+      // Deactivate stays.
+      expect(wrapper.find('[data-toggle-active]').exists()).toBe(true)
+    },
+  )
 })
