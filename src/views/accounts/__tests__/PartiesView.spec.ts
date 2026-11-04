@@ -23,6 +23,9 @@ function party(overrides: Partial<Party> = {}): Party {
     type_label: 'Party / Client',
     rl_number: null,
     name: 'Karim Traders',
+    agency_owner_name: null,
+    designation: null,
+    designation_label: null,
     mobile: '01711000000',
     address: 'Dhaka',
     nid_passport: 'N1',
@@ -34,10 +37,10 @@ function party(overrides: Partial<Party> = {}): Party {
       receivable: 5000,
       payment: 3000,
       refund: 200,
-      loan: 0,
       capital: 0,
-      loan_repayment: 0,
-      drawing: 0,
+      owner_loan: 0,
+      loan_return: 0,
+      loan_bill: 0,
       closing_balance: 3200,
     },
     created_at: '',
@@ -105,6 +108,12 @@ describe('PartiesView', () => {
     expect(row.text()).toContain('1,000.00 Dr')
     expect(row.text()).toContain('5,000.00')
     expect(row.find('[data-closing]').text()).toBe('3,200.00 Dr')
+    expect(row.find('[data-agency-owner]').text()).toBe('—')
+    expect(wrapper.find('thead').text()).toContain('Agency owner NID / Passport')
+    expect(wrapper.find('thead').text()).toContain('Agency Name')
+    // Loan outstanding is for owners only.
+    expect(row.find('[data-loan]').exists()).toBe(false)
+    expect(wrapper.find('thead').text()).not.toContain('Loan outstanding')
     // Nobody deletes a party.
     expect(row.find('[data-delete]').exists()).toBe(false)
   })
@@ -118,6 +127,8 @@ describe('PartiesView', () => {
     expect(router.currentRoute.value.query).toEqual({ type: 'owner' })
     expect(listParties).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'owner' }))
     expect(wrapper.find('[data-create]').text()).toBe('New owner')
+    expect(wrapper.find('thead').text()).toContain('Loan outstanding')
+    expect(wrapper.find('[data-party="1"] [data-loan]').exists()).toBe(true)
   })
 
   it('hides the RL number for owners', async () => {
@@ -131,6 +142,8 @@ describe('PartiesView', () => {
     await flushPromises()
     const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
     expect(dialog.find('[data-field="rl_number"]').exists()).toBe(false)
+    expect(dialog.find('[data-field="agency_owner_name"]').exists()).toBe(false)
+    expect(dialog.find('[data-field="nid_passport"] label').text()).toBe('NID / Passport *')
 
     await dialog.find('[data-field="name"] input').setValue('Md Afwan')
     await dialog.find('[data-field="mobile"] input').setValue('01811-111111')
@@ -138,9 +151,15 @@ describe('PartiesView', () => {
     await dialog.find('[data-field="nid_passport"] input').setValue('N9')
     await dialog.find('form').trigger('submit')
     await flushPromises()
+    expect(createParty).not.toHaveBeenCalled()
+    expect(dialog.find('[data-field="designation"]').text()).toContain('Choose the designation.')
+
+    await dialog.find('[data-field="designation"] select').setValue('managing_director')
+    await dialog.find('form').trigger('submit')
+    await flushPromises()
 
     expect(createParty).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'owner', rl_number: null }),
+      expect.objectContaining({ type: 'owner', rl_number: null, designation: 'managing_director' }),
     )
   })
 
@@ -151,10 +170,32 @@ describe('PartiesView', () => {
     await wrapper.find('[data-create]').trigger('click')
     await flushPromises()
     const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
-    const fields = dialog.findAll('[data-field] input[type="text"]')
-    expect(fields[0]!.element.closest('[data-field]')!.getAttribute('data-field')).toBe('rl_number')
+    expect(dialog.find('h2').text()).toBe('New Party / Agency')
+    // Agency name first; the agency owner's name and NID / passport last.
+    const order = dialog
+      .findAll('[data-field] input[type="text"]')
+      .map((f) => f.element.closest('[data-field]')!.getAttribute('data-field'))
+    expect(order.slice(0, 7)).toEqual([
+      'rl_number',
+      'name',
+      'mobile',
+      'address',
+      'tin_bin',
+      'agency_owner_name',
+      'nid_passport',
+    ])
+    expect(dialog.find('[data-field="name"] label').text()).toBe('Agency Name *')
+    expect(dialog.find('[data-field="mobile"] label').text()).toBe('Agency Mobile *')
+    expect(dialog.find('[data-field="address"] label').text()).toBe('Agency Address *')
+    // Every empty field shows what to type.
+    for (const input of dialog.findAll('[data-field] input[type="text"]'))
+      expect(input.attributes('placeholder')).toBeTruthy()
     await dialog.find('[data-field="rl_number"] input').setValue(' rl  1234 ')
     await dialog.find('[data-field="name"] input').setValue('  Rahim   Uddin ')
+    expect(dialog.find('[data-field="nid_passport"] label').text()).toContain(
+      'Agency owner NID / Passport',
+    )
+    await dialog.find('[data-field="agency_owner_name"] input').setValue(' Abdul   Karim ')
     await dialog.find('[data-field="mobile"] input').setValue('01811-111111')
     await dialog.find('[data-field="address"] input').setValue('Feni')
     await dialog.find('[data-field="nid_passport"] input').setValue('ab 12 34')
@@ -166,6 +207,7 @@ describe('PartiesView', () => {
       type: 'client',
       rl_number: 'RL 1234',
       name: 'Rahim Uddin',
+      agency_owner_name: 'Abdul Karim',
       mobile: '01811-111111',
       address: 'Feni',
       nid_passport: 'AB1234',
@@ -188,9 +230,14 @@ describe('PartiesView', () => {
 
     expect(createParty).not.toHaveBeenCalled()
     expect(dialog.find('[data-field="rl_number"]').text()).toContain('Enter the RL number.')
-    expect(dialog.find('[data-field="name"]').text()).toContain('Enter the name.')
+    expect(dialog.find('[data-field="name"]').text()).toContain('Enter the agency name.')
+    expect(dialog.find('[data-field="agency_owner_name"]').text()).toContain(
+      'Enter the agency owner name.',
+    )
+    expect(dialog.find('[data-field="nid_passport"]').text()).toContain(
+      "Enter the agency owner's NID or passport number.",
+    )
     expect(dialog.find('[data-field="mobile"]').text()).toContain('valid mobile')
-    expect(dialog.find('[data-field="nid_passport"]').text()).toContain('Enter the NID')
   })
 
   it('deactivates a party', async () => {

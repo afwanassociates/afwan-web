@@ -2,9 +2,15 @@
 import { computed, ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
 import { createParty, updateParty } from '@/api/accounts'
-import { MOBILE_PATTERN, PARTY_TYPE_LABELS, formatMoney, parseAmount } from '@/lib/accounts'
+import {
+  MOBILE_PATTERN,
+  OWNER_DESIGNATIONS,
+  PARTY_TYPE_LABELS,
+  formatMoney,
+  parseAmount,
+} from '@/lib/accounts'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
-import type { BalanceType, Party, PartyType } from '@/types/accounts'
+import type { BalanceType, OwnerDesignation, Party, PartyType } from '@/types/accounts'
 
 /**
  * Create / edit a party or owner. The party ID (PT-0001, OW-001) is given by the server and
@@ -19,6 +25,8 @@ const id = useId()
 const type = ref<PartyType>('client')
 const rlNumber = ref('')
 const name = ref('')
+const agencyOwnerName = ref('')
+const designation = ref<OwnerDesignation | ''>('')
 const mobile = ref('')
 const address = ref('')
 const nidPassport = ref('')
@@ -35,7 +43,7 @@ const isClient = computed(() => type.value === 'client')
 const title = computed(() =>
   isEdit.value
     ? `Edit ${props.party!.code}`
-    : `New ${type.value === 'owner' ? 'owner' : 'party / client'}`,
+    : `New ${type.value === 'owner' ? 'owner' : 'Party / Agency'}`,
 )
 
 watch(open, (isOpen) => {
@@ -44,9 +52,11 @@ watch(open, (isOpen) => {
   type.value = p?.type ?? props.defaultType
   rlNumber.value = p?.rl_number ?? ''
   name.value = p?.name ?? ''
+  designation.value = p?.designation ?? ''
   mobile.value = p?.mobile ?? ''
   address.value = p?.address ?? ''
   nidPassport.value = p?.nid_passport ?? ''
+  agencyOwnerName.value = p?.agency_owner_name ?? ''
   tinBin.value = p?.tin_bin ?? ''
   openingBalance.value = p && p.opening_balance > 0 ? p.opening_balance.toFixed(2) : ''
   openingBalanceType.value = p?.opening_balance_type ?? 'receivable'
@@ -61,12 +71,20 @@ async function save() {
   banner.value = null
   const e: Record<string, string> = {}
   if (isClient.value && !squish(rlNumber.value)) e.rl_number = 'Enter the RL number.'
-  if (!squish(name.value)) e.name = 'Enter the name.'
-  if (!squish(mobile.value)) e.mobile = 'Enter the mobile number.'
+  if (!squish(name.value)) e.name = isClient.value ? 'Enter the agency name.' : 'Enter the name.'
+  if (!isClient.value && !designation.value) e.designation = 'Choose the designation.'
+  if (!squish(mobile.value))
+    e.mobile = isClient.value ? "Enter the agency's mobile number." : 'Enter the mobile number.'
   else if (!MOBILE_PATTERN.test(squish(mobile.value)))
     e.mobile = 'Enter a valid mobile number (digits, spaces or dashes, optional +).'
-  if (!squish(address.value)) e.address = 'Enter the address.'
-  if (!nidPassport.value.trim()) e.nid_passport = 'Enter the NID or passport number.'
+  if (!squish(address.value))
+    e.address = isClient.value ? "Enter the agency's address." : 'Enter the address.'
+  if (isClient.value && !squish(agencyOwnerName.value))
+    e.agency_owner_name = 'Enter the agency owner name.'
+  if (!nidPassport.value.trim())
+    e.nid_passport = isClient.value
+      ? "Enter the agency owner's NID or passport number."
+      : 'Enter the NID or passport number.'
   const opening = parseAmount(openingBalance.value, { allowZero: true })
   if (opening.error) e.opening_balance = opening.error
   errors.value = e
@@ -75,8 +93,10 @@ async function save() {
   const payload = {
     rl_number: isClient.value ? squish(rlNumber.value).toUpperCase() : null,
     name: squish(name.value),
+    ...(isClient.value ? {} : { designation: designation.value || undefined }),
     mobile: squish(mobile.value),
     address: squish(address.value),
+    agency_owner_name: isClient.value ? squish(agencyOwnerName.value) : null,
     nid_passport: nidPassport.value.replace(/\s+/g, '').toUpperCase(),
     tin_bin: squish(tinBin.value) || null,
     opening_balance: opening.amount!,
@@ -108,21 +128,48 @@ const inputClass =
 const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'border-slate-300')
 const describedBy = (field: string) => (errors.value[field] ? `${id}-${field}-error` : undefined)
 
-/** Fields in form order: [key, label, required, autocomplete]. */
-const textFields = [
-  ['rl_number', 'RL Number', true, 'off'],
-  ['name', 'Name', true, 'off'],
-  ['mobile', 'Mobile', true, 'off'],
-  ['address', 'Address', true, 'off'],
-  ['nid_passport', 'NID / Passport', true, 'off'],
-  ['tin_bin', 'TIN / BIN (optional)', false, 'off'],
-] as const
+/**
+ * Fields in form order: [key, label, required, autocomplete]. A client is an agency, so it
+ * also has the agency owner's name, and its NID / passport is the agency owner's.
+ */
+const textFields = computed(
+  () =>
+    [
+      ['rl_number', 'RL Number', true, 'off'],
+      ['name', isClient.value ? 'Agency Name' : 'Name', true, 'off'],
+      ['mobile', isClient.value ? 'Agency Mobile' : 'Mobile', true, 'off'],
+      ['address', isClient.value ? 'Agency Address' : 'Address', true, 'off'],
+      ['tin_bin', 'TIN / BIN (optional)', false, 'off'],
+      ['agency_owner_name', 'Agency owner name', true, 'off'],
+      [
+        'nid_passport',
+        isClient.value ? 'Agency owner NID / Passport' : 'NID / Passport',
+        true,
+        'off',
+      ],
+    ] as const,
+)
+/** A hint in each empty field: what to type, with an example. */
+const placeholders = computed<Record<string, string>>(() => ({
+  rl_number: 'e.g. RL 1234',
+  name: isClient.value ? 'e.g. Karim Overseas' : "Owner's full name",
+  mobile: 'e.g. 01711-000000',
+  address: 'e.g. House 7, Road 45, Gulshan-2, Dhaka',
+  tin_bin: 'e.g. 123456789012',
+  agency_owner_name: 'e.g. Md Abdul Karim',
+  nid_passport: 'NID or passport number',
+}))
+/** Clients only: the RL number and the agency owner. */
+const CLIENT_ONLY = ['rl_number', 'agency_owner_name'] as const
 const visibleFields = computed(() =>
-  textFields.filter(([key]) => key !== 'rl_number' || isClient.value),
+  textFields.value.filter(
+    ([key]) => isClient.value || !(CLIENT_ONLY as readonly string[]).includes(key),
+  ),
 )
 const models = {
   rl_number: rlNumber,
   name,
+  agency_owner_name: agencyOwnerName,
   mobile,
   address,
   nid_passport: nidPassport,
@@ -131,7 +178,8 @@ const models = {
 </script>
 
 <template>
-  <BaseDialog v-model:open="open" :title="title" :busy="isSaving">
+  <!-- Wide, with the fields in columns, so the whole form and its buttons fit on one screen. -->
+  <BaseDialog v-model:open="open" :title="title" :busy="isSaving" wide>
     <p
       v-if="banner"
       role="alert"
@@ -139,8 +187,12 @@ const models = {
     >
       {{ banner }}
     </p>
-    <form class="space-y-4" novalidate @submit.prevent="save">
-      <fieldset v-if="!isEdit" data-field="type">
+    <form
+      class="grid gap-x-4 gap-y-3 sm:grid-cols-2 lg:grid-cols-3"
+      novalidate
+      @submit.prevent="save"
+    >
+      <fieldset v-if="!isEdit" class="sm:col-span-2 lg:col-span-3" data-field="type">
         <legend class="block text-sm font-medium text-slate-700">Type</legend>
         <div class="mt-1 flex gap-4">
           <label
@@ -157,7 +209,7 @@ const models = {
           cannot be changed later.
         </p>
       </fieldset>
-      <p v-else class="text-sm text-muted">
+      <p v-else class="text-sm text-muted sm:col-span-2 lg:col-span-3">
         {{ party!.type_label }} · ID <strong class="text-ink">{{ party!.code }}</strong>
       </p>
 
@@ -174,9 +226,12 @@ const models = {
           v-model="models[key].value"
           type="text"
           :inputmode="key === 'mobile' ? 'tel' : undefined"
+          :placeholder="placeholders[key]"
           :autocomplete="autocomplete"
           :required="required"
-          :maxlength="key === 'address' ? 500 : key === 'name' ? 150 : 50"
+          :maxlength="
+            key === 'address' ? 500 : key === 'name' || key === 'agency_owner_name' ? 150 : 50
+          "
           :class="[inputClass, border(key)]"
           :aria-invalid="errors[key] ? 'true' : undefined"
           :aria-describedby="describedBy(key)"
@@ -186,50 +241,76 @@ const models = {
         </p>
       </div>
 
-      <div class="grid gap-4 sm:grid-cols-2">
-        <div data-field="opening_balance">
-          <label :for="`${id}-opening`" class="block text-sm font-medium text-slate-700">
-            Opening balance
-          </label>
-          <input
-            :id="`${id}-opening`"
-            v-model="openingBalance"
-            type="text"
-            inputmode="decimal"
-            placeholder="0.00"
-            :class="[inputClass, border('opening_balance'), 'text-right tabular-nums']"
-            :aria-invalid="errors.opening_balance ? 'true' : undefined"
-            :aria-describedby="describedBy('opening_balance')"
-          />
-          <p
-            v-if="errors.opening_balance"
-            :id="`${id}-opening_balance-error`"
-            class="mt-1 text-sm text-red-700"
-          >
-            {{ errors.opening_balance }}
-          </p>
-        </div>
-        <div data-field="opening_balance_type">
-          <label :for="`${id}-side`" class="block text-sm font-medium text-slate-700">
-            Balance side
-          </label>
-          <select
-            :id="`${id}-side`"
-            v-model="openingBalanceType"
-            :class="[inputClass, 'border-slate-300']"
-          >
-            <option value="receivable">Receivable (they owe us · Dr)</option>
-            <option value="payable">Payable (we owe them · Cr)</option>
-          </select>
-        </div>
+      <div v-if="!isClient" data-field="designation">
+        <label :for="`${id}-designation`" class="block text-sm font-medium text-slate-700">
+          Designation<span class="text-red-700" aria-hidden="true"> *</span>
+        </label>
+        <select
+          :id="`${id}-designation`"
+          v-model="designation"
+          required
+          :class="[inputClass, border('designation')]"
+          :aria-invalid="errors.designation ? 'true' : undefined"
+          :aria-describedby="describedBy('designation')"
+        >
+          <option value="" disabled>Choose…</option>
+          <option v-for="d in OWNER_DESIGNATIONS" :key="d.value" :value="d.value">
+            {{ d.label }}
+          </option>
+        </select>
+        <p
+          v-if="errors.designation"
+          :id="`${id}-designation-error`"
+          class="mt-1 text-sm text-red-700"
+        >
+          {{ errors.designation }}
+        </p>
       </div>
-      <p v-if="isEdit && party!.totals" class="text-xs text-muted">
+
+      <div data-field="opening_balance">
+        <label :for="`${id}-opening`" class="block text-sm font-medium text-slate-700">
+          Opening balance
+        </label>
+        <input
+          :id="`${id}-opening`"
+          v-model="openingBalance"
+          type="text"
+          inputmode="decimal"
+          placeholder="0.00"
+          :class="[inputClass, border('opening_balance'), 'text-right tabular-nums']"
+          :aria-invalid="errors.opening_balance ? 'true' : undefined"
+          :aria-describedby="describedBy('opening_balance')"
+        />
+        <p
+          v-if="errors.opening_balance"
+          :id="`${id}-opening_balance-error`"
+          class="mt-1 text-sm text-red-700"
+        >
+          {{ errors.opening_balance }}
+        </p>
+      </div>
+      <div data-field="opening_balance_type">
+        <label :for="`${id}-side`" class="block text-sm font-medium text-slate-700">
+          Balance side
+        </label>
+        <select
+          :id="`${id}-side`"
+          v-model="openingBalanceType"
+          :class="[inputClass, 'border-slate-300']"
+        >
+          <option value="receivable">Receivable (they owe us · Dr)</option>
+          <option value="payable">Payable (we owe them · Cr)</option>
+        </select>
+      </div>
+      <p v-if="isEdit && party!.totals" class="text-xs text-muted sm:col-span-2 lg:col-span-3">
         Current closing balance: {{ formatMoney(Math.abs(party!.totals.closing_balance)) }}
         {{ party!.totals.closing_balance >= 0 ? 'Dr' : 'Cr' }}. Changing the opening balance changes
         it too.
       </p>
 
-      <div class="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
+      <div
+        class="flex flex-col-reverse gap-3 pt-2 sm:col-span-2 sm:flex-row sm:justify-end lg:col-span-3"
+      >
         <button
           type="button"
           class="rounded-full px-5 py-2.5 font-semibold text-primary-800 hover:bg-primary-50"

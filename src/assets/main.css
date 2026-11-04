@@ -64,11 +64,12 @@
 
 /*
  * Warm brand theme of the public website (cream, maroon and gold, from the logo). It re-points
- * the navy "primary" and yellow "accent" scales inside the public layout only, so every
- * bg-primary-900, text-accent-400, .btn… there turns maroon and gold; the staff portal keeps
- * the navy theme.
+ * the navy "primary" and yellow "accent" scales inside the public layout, so every
+ * bg-primary-900, text-accent-400, .btn… there turns maroon and gold. In the staff portal only
+ * the sidebar (.sidebar-warm) takes these colours; the rest keeps the navy theme.
  */
-.theme-warm {
+.theme-warm,
+.sidebar-warm {
   --color-primary-50: #fdf3ee;
   --color-primary-100: #f9e3d7;
   --color-primary-200: #f1c3ab;
@@ -97,7 +98,9 @@
   --color-stroke: #f3e3cc;
   --color-surface: #fbf6f0;
   --color-blush: #fff3e6;
+}
 
+.theme-warm {
   background-color: var(--color-cream-50);
 }
 

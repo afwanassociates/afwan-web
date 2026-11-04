@@ -10,7 +10,7 @@ import type { CashSettings, FinanceSummary } from '@/types/accounts'
 /**
  * Accounts › Cash: for the accounts head, the money summary on top (FinanceSummaryCards, with
  * today's opening cash worked out automatically); accounts users don't see it. Then the Cash Book,
- * Receive, Payment and Deposit / Withdrawal pages as tabs. Pages reload the header after
+ * Receive, Payment, Deposit / Withdrawal and Expenses pages as tabs. Pages reload the header after
  * each save.
  */
 const route = useRoute()
@@ -38,6 +38,7 @@ const tabs = [
   { name: 'accounts-cash-receipts', label: 'Cash Receive' },
   { name: 'accounts-cash-payments', label: 'Cash Payment' },
   { name: 'accounts-cash-transfers', label: 'Deposit / Withdrawal' },
+  { name: 'accounts-expenses', label: 'Expenses' },
 ] as const
 
 /** The money summary: the accounts head only (the API sends it to no one else on this page). */

@@ -7,6 +7,13 @@ import type {
   ReferenceReportSortKey,
 } from '@/types/report'
 
+/**
+ * Passports still in the system: the summary's total less the returned ones. The All Passports
+ * list leaves returned passports out, so its badge and the dashboard's Total card use this.
+ */
+export const activePassportCount = (c: Pick<CompanyCounts, 'total' | 'returned'>) =>
+  c.total - c.returned
+
 /** Roles that may open the Company and Reference reports (the API's viewReport policies). */
 export const REPORT_ROLES = [
   'data_entry',

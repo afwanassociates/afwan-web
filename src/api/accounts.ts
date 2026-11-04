@@ -1,11 +1,16 @@
 import api from '@/lib/api'
 import type { Paginated } from '@/types/auth'
+import { downloadCsv } from '@/api/reports'
 import type {
   ApprovalItem,
+  Expense,
+  ExpenseFilters,
+  ExpenseTotals,
   ApprovalStatus,
   ApprovalType,
   PendingTotals,
   CashBook,
+  CashBookKind,
   CashPayment,
   CashPaymentPayload,
   CashPaymentTotals,
@@ -23,6 +28,8 @@ import type {
   PayeeType,
   PaymentMethod,
   ReceiptOptions,
+  OwnerLoanBill,
+  OwnerLoanBillPayload,
   OwnerLoanReport,
   CashSettings,
   FinanceSummary,
@@ -259,10 +266,16 @@ export async function deleteCashTransfer(id: number): Promise<void> {
 
 /* ---------- Cash book and opening balance ---------- */
 
-/** Cash-in-hand entries grouped by day, for an optional range (inclusive). */
-export async function fetchCashBook(range: { from?: string; to?: string } = {}): Promise<CashBook> {
+/** One book's entries grouped by day (cash in hand by default; "all" for the three together). */
+export async function fetchCashBook(
+  range: { from?: string; to?: string; book?: CashBookKind } = {},
+): Promise<CashBook> {
   const { data } = await api.get<CashBook>(`${BASE}/cash-book`, {
-    params: { from: range.from || undefined, to: range.to || undefined },
+    params: {
+      book: range.book && range.book !== 'cash' ? range.book : undefined,
+      from: range.from || undefined,
+      to: range.to || undefined,
+    },
   })
   return data
 }
@@ -319,12 +332,80 @@ export async function returnEntry(type: ApprovalType, id: number, reason: string
 /* ---------- Owner loans ---------- */
 
 /**
- * Owners' capital and every approved owner loan with what is repaid and still owed.
- * `for_payment`: the loan repayment being edited, left out of pending_repaid.
+ * Loans the company gave owners, with what is returned, settled by bills and outstanding, and
+ * the owners' capital. `for_receipt`: the loan return being edited, left out of what waits.
  */
 export async function getOwnerLoans(
-  params: { party_id?: number; status?: 'open' | 'settled'; for_payment?: number } = {},
+  params: { party_id?: number; status?: 'open' | 'settled'; for_receipt?: number } = {},
 ): Promise<OwnerLoanReport> {
   const { data } = await api.get<OwnerLoanReport>(`${BASE}/owner-loans`, { params })
   return data
+}
+
+/** The bill form as multipart: the fields, plus the bill copy when one is chosen. */
+function billForm(payload: OwnerLoanBillPayload, copy: File | null): FormData {
+  const body = new FormData()
+  for (const [key, value] of Object.entries(payload)) {
+    if (value !== null && value !== undefined) body.append(key, String(value))
+  }
+  if (copy) body.append('bill_copy', copy)
+  return body
+}
+
+/** Record a bill the owner paid with the loan, with its copy; it waits for approval. */
+export async function createOwnerLoanBill(
+  loanId: number,
+  payload: OwnerLoanBillPayload,
+  copy: File,
+): Promise<OwnerLoanBill> {
+  const { data } = await api.post<{ data: OwnerLoanBill }>(
+    `${BASE}/owner-loans/${loanId}/bills`,
+    billForm(payload, copy),
+  )
+  return data.data
+}
+
+/** Edit a waiting or returned bill; a new copy replaces the old one. */
+export async function updateOwnerLoanBill(
+  id: number,
+  payload: OwnerLoanBillPayload,
+  copy: File | null,
+): Promise<OwnerLoanBill> {
+  const { data } = await api.post<{ data: OwnerLoanBill }>(
+    `${BASE}/owner-loan-bills/${id}`,
+    billForm(payload, copy),
+  )
+  return data.data
+}
+
+export async function deleteOwnerLoanBill(id: number): Promise<void> {
+  await api.delete(`${BASE}/owner-loan-bills/${id}`)
+}
+
+/** The bill copy as a Blob (cookies are sent: the axios client uses withCredentials). */
+export async function fetchOwnerLoanBillCopy(id: number): Promise<Blob> {
+  const { data } = await api.get<Blob>(`${BASE}/owner-loan-bills/${id}/copy`, {
+    responseType: 'blob',
+  })
+  return data
+}
+
+/* ---------- Expenses ---------- */
+
+/** What the company spent (expense payments and approved owner loan bills), newest first. */
+export async function listExpenses(
+  filters: ExpenseFilters,
+): Promise<Paginated<Expense> & { meta: { totals: ExpenseTotals } }> {
+  const { data } = await api.get<Paginated<Expense> & { meta: { totals: ExpenseTotals } }>(
+    `${BASE}/expenses`,
+    { params: filters },
+  )
+  return data
+}
+
+/** Downloads every matching expense as CSV. Returns the file name. */
+export function downloadExpensesCsv(
+  filters: Omit<ExpenseFilters, 'page' | 'per_page'>,
+): Promise<string> {
+  return downloadCsv(`${BASE}/expenses`, filters, 'expenses')
 }

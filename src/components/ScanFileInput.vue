@@ -18,8 +18,17 @@ const props = withDefaults(
     /** Upload progress 0–100 while saving, else null. */
     progress?: number | null
     disabled?: boolean
+    /** The field's label (an owner loan bill uses it for its "Bill copy"). */
+    label?: string
   }>(),
-  { required: false, error: undefined, currentName: null, progress: null, disabled: false },
+  {
+    required: false,
+    error: undefined,
+    currentName: null,
+    progress: null,
+    disabled: false,
+    label: 'Passport scan copy',
+  },
 )
 const emit = defineEmits<{ clearError: [] }>()
 
@@ -75,7 +84,7 @@ const button =
 <template>
   <div data-field="scan">
     <label :for="inputId" class="block text-sm font-medium text-slate-700">
-      Passport scan copy<span v-if="required" class="text-red-700" aria-hidden="true"> *</span>
+      {{ label }}<span v-if="required" class="text-red-700" aria-hidden="true"> *</span>
       <span v-else class="font-normal text-muted"> (optional)</span>
     </label>
     <!-- Visually hidden but focusable, so errors can move focus here. -->

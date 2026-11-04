@@ -20,6 +20,7 @@ vi.mock('@/lib/dates', async (original) => ({
 }))
 
 const BOOK: CashBook = {
+  book: 'cash',
   from: '2026-10-01',
   to: '2026-10-20',
   opening_balance: 1000,
@@ -81,6 +82,7 @@ async function mountView(role: Role = 'accounts', path = '/accounts/cash/book') 
           { path: 'receive', name: 'accounts-cash-receipts', component: Empty },
           { path: 'payment', name: 'accounts-cash-payments', component: Empty },
           { path: 'transfer', name: 'accounts-cash-transfers', component: Empty },
+          { path: 'expenses', name: 'accounts-expenses', component: Empty },
         ],
       },
       { path: '/accounts/parties/:id', name: 'accounts-party-ledger', component: Empty },
@@ -104,6 +106,8 @@ beforeEach(() => {
     opening_today: 1100,
     total_received: 60000,
     total_paid: 8800,
+    paid_breakdown: { expenses: 3800, refunds: 0, owner_loans: 5000 },
+    total_expenses: 6800,
     cash_in_hand: 1200,
     bank_balance: 50000,
     mobile_banking_balance: -300,
@@ -123,11 +127,16 @@ describe('Cash section', () => {
     const cards = wrapper
       .findAll('[data-cash-header] [data-closing]')
       .map((c) => c.attributes('data-closing'))
-    expect(cards).toEqual(['received', 'paid', 'cash', 'bank', 'mobile', 'total'])
+    expect(cards).toEqual(['received', 'paid', 'expenses', 'cash', 'bank', 'mobile', 'total'])
     expect(wrapper.find('[data-closing="received"]').text()).toMatch(
       /Total Received Amount\s*৳ 60,000.00/,
     )
     expect(wrapper.find('[data-closing="paid"]').text()).toMatch(/Total Paid Amount\s*৳ 8,800.00/)
+    // What was paid, split: a loan to an owner is not spending.
+    expect(wrapper.find('[data-closing="paid"] [data-note]').text()).toBe(
+      'Expenses ৳ 3,800.00 · Refunds ৳ 0.00 · Owner loans ৳ 5,000.00',
+    )
+    expect(wrapper.find('[data-closing="expenses"]').text()).toMatch(/Total Expenses\s*৳ 6,800.00/)
     expect(wrapper.find('[data-closing="cash"]').text()).toMatch(
       /Closing Cash on Hand\s*৳ 1,200.00/,
     )
@@ -167,13 +176,18 @@ describe('Cash section', () => {
       'Cash Receive',
       'Cash Payment',
       'Deposit / Withdrawal',
+      'Expenses',
     ])
   })
 
   it('loads this month by default and shows each day with its closing', async () => {
     await mountView()
 
-    expect(fetchCashBook).toHaveBeenCalledWith({ from: '2026-10-01', to: '2026-10-20' })
+    expect(fetchCashBook).toHaveBeenCalledWith({
+      book: 'cash',
+      from: '2026-10-01',
+      to: '2026-10-20',
+    })
     expect(wrapper.find('[data-opening-row]').text()).toContain('Balance brought forward')
     expect(wrapper.find('[data-line="receipt-1"]').text()).toContain('02-10-2026')
     expect(wrapper.find('[data-line="receipt-1"]').text()).toContain('1,500.00')
@@ -191,12 +205,101 @@ describe('Cash section', () => {
 
     await wrapper.find('[data-today]').trigger('click')
     await flushPromises()
-    expect(fetchCashBook).toHaveBeenLastCalledWith({ from: '2026-10-20', to: '2026-10-20' })
+    expect(fetchCashBook).toHaveBeenLastCalledWith({
+      book: 'cash',
+      from: '2026-10-20',
+      to: '2026-10-20',
+    })
 
     await wrapper.find('[data-all]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.query).toEqual({ all: '1' })
-    expect(fetchCashBook).toHaveBeenLastCalledWith({ from: '', to: '' })
+    expect(fetchCashBook).toHaveBeenLastCalledWith({ book: 'cash', from: '', to: '' })
     expect(wrapper.find('[data-opening-row]').text()).toContain('Opening cash in hand')
+  })
+
+  it('has a hand cash book, a bank book and a mobile banking book, keeping the dates', async () => {
+    await mountView('accounts', '/accounts/cash/book?from=2026-10-05&to=2026-10-10')
+    expect(wrapper.findAll('[data-book]').map((b) => b.text())).toEqual([
+      'Hand Cash Book',
+      'Bank Book',
+      'Mobile Banking Book',
+      'All Cash Book',
+    ])
+    expect(wrapper.find('#cash-book-title').text()).toBe('Hand Cash Book')
+    expect(wrapper.find('[data-book="cash"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.find('thead').text()).toContain('Cash in')
+
+    vi.mocked(fetchCashBook).mockResolvedValue({ ...BOOK, book: 'bank' })
+    await wrapper.find('[data-book="bank"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query).toEqual({
+      from: '2026-10-05',
+      to: '2026-10-10',
+      book: 'bank',
+    })
+    expect(fetchCashBook).toHaveBeenLastCalledWith({
+      book: 'bank',
+      from: '2026-10-05',
+      to: '2026-10-10',
+    })
+    expect(wrapper.find('#cash-book-title').text()).toBe('Bank Book')
+    expect(wrapper.find('thead').text()).toContain('Money in')
+    expect(wrapper.find('tfoot').text()).toContain('Total / closing bank balance')
+
+    // Changing the dates stays in the bank book.
+    await wrapper.find('[data-today]').trigger('click')
+    await flushPromises()
+    expect(fetchCashBook).toHaveBeenLastCalledWith({
+      book: 'bank',
+      from: '2026-10-20',
+      to: '2026-10-20',
+    })
+
+    await wrapper.find('[data-book="mobile_banking"]').trigger('click')
+    await flushPromises()
+    expect(fetchCashBook).toHaveBeenLastCalledWith(
+      expect.objectContaining({ book: 'mobile_banking' }),
+    )
+    expect(wrapper.find('#cash-book-title').text()).toBe('Mobile Banking Book')
+    expect(wrapper.find('[data-via]').exists()).toBe(false)
+
+    // All together: a Via column; a deposit is a contra line, nothing in or out.
+    const day = BOOK.days[0]!
+    vi.mocked(fetchCashBook).mockResolvedValue({
+      ...BOOK,
+      book: 'all',
+      days: [
+        {
+          ...day,
+          lines: [
+            { ...day.lines[0]!, via: 'Bank' },
+            {
+              ...day.lines[1]!,
+              kind: 'transfer',
+              id: 9,
+              reference: 'CT-2026-0001',
+              particulars: 'Deposited from cash in hand to bank',
+              detail: 'Contra: ৳2,000.00 moved, total unchanged',
+              in: 0,
+              out: 0,
+              via: 'Cash in hand → Bank',
+              contra: 2000,
+            },
+          ],
+        },
+      ],
+    })
+    await wrapper.find('[data-book="all"]').trigger('click')
+    await flushPromises()
+    expect(fetchCashBook).toHaveBeenLastCalledWith(expect.objectContaining({ book: 'all' }))
+    expect(wrapper.find('#cash-book-title').text()).toBe('All Cash Book')
+    expect(wrapper.find('thead').text()).toContain('Via')
+    expect(wrapper.findAll('[data-via]').map((v) => v.text())).toEqual([
+      'Bank',
+      'Cash in hand → Bank',
+    ])
+    expect(wrapper.find('[data-line="transfer-9"]').text()).toContain('Contra')
+    expect(wrapper.find('[data-book-note]').text()).toContain('contra lines')
   })
 })

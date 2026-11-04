@@ -76,8 +76,7 @@ const filters = computed<Filters>(() => {
     payee_type: oneOf(text(route.query.payee_type), ['client', 'owner', 'other'] as const),
     payment_type: oneOf(text(route.query.payment_type), [
       'refund',
-      'loan_repayment',
-      'drawing',
+      'owner_loan',
       'expense',
     ] as const),
     payment_method: oneOf(text(route.query.payment_method), [
@@ -366,8 +365,7 @@ const actionClass =
           <select :id="ids.type" v-model="paymentType" :class="inputClass" data-payment-type-filter>
             <option value="">All</option>
             <option value="refund">Refund</option>
-            <option value="loan_repayment">Loan repayment</option>
-            <option value="drawing">Payment to owner</option>
+            <option value="owner_loan">Owner loan</option>
             <option value="expense">Expense</option>
           </select>
         </div>
@@ -466,9 +464,6 @@ const actionClass =
                   <td :class="TABLE_TD">
                     {{ p.expense_category_label ?? p.payment_type_label }}
                     <span v-if="p.purpose" class="block text-xs text-muted">{{ p.purpose }}</span>
-                    <span v-if="p.loan_receipt" class="block text-xs text-muted" data-loan-no>
-                      Loan {{ p.loan_receipt.receipt_no }}
-                    </span>
                     <span v-if="p.bill_no" class="block text-xs text-muted" data-bill-no>
                       Bill no. {{ p.bill_no }}
                     </span>

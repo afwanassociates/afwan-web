@@ -307,6 +307,13 @@ const router = createRouter({
               component: () => import('@/views/accounts/CashTransfersView.vue'),
               meta: { title: staffTitle('Deposit / Withdrawal') },
             },
+            {
+              // What the company spent: expense payments and approved owner loan bills.
+              path: 'expenses',
+              name: 'accounts-expenses',
+              component: () => import('@/views/accounts/ExpensesView.vue'),
+              meta: { title: staffTitle('Expenses') },
+            },
           ],
         },
       ],

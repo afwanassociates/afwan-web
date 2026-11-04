@@ -5,12 +5,13 @@ import SearchSelect from '@/components/SearchSelect.vue'
 import {
   createCashReceipt,
   fetchReceiptOptions,
+  getOwnerLoans,
   searchParties,
   updateCashReceipt,
 } from '@/api/accounts'
 import MobileBankingFields from '@/components/accounts/MobileBankingFields.vue'
 import { checkMobileBanking, formatMoney, parseAmount } from '@/lib/accounts'
-import { businessToday } from '@/lib/dates'
+import { businessToday, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import type { CountryOption } from '@/types/country'
 import type {
@@ -18,6 +19,7 @@ import type {
   CashReceipt,
   CashReceiptType,
   MobileBankingProvider,
+  OwnerLoan,
   Party,
   PartyType,
   PaymentMethod,
@@ -26,18 +28,24 @@ import type {
 /**
  * Cash receive form. "Received from" picks a party or an owner; their name, mobile and
  * address come from the party record (shown read only), so the ledger always points at one
- * real person. A party's money is always cash (a payment against what they owe); an owner
- * either adds cash to the company or lends it (only owners lend money);
+ * real person. A party's money is a payment against what they owe; an owner's money is either
+ * capital, or the return of a loan the company gave them (choosing the open loan, no more than
+ * is outstanding);
  * the money came as cash in hand, into a bank (naming the bank, branch and account), or by
  * mobile banking (bKash, Nagad…). The amount is asked for once "Received via" is chosen.
  * A party's money also names the business it is for (recruitment by default; land, solar,
  * railway) and, for recruitment, the country (starting at the default country).
- * `receipt` null records a new one, optionally for `presetParty`.
+ * `receipt` null records a new one, optionally for `presetParty` (and `presetLoan`: a loan
+ * return of that loan).
  */
 type Payer = Pick<Party, 'id' | 'code' | 'type' | 'name' | 'mobile' | 'address'>
 
 const open = defineModel<boolean>('open', { required: true })
-const props = defineProps<{ receipt: CashReceipt | null; presetParty?: Payer | null }>()
+const props = defineProps<{
+  receipt: CashReceipt | null
+  presetParty?: Payer | null
+  presetLoanId?: number | null
+}>()
 const emit = defineEmits<{ saved: [receipt: CashReceipt, created: boolean] }>()
 
 const id = useId()
@@ -106,7 +114,8 @@ watch(open, (isOpen) => {
   const preset = r?.party ?? props.presetParty ?? null
   partyType.value = preset?.type ?? 'client'
   party.value = preset
-  receiptType.value = r?.receipt_type ?? 'cash'
+  receiptType.value = r?.receipt_type ?? (props.presetLoanId ? 'loan_return' : 'cash')
+  loanId.value = r?.owner_loan?.id ?? props.presetLoanId ?? ''
   businessType.value = r?.business_type ?? 'recruitment'
   countryCode.value = r?.country?.code ?? defaultCountry.value
   amount.value = r ? r.amount.toFixed(2) : ''
@@ -128,17 +137,49 @@ function setPartyType(type: PartyType) {
   if (partyType.value === type) return
   partyType.value = type
   party.value = null
-  if (!canLoan.value) receiptType.value = 'cash'
+  receiptType.value = 'cash'
+  loanId.value = ''
 }
 
-/**
- * Only owners lend money. A party receipt saved as a loan before that rule keeps its
- * Loan option while it is edited, so it can be changed to cash.
- */
-const canLoan = computed(
-  () =>
-    partyType.value === 'owner' ||
-    (props.receipt?.receipt_type === 'loan' && props.receipt.party.type === partyType.value),
+/* Owner loan return: the loan it settles, from the owner's open loans. */
+const loanId = ref<number | ''>('')
+const ownerLoans = ref<OwnerLoan[] | null>(null)
+const loansError = ref<string | null>(null)
+const isLoanReturn = computed(
+  () => partyType.value === 'owner' && receiptType.value === 'loan_return',
+)
+/** What may still be returned on a loan: outstanding less returns and bills waiting approval. */
+const available = (l: OwnerLoan) =>
+  Math.max(0, Math.round((l.outstanding - l.pending_returned - l.pending_billed) * 100) / 100)
+const openLoans = computed(() =>
+  (ownerLoans.value ?? []).filter((l) => available(l) > 0 || l.id === loanId.value),
+)
+const chosenLoan = computed(() => openLoans.value.find((l) => l.id === loanId.value) ?? null)
+
+let loansRequest = 0
+watch(
+  () => [open.value, isLoanReturn.value, party.value?.id] as const,
+  async ([isOpen, isReturn, ownerId]) => {
+    ownerLoans.value = null
+    loansError.value = null
+    if (!isOpen || !isReturn || !ownerId) return
+    const request = ++loansRequest
+    try {
+      const report = await getOwnerLoans({ party_id: ownerId, for_receipt: props.receipt?.id })
+      if (request !== loansRequest) return
+      ownerLoans.value = report.data
+      if (loanId.value !== '' && !openLoans.value.some((l) => l.id === loanId.value)) {
+        loanId.value = ''
+      }
+      if (loanId.value === '' && openLoans.value.length === 1) {
+        loanId.value = openLoans.value[0]!.id
+      }
+    } catch (error) {
+      if (request === loansRequest && errorStatus(error) !== 401) {
+        loansError.value = errorMessage(error, 'Could not load the loans of this owner.')
+      }
+    }
+  },
 )
 
 const fetchPayers = (q: string): Promise<Payer[]> => searchParties(partyType.value, q)
@@ -146,11 +187,10 @@ const payerSubtitle = (p: Payer) => `${p.code} · ${p.mobile}`
 
 /** What this receipt will do in the books, in plain words. */
 const effect = computed(() => {
-  const who = partyType.value === 'owner' ? 'owner' : 'party'
-  if (receiptType.value === 'loan') return `A loan from the ${who}: we owe it back (Cr).`
-  return partyType.value === 'owner'
-    ? 'Cash the owner adds to the company: capital (Cr).'
-    : 'A payment against what the party owes us (Cr).'
+  if (partyType.value === 'client') return 'A payment against what the party owes us (Cr).'
+  return receiptType.value === 'loan_return'
+    ? 'The owner gives back money the company lent them: it settles that loan (Cr).'
+    : 'Money the owner puts into the company: capital (Cr).'
 })
 
 const squish = (value: string) => value.trim().replace(/\s+/g, ' ')
@@ -167,6 +207,16 @@ async function save() {
   const parsed = parseAmount(amount.value)
   if (!method.value) e.payment_method = 'Choose how the money was received.'
   else if (parsed.error) e.amount = parsed.error
+  if (isLoanReturn.value && party.value) {
+    if (loanId.value === '') e.owner_loan_id = 'Choose the loan being returned.'
+    else if (
+      method.value &&
+      chosenLoan.value &&
+      parsed.amount &&
+      parsed.amount > available(chosenLoan.value)
+    )
+      e.amount = `Only ৳ ${formatMoney(available(chosenLoan.value))} is outstanding on loan ${chosenLoan.value.payment_no}.`
+  }
   if (method.value === 'bank') {
     if (!squish(bankName.value)) e.bank_name = 'Enter the bank name.'
     if (!squish(bankBranch.value)) e.bank_branch = 'Enter the branch name.'
@@ -187,7 +237,8 @@ async function save() {
     date: date.value,
     party_type: partyType.value,
     party_id: party.value!.id,
-    receipt_type: receiptType.value,
+    receipt_type: isClient ? ('cash' as const) : receiptType.value,
+    owner_loan_id: isLoanReturn.value && loanId.value !== '' ? loanId.value : null,
     business_type: isClient ? businessType.value : null,
     country_code: isRecruitment ? countryCode.value : null,
     amount: parsed.amount!,
@@ -336,15 +387,16 @@ const segment = (active: boolean) =>
       </template>
 
       <div class="grid gap-4 sm:grid-cols-2">
-        <fieldset v-if="canLoan" data-field="receipt_type">
-          <legend class="block text-sm font-medium text-slate-700">Type</legend>
-          <div class="mt-2 flex gap-4">
+        <fieldset v-if="partyType === 'owner'" data-field="receipt_type">
+          <legend class="block text-sm font-medium text-slate-700">Money is</legend>
+          <div class="mt-2 flex flex-wrap gap-4">
             <label class="flex items-center gap-2">
               <input v-model="receiptType" type="radio" value="cash" :name="`${id}-rtype`" />
-              {{ partyType === 'owner' ? 'Add cash' : 'Cash' }}
+              Capital
             </label>
             <label class="flex items-center gap-2">
-              <input v-model="receiptType" type="radio" value="loan" :name="`${id}-rtype`" /> Loan
+              <input v-model="receiptType" type="radio" value="loan_return" :name="`${id}-rtype`" />
+              Loan return
             </label>
           </div>
         </fieldset>
@@ -364,6 +416,47 @@ const segment = (active: boolean) =>
         </div>
       </div>
       <p class="-mt-2 text-xs text-muted" data-effect>{{ effect }}</p>
+
+      <div v-if="isLoanReturn && party" data-field="owner_loan_id">
+        <label :for="`${id}-loan`" class="block text-sm font-medium text-slate-700">
+          Loan being returned<span class="text-red-700" aria-hidden="true"> *</span>
+        </label>
+        <p v-if="loansError" class="mt-1 text-sm text-red-700">{{ loansError }}</p>
+        <p v-else-if="ownerLoans === null" class="mt-1 text-sm text-muted">Loading loans…</p>
+        <p
+          v-else-if="openLoans.length === 0"
+          class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          data-no-loans
+        >
+          {{ party.name }} has no open loans, so there is nothing to return.
+        </p>
+        <template v-else>
+          <select
+            :id="`${id}-loan`"
+            v-model="loanId"
+            :class="[inputClass, border('owner_loan_id')]"
+            :aria-invalid="errors.owner_loan_id ? 'true' : undefined"
+          >
+            <option value="" disabled>Choose a loan</option>
+            <option v-for="l in openLoans" :key="l.id" :value="l.id">
+              {{ l.payment_no }} · {{ toDisplayDate(l.date) }} · ৳ {{ formatMoney(l.amount) }} ·
+              outstanding ৳ {{ formatMoney(available(l)) }}
+            </option>
+          </select>
+          <p v-if="chosenLoan" class="mt-1 text-xs text-muted" data-loan-hint>
+            Loan ৳ {{ formatMoney(chosenLoan.amount) }} · returned ৳
+            {{ formatMoney(chosenLoan.returned) }} · bills ৳ {{ formatMoney(chosenLoan.billed)
+            }}<template v-if="chosenLoan.pending_returned + chosenLoan.pending_billed > 0">
+              (+ ৳
+              {{ formatMoney(chosenLoan.pending_returned + chosenLoan.pending_billed) }} waiting
+              approval)</template
+            >. Up to ৳ {{ formatMoney(available(chosenLoan)) }} can be returned.
+          </p>
+        </template>
+        <p v-if="errors.owner_loan_id" class="mt-1 text-sm text-red-700">
+          {{ errors.owner_loan_id }}
+        </p>
+      </div>
 
       <fieldset data-field="payment_method">
         <legend class="block text-sm font-medium text-slate-700">

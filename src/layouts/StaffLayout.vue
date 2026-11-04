@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import AppLogo from '@/components/AppLogo.vue'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
 import { ACCOUNTS_ROLES, APPROVALS_ROLES } from '@/lib/accounts'
-import { REPORT_ROLES } from '@/lib/companyReport'
+import { REPORT_ROLES, activePassportCount } from '@/lib/companyReport'
 import {
   PASSPORT_MANAGER_ROLES,
   APPROVER_ROLES,
@@ -64,8 +63,8 @@ watch(
   { immediate: true },
 )
 
-// The All Passports and Returned Passports badges: the passport summary's "Total" and
-// "Returned" counts, refreshed on every page change (passports are added and returned on
+// The All Passports and Returned Passports badges: passports not returned (as the All Passports
+// list) and the "Returned" count, refreshed on every page change (passports are added and returned on
 // other pages).
 const totalCount = ref<number | null>(null)
 const returnedCount = ref<number | null>(null)
@@ -78,7 +77,7 @@ watch(
     try {
       const summary = await fetchReportSummary()
       if (id === returnedRequest) {
-        totalCount.value = summary.total
+        totalCount.value = activePassportCount(summary)
         returnedCount.value = summary.returned
       }
     } catch {
@@ -227,17 +226,20 @@ async function logout() {
 
     <aside
       id="staff-sidebar"
-      class="fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-primary-950 text-primary-100 transition-transform duration-200 motion-reduce:transition-none lg:translate-x-0"
+      class="sidebar-warm fixed inset-y-0 left-0 z-40 flex w-64 flex-col bg-primary-900 text-primary-100 transition-transform duration-200 motion-reduce:transition-none lg:translate-x-0"
       :class="menuOpen ? 'translate-x-0' : '-translate-x-full max-lg:invisible'"
       data-surface="dark"
     >
       <div class="flex h-16 items-center px-4">
+        <!-- The company name as text in the logo's orange (no logo image), linking to the
+             public website. The sidebar has the homepage's maroon and gold (.sidebar-warm). -->
         <RouterLink
           to="/"
-          class="inline-block rounded-lg bg-linear-to-b from-white to-primary-50 px-3 py-2"
-          aria-label="Afwan Associates Ltd — public website"
+          class="rounded-lg px-2 py-1 text-lg leading-tight font-bold tracking-wide text-flame-500 hover:text-accent-300"
+          title="Public website"
+          data-brand
         >
-          <AppLogo />
+          Afwan Associates Ltd
         </RouterLink>
       </div>
       <div class="h-0.5 bg-accent-400" aria-hidden="true" />

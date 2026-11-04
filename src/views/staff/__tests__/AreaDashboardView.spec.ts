@@ -32,6 +32,8 @@ vi.mock('@/api/accounts', () => ({
     opening_today: 1100,
     total_received: 1900000,
     total_paid: 260000,
+    paid_breakdown: { expenses: 110000, refunds: 0, owner_loans: 150000 },
+    total_expenses: 165000,
     cash_in_hand: 1000000,
     bank_balance: 450000,
     mobile_banking_balance: 190000,
@@ -69,7 +71,10 @@ describe('AreaDashboardView', () => {
       const cards = wrapper.findAll('[data-finance] [data-closing]').map((c) => c.text())
       expect(cards).toEqual([
         expect.stringMatching(/Total Received Amount\s*৳ 19,00,000.00/),
-        expect.stringMatching(/Total Paid Amount\s*৳ 2,60,000.00/),
+        expect.stringMatching(
+          /Total Paid Amount\s*৳ 2,60,000.00\s*Expenses ৳ 1,10,000.00 · Refunds ৳ 0.00 · Owner loans ৳ 1,50,000.00/,
+        ),
+        expect.stringMatching(/Total Expenses\s*৳ 1,65,000.00\s*Paid directly \+ owner loan bills/),
         expect.stringMatching(/Closing Cash on Hand\s*৳ 10,00,000.00/),
         expect.stringMatching(/Closing Bank Balance\s*৳ 4,50,000.00/),
         expect.stringMatching(/Closing Mobile Banking Balance\s*৳ 1,90,000.00/),
@@ -110,9 +115,36 @@ describe('AreaDashboardView', () => {
       ['Flight done', '3'],
       ['In process', '0'],
       ['Returned', '0'],
+      ['Total process with returned', '3'],
     ])
-    expect(wrapper.get('[data-card="medical_fit"]').classes()).toContain('bg-green-50')
-    expect(wrapper.get('[data-card="medical_unfit"]').classes()).toContain('bg-red-50')
+    expect(wrapper.get('[data-card="medical_fit"]').classes()).toContain('border-l-green-600')
+    expect(wrapper.get('[data-card="medical_fit"]').classes()).toContain('bg-white')
+    expect(wrapper.get('[data-card="medical_unfit"]').classes()).toContain('border-l-red-600')
+    expect(wrapper.get('[data-card="returned"]').classes()).toContain('border-l-red-600')
+  })
+
+  it('leaves returned passports out of the total, and adds them in Total process with returned', async () => {
+    const { fetchReportSummary } = await import('@/api/reports')
+    vi.mocked(fetchReportSummary).mockResolvedValueOnce({ ...SUMMARY, total: 10, returned: 4 })
+    await mountDashboard()
+
+    expect(wrapper.get('[data-card="total"] dd').text()).toBe('6')
+    expect(wrapper.get('[data-card="with_returned"] dd').text()).toBe('10')
+    expect(wrapper.get('[data-card="returned"] dd').text()).toBe('4')
+  })
+
+  it('groups large counts with commas', async () => {
+    const { fetchReportSummary } = await import('@/api/reports')
+    vi.mocked(fetchReportSummary).mockResolvedValueOnce({
+      ...SUMMARY,
+      total: 165000,
+      returned: 100000,
+    })
+    await mountDashboard()
+
+    expect(wrapper.get('[data-card="total"] dd').text()).toBe('65,000')
+    expect(wrapper.get('[data-card="with_returned"] dd').text()).toBe('1,65,000')
+    expect(wrapper.get('[data-card="returned"] dd').text()).toBe('1,00,000')
   })
 
   it('shows an error with a retry when the summary cannot load', async () => {

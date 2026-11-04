@@ -4,18 +4,40 @@ import CashReceiptFormDialog from '../CashReceiptFormDialog.vue'
 import {
   createCashReceipt,
   fetchReceiptOptions,
+  getOwnerLoans,
   searchParties,
   updateCashReceipt,
 } from '@/api/accounts'
 import { httpError } from '@/test/helpers'
-import type { CashReceipt, Party } from '@/types/accounts'
+import type { CashReceipt, OwnerLoan, Party } from '@/types/accounts'
 
 vi.mock('@/api/accounts', () => ({
   searchParties: vi.fn(),
   createCashReceipt: vi.fn(),
   updateCashReceipt: vi.fn(),
   fetchReceiptOptions: vi.fn(),
+  getOwnerLoans: vi.fn(),
 }))
+
+/** A 50,000 loan the company gave the owner: 30,000 settled by a bill, 5,000 waiting. */
+const LOAN: OwnerLoan = {
+  id: 21,
+  payment_no: 'CP-2026-0021',
+  date: '2026-10-05',
+  owner: { id: 9, code: 'OW-001', name: 'Chairman', mobile: '01900000000', address: 'Gulshan' },
+  payment_method: 'cash',
+  payment_method_label: 'Cash in hand',
+  amount: 50000,
+  returned: 0,
+  billed: 30000,
+  outstanding: 20000,
+  pending_returned: 0,
+  pending_billed: 5000,
+  status: 'open',
+  note: null,
+  returns: [],
+  bills: [],
+}
 
 function party(overrides: Partial<Party> = {}): Party {
   return {
@@ -25,6 +47,9 @@ function party(overrides: Partial<Party> = {}): Party {
     type_label: 'Party / Client',
     rl_number: null,
     name: 'Karim Traders',
+    agency_owner_name: null,
+    designation: null,
+    designation_label: null,
     mobile: '01711000000',
     address: 'Mirpur, Dhaka',
     nid_passport: 'N1',
@@ -91,7 +116,7 @@ function receipt(overrides: Partial<CashReceipt> = {}): CashReceipt {
 let wrapper: VueWrapper
 
 async function mountDialog(
-  props: { receipt?: CashReceipt | null; presetParty?: Party | null } = {},
+  props: { receipt?: CashReceipt | null; presetParty?: Party | null; presetLoanId?: number } = {},
 ) {
   wrapper = mount(CashReceiptFormDialog, {
     props: { open: false, receipt: null, ...props },
@@ -171,15 +196,16 @@ describe('CashReceiptFormDialog', () => {
     expect(wrapper.emitted('update:open')?.slice(-1)[0]).toEqual([false])
   })
 
-  it('switches to owners, and explains an owner loan', async () => {
+  it('switches to owners and records their money as capital by bank', async () => {
     await mountDialog()
 
     await wrapper.find('[data-party-type="owner"]').trigger('click')
     await choosePayer('Chairman')
-    await wrapper.find('input[value="loan"]').setValue(true)
 
     expect(searchParties).toHaveBeenLastCalledWith('owner', '')
-    expect(wrapper.find('[data-effect]').text()).toMatch(/loan from the owner/)
+    // An owner's money is capital unless it returns a loan.
+    expect(wrapper.find('input[value="cash"]').element).toHaveProperty('checked', true)
+    expect(wrapper.find('[data-effect]').text()).toMatch(/capital/)
 
     await wrapper.find('[data-method="bank"]').trigger('click')
     await wrapper.find('[data-field="bank_name"] input').setValue('DBBL')
@@ -193,7 +219,7 @@ describe('CashReceiptFormDialog', () => {
       expect.objectContaining({
         party_type: 'owner',
         party_id: 9,
-        receipt_type: 'loan',
+        receipt_type: 'cash',
         business_type: null,
         country_code: null,
         bank_name: 'DBBL',
@@ -203,7 +229,6 @@ describe('CashReceiptFormDialog', () => {
       }),
     )
   })
-
   it('starts a party receipt at recruitment for the default country, and drops the country for other businesses', async () => {
     await mountDialog()
 
@@ -241,20 +266,83 @@ describe('CashReceiptFormDialog', () => {
     expect(wrapper.find('[data-field="country_code"]').exists()).toBe(false)
   })
 
-  it('calls an owner\'s cash "Add cash" and records it as capital', async () => {
+  it('offers an owner Capital or Loan return; a party has no choice', async () => {
+    await mountDialog()
+
+    expect(wrapper.find('[data-field="receipt_type"]').exists()).toBe(false)
+    expect(wrapper.find('[data-effect]').text()).toMatch(/payment against what the party owes/)
+
+    await wrapper.find('[data-party-type="owner"]').trigger('click')
+    expect(wrapper.find('[data-field="receipt_type"]').text()).toContain('Capital')
+    expect(wrapper.find('[data-field="receipt_type"]').text()).toContain('Loan return')
+    expect(wrapper.find('[data-effect]').text()).toMatch(/owner puts into the company/)
+  })
+
+  it('takes a loan return of an open loan, up to what is outstanding', async () => {
+    vi.mocked(getOwnerLoans).mockResolvedValue({
+      summary: {
+        total_capital: 0,
+        loans_outstanding: 20000,
+        open_count: 1,
+        settled_count: 0,
+        owners: [],
+      },
+      data: [LOAN],
+    })
     await mountDialog()
 
     await wrapper.find('[data-party-type="owner"]').trigger('click')
-    expect(wrapper.find('[data-field="receipt_type"]').text()).toContain('Add cash')
-    expect(wrapper.find('[data-effect]').text()).toMatch(/owner adds to the company/)
+    await choosePayer('Chairman')
+    await wrapper.find('input[value="loan_return"]').setValue(true)
+    await flushPromises()
 
-    await wrapper.find('input[value="loan"]').setValue(true)
-    await wrapper.find('[data-party-type="client"]').trigger('click')
-    // Only owners lend money: a party has no Type choice, and the loan is reset to cash.
-    expect(wrapper.find('[data-field="receipt_type"]').exists()).toBe(false)
-    expect(wrapper.find('[data-effect]').text()).toMatch(/payment against what the party owes/)
+    expect(getOwnerLoans).toHaveBeenLastCalledWith({ party_id: 9, for_receipt: undefined })
+    // The only open loan is chosen; 5,000 waits for approval, so 15,000 can come back.
+    expect(wrapper.find('[data-field="owner_loan_id"] select').element).toHaveProperty(
+      'value',
+      '21',
+    )
+    expect(wrapper.find('[data-loan-hint]').text()).toContain('Up to ৳ 15,000.00')
+
+    await wrapper.find('[data-method="cash"]').trigger('click')
+    await wrapper.find('[data-field="amount"] input').setValue('15001')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-field="amount"]').text()).toContain(
+      'Only ৳ 15,000.00 is outstanding on loan CP-2026-0021.',
+    )
+
+    await wrapper.find('[data-field="amount"] input').setValue('15000')
+    await wrapper.find('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        party_type: 'owner',
+        receipt_type: 'loan_return',
+        owner_loan_id: 21,
+        amount: 15000,
+      }),
+    )
   })
 
+  it('says so when the owner has no open loans to return', async () => {
+    vi.mocked(getOwnerLoans).mockResolvedValue({
+      summary: {
+        total_capital: 0,
+        loans_outstanding: 0,
+        open_count: 0,
+        settled_count: 0,
+        owners: [],
+      },
+      data: [],
+    })
+    await mountDialog({ presetParty: OWNER, presetLoanId: 21 })
+    await flushPromises()
+
+    expect(wrapper.find('input[value="loan_return"]').element).toHaveProperty('checked', true)
+    expect(wrapper.find('[data-no-loans]').text()).toContain('Chairman has no open loans')
+  })
   it('requires Received via, and shows Amount below it once a method is chosen', async () => {
     await mountDialog({ presetParty: party() })
 

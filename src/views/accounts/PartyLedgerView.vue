@@ -94,21 +94,27 @@ const cards = computed(() => {
   if (isOwner.value) {
     rows.push(
       { key: 'capital', label: 'Capital', value: formatMoney(p.totals.capital) },
-      { key: 'drawing', label: 'Drawing', value: formatMoney(p.totals.drawing) },
+      { key: 'owner_loan', label: 'Loan given', value: formatMoney(p.totals.owner_loan) },
+      {
+        key: 'loan_settled',
+        label: 'Loan settled (bills + returned)',
+        value: formatMoney(p.totals.loan_bill + p.totals.loan_return),
+      },
     )
   } else {
     rows.push(
       { key: 'receivable', label: 'Receivable', value: formatMoney(p.totals.receivable) },
-      { key: 'payment', label: 'Payment', value: formatMoney(p.totals.payment) },
-      { key: 'refund', label: 'Refund', value: formatMoney(p.totals.refund) },
+      { key: 'payment', label: 'Payment Received', value: formatMoney(p.totals.payment) },
+      { key: 'refund', label: 'Payment Refund', value: formatMoney(p.totals.refund) },
     )
   }
-  // Loans taken from them, less what was repaid.
-  rows.push({
-    key: 'loan',
-    label: 'Loan balance',
-    value: formatMoney(p.totals.loan - p.totals.loan_repayment),
-  })
+  // What the owner still owes on company loans.
+  if (isOwner.value)
+    rows.push({
+      key: 'loan',
+      label: 'Loan outstanding',
+      value: formatMoney(p.totals.owner_loan - p.totals.loan_bill - p.totals.loan_return),
+    })
   return rows
 })
 

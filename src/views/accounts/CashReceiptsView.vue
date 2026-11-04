@@ -18,14 +18,7 @@ import { formatMoney, useCashRefresh } from '@/lib/accounts'
 import { toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
-import type {
-  ApprovalStatus,
-  CashReceipt,
-  CashReceiptType,
-  Party,
-  PartyType,
-  PaymentMethod,
-} from '@/types/accounts'
+import type { ApprovalStatus, CashReceipt, Party, PartyType, PaymentMethod } from '@/types/accounts'
 
 /**
  * Accounts › Cash receive: money received from parties and owners, as cash or a loan, in
@@ -45,7 +38,6 @@ const ids = {
   from: useId(),
   to: useId(),
   who: useId(),
-  type: useId(),
   via: useId(),
 }
 
@@ -55,7 +47,6 @@ interface Filters {
   from: string
   to: string
   party_type: '' | PartyType
-  receipt_type: '' | CashReceiptType
   payment_method: '' | PaymentMethod
   page: number
 }
@@ -73,7 +64,6 @@ const filters = computed<Filters>(() => {
     from: ymd(text(route.query.from)),
     to: ymd(text(route.query.to)),
     party_type: oneOf(text(route.query.party_type), ['client', 'owner'] as const),
-    receipt_type: oneOf(text(route.query.receipt_type), ['cash', 'loan'] as const),
     payment_method: oneOf(text(route.query.payment_method), [
       'cash',
       'bank',
@@ -109,7 +99,6 @@ const from = filterModel('from')
 const status = filterModel('status')
 const to = filterModel('to')
 const partyType = filterModel('party_type')
-const receiptType = filterModel('receipt_type')
 const paymentMethod = filterModel('payment_method')
 
 const search = ref(filters.value.q)
@@ -143,7 +132,6 @@ async function load() {
       from: f.from || undefined,
       to: f.to || undefined,
       party_type: f.party_type || undefined,
-      receipt_type: f.receipt_type || undefined,
       payment_method: f.payment_method || undefined,
       page: f.page,
       per_page: PER_PAGE,
@@ -359,14 +347,6 @@ const actionClass =
           </select>
         </div>
         <div>
-          <label :for="ids.type" class="block text-sm font-medium text-slate-700">Type</label>
-          <select :id="ids.type" v-model="receiptType" :class="inputClass" data-receipt-type-filter>
-            <option value="">All</option>
-            <option value="cash">Cash</option>
-            <option value="loan">Loan</option>
-          </select>
-        </div>
-        <div>
           <label :for="ids.via" class="block text-sm font-medium text-slate-700"
             >Received via</label
           >
@@ -462,14 +442,9 @@ const actionClass =
                   </td>
                   <td :class="TABLE_TD">
                     <span
-                      class="rounded-full px-2 py-0.5 text-xs font-semibold ring-1"
-                      :class="
-                        r.receipt_type === 'loan'
-                          ? 'bg-amber-50 text-amber-800 ring-amber-300'
-                          : 'bg-green-50 text-green-800 ring-green-300'
-                      "
+                      class="rounded-full bg-green-50 px-2 py-0.5 text-xs font-semibold text-green-800 ring-1 ring-green-300"
                     >
-                      {{ r.receipt_type_label }}
+                      {{ r.party.type === 'owner' ? 'Capital' : r.receipt_type_label }}
                     </span>
                   </td>
                   <td :class="TABLE_TD">

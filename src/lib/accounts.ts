@@ -4,6 +4,7 @@ import type {
   CashSettings,
   ExpenseCategory,
   MobileBankingProvider,
+  OwnerDesignation,
   PartyType,
 } from '@/types/accounts'
 
@@ -26,6 +27,13 @@ export const PARTY_TYPE_LABELS: Record<PartyType, string> = {
   client: 'Party / Client',
   owner: 'Owner',
 }
+
+/** An owner's designation. Same list as the API. */
+export const OWNER_DESIGNATIONS: readonly { value: OwnerDesignation; label: string }[] = [
+  { value: 'chairman', label: 'Chairman' },
+  { value: 'managing_director', label: 'Managing Director' },
+  { value: 'director', label: 'Director' },
+]
 
 /** Bangladesh mobile banking (MFS) services, most used first. Same list as the API. */
 export const MOBILE_BANKING_PROVIDERS: readonly { value: MobileBankingProvider; label: string }[] =

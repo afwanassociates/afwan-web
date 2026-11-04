@@ -6,12 +6,14 @@ import ReturnReasonDialog from '@/components/accounts/ReturnReasonDialog.vue'
 import { fetchApprovals } from '@/api/accounts'
 import { useApprovalActions, type ApprovalTarget } from '@/composables/useApprovalActions'
 import { ACCOUNTS_ROLES, formatMoney } from '@/lib/accounts'
+import { openBillCopy } from '@/lib/billCopy'
 import { toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { staffTitle } from '@/lib/pageTitle'
 import { APPROVER_ROLES } from '@/lib/roles'
 import { TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
 import { useAuthStore } from '@/stores/auth'
+import { useToast } from '@/composables/useToast'
 import type { ApprovalItem, ApprovalType } from '@/types/accounts'
 
 /**
@@ -24,6 +26,7 @@ import type { ApprovalItem, ApprovalType } from '@/types/accounts'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const toast = useToast()
 
 const isApprover = computed(() => !!auth.user && APPROVER_ROLES.includes(auth.user.role))
 /** Admins approve here but have no parties or cash pages, so they get no links to them. */
@@ -35,6 +38,7 @@ const TYPES: { value: ApprovalType; label: string }[] = [
   { value: 'cash-payments', label: 'Cash payment' },
   { value: 'cash-transfers', label: 'Deposit / withdrawal' },
   { value: 'party-transactions', label: 'Ledger entries' },
+  { value: 'owner-loan-bills', label: 'Owner loan bills' },
 ]
 
 /** Where each entry type is edited (searched by its number). */
@@ -43,6 +47,7 @@ const PAGES: Record<ApprovalType, string> = {
   'cash-payments': 'accounts-cash-payments',
   'cash-transfers': 'accounts-cash-transfers',
   'party-transactions': 'accounts-party-ledger',
+  'owner-loan-bills': 'accounts-owner-loans',
 }
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
@@ -104,7 +109,15 @@ const target = (item: ApprovalItem): ApprovalTarget => ({
 
 const total = computed(() => (items.value ?? []).reduce((sum, item) => sum + item.amount, 0))
 
+/** Opens an owner loan bill's copy; a failure shows in the page's toast. */
+async function viewCopy(item: ApprovalItem) {
+  const error = await openBillCopy(item.id)
+  if (error) toast.error(error)
+}
+
 function openLink(item: ApprovalItem) {
+  // Owner loan bills are fixed on the Owner loans page.
+  if (item.owner_loan) return { name: 'accounts-owner-loans' }
   return item.type === 'party-transactions'
     ? { name: PAGES[item.type], params: { id: item.party_id } }
     : { name: PAGES[item.type], query: { q: item.reference } }
@@ -238,6 +251,15 @@ const actionClass =
                 <td :class="TABLE_TD">
                   <span class="font-medium">{{ item.title }}</span>
                   <span class="block text-xs text-muted">{{ item.detail }}</span>
+                  <button
+                    v-if="item.has_copy"
+                    type="button"
+                    class="mt-1 text-xs font-semibold text-primary-700 underline-offset-4 hover:underline"
+                    data-view-copy
+                    @click="viewCopy(item)"
+                  >
+                    View bill copy
+                  </button>
                   <span v-if="item.note" class="block text-xs text-muted">{{ item.note }}</span>
                 </td>
                 <td :class="TABLE_TD">

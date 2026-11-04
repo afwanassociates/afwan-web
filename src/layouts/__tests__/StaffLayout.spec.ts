@@ -95,6 +95,13 @@ describe('StaffLayout menu', () => {
     expect(navLabels()).toContain('Settings')
   })
 
+  it('shows the company name as text at the top of the sidebar, with no logo image', async () => {
+    await mountAs('admin')
+
+    expect(wrapper.get('[data-brand]').text()).toBe('Afwan Associates Ltd')
+    expect(wrapper.find('aside img').exists()).toBe(false)
+  })
+
   it('links "Settings" to the settings overview and highlights it on every settings page', async () => {
     await mountAs('admin', '/admin/settings/countries')
 
@@ -287,7 +294,7 @@ describe('StaffLayout menu', () => {
   })
 
   it.each(['data_entry', 'accounts', 'admin', 'super_admin'] as const)(
-    'shows the passport counts on "All Passports" and "Returned Passports" for %s',
+    'shows the passport counts on "All Passports" (returned left out) and "Returned Passports" for %s',
     async (role) => {
       await mountAs(role)
       await flushPromises()
@@ -296,7 +303,7 @@ describe('StaffLayout menu', () => {
         wrapper
           .findAll('nav[aria-label="Staff portal"] a')
           .find((a) => a.find('[data-label]').text() === label)!
-      expect(link('All Passports').find('[data-badge]').text()).toBe('25 passports')
+      expect(link('All Passports').find('[data-badge]').text()).toBe('21 passports')
       expect(link('Returned Passports').find('[data-badge]').text()).toBe('4 returned')
     },
   )

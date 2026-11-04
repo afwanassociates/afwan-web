@@ -2,7 +2,7 @@
 import { computed, inject, ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
-import { createCashPayment, getOwnerLoans, searchParties, updateCashPayment } from '@/api/accounts'
+import { createCashPayment, searchParties, updateCashPayment } from '@/api/accounts'
 import MobileBankingFields from '@/components/accounts/MobileBankingFields.vue'
 import {
   CASH_CONTEXT,
@@ -11,23 +11,22 @@ import {
   formatMoney,
   parseAmount,
 } from '@/lib/accounts'
-import { businessToday, toDisplayDate } from '@/lib/dates'
+import { businessToday } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import type {
   CashPayment,
   CashPaymentType,
   ExpenseCategory,
   MobileBankingProvider,
-  OwnerLoan,
   Party,
   PayeeType,
   PaymentMethod,
 } from '@/types/accounts'
 
 /**
- * Cash payment form. "Paid to" is a party (refund only: parties never lend us money), an
- * owner (payment to owner, or loan repayment of one of their open loans, no more than is
- * still owed) or another payee typed by name: an expense with
+ * Cash payment form. "Paid to" is a party (refund only), an owner (an owner loan: the company
+ * lends the owner money, settled later on the Owner loans page with bills or returned money)
+ * or another payee typed by name: an expense with
  * its category (office rent, tea…), purpose and optional bill / receipt number. A party or
  * owner payment shows in their ledger. The API refuses a cash payment larger than the cash in
  * hand; bank and mobile banking payments leave cash in hand alone. Paid via cash in hand, a bank, or mobile banking (bKash, Nagad…) for any payee;
@@ -37,7 +36,12 @@ import type {
 type Payee = Pick<Party, 'id' | 'code' | 'type' | 'name' | 'mobile' | 'address'>
 
 const open = defineModel<boolean>('open', { required: true })
-const props = defineProps<{ payment: CashPayment | null; presetParty?: Payee | null }>()
+const props = defineProps<{
+  payment: CashPayment | null
+  presetParty?: Payee | null
+  /** Start on this payee type (e.g. "owner" from the Owner loans page). */
+  presetPayeeType?: PayeeType
+}>()
 const emit = defineEmits<{ saved: [payment: CashPayment, created: boolean] }>()
 
 const cash = inject(CASH_CONTEXT, null)
@@ -51,16 +55,12 @@ const PAYEES = [
 
 const TYPES: Record<PayeeType, { value: CashPaymentType; label: string; hint: string }[]> = {
   client: [{ value: 'refund', label: 'Refund', hint: 'Money paid back to the party.' }],
+  // Owners do not draw money out of capital; the company may lend an owner money.
   owner: [
     {
-      value: 'drawing',
-      label: 'Payment to owner',
-      hint: 'The owner takes money out of the company.',
-    },
-    {
-      value: 'loan_repayment',
-      label: 'Loan repayment',
-      hint: 'Repaying a loan taken from the owner.',
+      value: 'owner_loan',
+      label: 'Owner loan',
+      hint: 'The company lends the owner money. The owner settles it on the Owner loans page with bills or by returning the money.',
     },
   ],
   other: [{ value: 'expense', label: 'Expense', hint: 'Any other payment, e.g. office rent.' }],
@@ -91,59 +91,7 @@ const isEdit = computed(() => props.payment !== null)
 const title = computed(() =>
   isEdit.value ? `Edit payment ${props.payment!.payment_no}` : 'Cash payment',
 )
-/** A party loan repayment saved before only owners could lend keeps its option while edited. */
-const OLD_PARTY_LOAN_REPAYMENT = {
-  value: 'loan_repayment',
-  label: 'Loan repayment',
-  hint: 'Repaying a loan taken from the party (old entry; parties no longer lend).',
-} as const
-const types = computed(() =>
-  payeeType.value === 'client' &&
-  props.payment?.payee_type === 'client' &&
-  props.payment.payment_type === 'loan_repayment'
-    ? [...TYPES.client, OLD_PARTY_LOAN_REPAYMENT]
-    : TYPES[payeeType.value],
-)
-/* Owner loan repayment: the loan it pays back, from the owner's open loans. */
-const loanId = ref<number | ''>('')
-const ownerLoans = ref<OwnerLoan[] | null>(null)
-const loansError = ref<string | null>(null)
-const isLoanRepayment = computed(
-  () => payeeType.value === 'owner' && paymentType.value === 'loan_repayment',
-)
-/** What may still be repaid on a loan: still owed less other repayments waiting approval. */
-const available = (l: OwnerLoan) =>
-  Math.max(0, Math.round((l.still_owed - l.pending_repaid) * 100) / 100)
-const repayableLoans = computed(() =>
-  (ownerLoans.value ?? []).filter((l) => available(l) > 0 || l.id === loanId.value),
-)
-const chosenLoan = computed(() => repayableLoans.value.find((l) => l.id === loanId.value) ?? null)
-
-let loansRequest = 0
-watch(
-  () => [open.value, isLoanRepayment.value, party.value?.id] as const,
-  async ([isOpen, isRepayment, ownerId]) => {
-    ownerLoans.value = null
-    loansError.value = null
-    if (!isOpen || !isRepayment || !ownerId) return
-    const request = ++loansRequest
-    try {
-      const report = await getOwnerLoans({ party_id: ownerId, for_payment: props.payment?.id })
-      if (request !== loansRequest) return
-      ownerLoans.value = report.data
-      if (loanId.value !== '' && !repayableLoans.value.some((l) => l.id === loanId.value)) {
-        loanId.value = ''
-      }
-      if (loanId.value === '' && repayableLoans.value.length === 1) {
-        loanId.value = repayableLoans.value[0]!.id
-      }
-    } catch (error) {
-      if (request === loansRequest && errorStatus(error) !== 401) {
-        loansError.value = errorMessage(error, 'Could not load the loans of this owner.')
-      }
-    }
-  },
-)
+const types = computed(() => TYPES[payeeType.value])
 
 const typeHint = computed(() => types.value.find((t) => t.value === paymentType.value)?.hint ?? '')
 
@@ -151,11 +99,10 @@ watch(open, (isOpen) => {
   if (!isOpen) return
   const p = props.payment
   const preset = p?.party ?? props.presetParty ?? null
-  payeeType.value = p?.payee_type ?? preset?.type ?? 'client'
+  payeeType.value = p?.payee_type ?? preset?.type ?? props.presetPayeeType ?? 'client'
   party.value = preset
   payeeName.value = p && !p.party ? p.payee_name : ''
   paymentType.value = p?.payment_type ?? TYPES[payeeType.value][0]!.value
-  loanId.value = p?.loan_receipt?.id ?? ''
   purpose.value = p?.purpose ?? ''
   expenseCategory.value = p?.expense_category ?? ''
   billNo.value = p?.bill_no ?? ''
@@ -178,7 +125,6 @@ function setPayeeType(type: PayeeType) {
   payeeType.value = type
   party.value = null
   paymentType.value = TYPES[type][0]!.value
-  loanId.value = ''
 }
 
 const fetchPayees = (q: string): Promise<Payee[]> =>
@@ -203,16 +149,6 @@ async function save() {
   const parsed = parseAmount(amount.value)
   // The amount is asked for once "Paid via" is chosen.
   if (method.value && parsed.error) e.amount = parsed.error
-  if (isLoanRepayment.value && party.value) {
-    if (loanId.value === '') e.loan_receipt_id = 'Choose the loan being repaid.'
-    else if (
-      method.value &&
-      chosenLoan.value &&
-      parsed.amount &&
-      parsed.amount > available(chosenLoan.value)
-    )
-      e.amount = `Only ৳ ${formatMoney(available(chosenLoan.value))} is still owed on loan ${chosenLoan.value.receipt_no}.`
-  }
   if (!method.value) e.payment_method = 'Choose how the money was paid.'
   if (method.value === 'bank') {
     if (!squish(bankName.value)) e.bank_name = 'Enter the bank name.'
@@ -236,7 +172,6 @@ async function save() {
     party_id: isOther ? null : party.value!.id,
     payee_name: isOther ? squish(payeeName.value) : null,
     payment_type: paymentType.value,
-    loan_receipt_id: isLoanRepayment.value && loanId.value !== '' ? loanId.value : null,
     expense_category: isOther ? (expenseCategory.value as ExpenseCategory) : null,
     purpose: squish(purpose.value) || null,
     bill_no: isOther ? squish(billNo.value) || null : null,
@@ -438,44 +373,6 @@ const segment = (active: boolean) =>
         </div>
       </div>
       <p class="-mt-2 text-xs text-muted" data-type-hint>{{ typeHint }}</p>
-
-      <div v-if="isLoanRepayment && party" data-field="loan_receipt_id">
-        <label :for="`${id}-loan`" class="block text-sm font-medium text-slate-700">
-          Loan to repay<span class="text-red-700" aria-hidden="true"> *</span>
-        </label>
-        <p v-if="loansError" class="mt-1 text-sm text-red-700">{{ loansError }}</p>
-        <p v-else-if="ownerLoans === null" class="mt-1 text-sm text-muted">Loading loans…</p>
-        <p
-          v-else-if="repayableLoans.length === 0"
-          class="mt-1 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900"
-          data-no-loans
-        >
-          {{ party.name }} has no open loans, so there is nothing to repay.
-        </p>
-        <template v-else>
-          <select
-            :id="`${id}-loan`"
-            v-model="loanId"
-            :class="[inputClass, border('loan_receipt_id')]"
-            :aria-invalid="errors.loan_receipt_id ? 'true' : undefined"
-          >
-            <option value="" disabled>Choose a loan</option>
-            <option v-for="l in repayableLoans" :key="l.id" :value="l.id">
-              {{ l.receipt_no }} · {{ toDisplayDate(l.date) }} · ৳ {{ formatMoney(l.amount) }} ·
-              still owed ৳ {{ formatMoney(available(l)) }}
-            </option>
-          </select>
-          <p v-if="chosenLoan" class="mt-1 text-xs text-muted" data-loan-hint>
-            Loan ৳ {{ formatMoney(chosenLoan.amount) }}, repaid ৳ {{ formatMoney(chosenLoan.repaid)
-            }}<template v-if="chosenLoan.pending_repaid > 0">
-              (+ ৳ {{ formatMoney(chosenLoan.pending_repaid) }} waiting approval)</template
-            >. You can repay up to ৳ {{ formatMoney(available(chosenLoan)) }}.
-          </p>
-        </template>
-        <p v-if="errors.loan_receipt_id" class="mt-1 text-sm text-red-700">
-          {{ errors.loan_receipt_id }}
-        </p>
-      </div>
 
       <fieldset data-field="payment_method">
         <legend class="block text-sm font-medium text-slate-700">

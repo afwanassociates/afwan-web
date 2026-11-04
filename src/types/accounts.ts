@@ -31,7 +31,7 @@ export interface ApprovalFields {
 
 /** URL segment of an entry type in /api/accounts/approvals/{type}/{id}/… */
 export type ApprovalType =
-  'cash-receipts' | 'cash-payments' | 'cash-transfers' | 'party-transactions'
+  'cash-receipts' | 'cash-payments' | 'cash-transfers' | 'party-transactions' | 'owner-loan-bills'
 
 /** One row of the approval queue. */
 export interface ApprovalItem {
@@ -57,6 +57,10 @@ export interface ApprovalItem {
   can: { approve: boolean; send_back: boolean }
   /** Why approving is refused for this user (e.g. they prepared it). */
   approve_denied: string | null
+  /** An owner loan bill (fixed on the Owner loans page). */
+  owner_loan?: boolean
+  /** An owner loan bill with a copy of the bill to look at. */
+  has_copy?: boolean
 }
 
 /** Entries waiting in a list: how many and their amount (not in the totals). */
@@ -68,18 +72,25 @@ export interface PendingTotals {
 /** A party is a client, or an owner of the company (own ID series: PT-0001, OW-001). */
 export type PartyType = 'client' | 'owner'
 
+/** An owner's position in the company; clients have none. */
+export type OwnerDesignation = 'chairman' | 'managing_director' | 'director'
+
 /** Side of the opening balance: receivable (they owe us, Dr) or payable (we owe them, Cr). */
 export type BalanceType = 'receivable' | 'payable'
 
-/** Ledger line types. Receivable, refund, loan_repayment and drawing are debits; the others credits. */
+/**
+ * Ledger line types. Receivable, refund and owner_loan are debits; the others credits. An
+ * owner loan is money the company lent an owner; loan_return and loan_bill settle it.
+ */
 export type PartyTransactionType =
-  'receivable' | 'payment' | 'refund' | 'loan' | 'capital' | 'loan_repayment' | 'drawing'
+  'receivable' | 'payment' | 'refund' | 'capital' | 'owner_loan' | 'loan_return' | 'loan_bill'
 
 /** The line types entered by hand on the ledger (payments come from cash receipts). */
 /** Only a receivable is entered by hand; refunds are cash payments. */
 export type ManualTransactionType = 'receivable'
 
-export type CashReceiptType = 'cash' | 'loan'
+/** Cash (a party's payment, an owner's capital) or an owner returning a company loan. */
+export type CashReceiptType = 'cash' | 'loan_return'
 
 /** Which business a party's money is for; only recruitment has a country (for now). */
 export type BusinessType = 'recruitment' | 'land' | 'solar' | 'railway'
@@ -129,10 +140,10 @@ export interface PartyTotals {
   receivable: number
   payment: number
   refund: number
-  loan: number
   capital: number
-  loan_repayment: number
-  drawing: number
+  owner_loan: number
+  loan_return: number
+  loan_bill: number
   closing_balance: number
 }
 
@@ -143,6 +154,11 @@ export interface Party {
   type_label: string
   rl_number: string | null
   name: string
+  /** Clients only: the agency's owner, whose NID / passport is nid_passport. */
+  agency_owner_name: string | null
+  /** Owners only; null for clients and for owners added before it was asked. */
+  designation: OwnerDesignation | null
+  designation_label: string | null
   mobile: string
   address: string
   nid_passport: string
@@ -160,6 +176,10 @@ export interface PartyPayload {
   type?: PartyType
   rl_number: string | null
   name: string
+  /** Clients only; null for owners. */
+  agency_owner_name: string | null
+  /** Owners only (required on create); left out for clients. */
+  designation?: OwnerDesignation
   mobile: string
   address: string
   nid_passport: string
@@ -233,6 +253,8 @@ export interface CashReceipt extends ApprovalFields {
   /** Recruitment receipts only. */
   country: CountrySummary | null
   amount: number
+  /** A loan return: the owner loan (a cash payment) it settles. */
+  owner_loan?: { id: number; payment_no: string } | null
   payment_method: PaymentMethod
   payment_method_label: string
   bank_name: string | null
@@ -253,6 +275,8 @@ export interface CashReceiptPayload {
   party_type: PartyType
   party_id: number
   receipt_type: CashReceiptType
+  /** The owner loan a loan return settles. */
+  owner_loan_id?: number | null
   business_type: BusinessType | null
   country_code: string | null
   amount: number
@@ -280,8 +304,8 @@ export interface CashReceiptTotals {
 /** Who a cash payment goes to: a party, an owner, or any other payee typed by name. */
 export type PayeeType = 'client' | 'owner' | 'other'
 
-/** Party: refund / loan_repayment · owner: drawing / loan_repayment · other: expense. */
-export type CashPaymentType = 'refund' | 'loan_repayment' | 'drawing' | 'expense'
+/** Party: refund · owner: owner_loan (the company lends the owner money) · other: expense. */
+export type CashPaymentType = 'refund' | 'owner_loan' | 'expense'
 
 export interface CashPayment extends ApprovalFields {
   id: number
@@ -295,8 +319,6 @@ export interface CashPayment extends ApprovalFields {
   payee_name: string
   payment_type: CashPaymentType
   payment_type_label: string
-  /** The owner loan a loan repayment pays back. */
-  loan_receipt?: { id: number; receipt_no: string } | null
   expense_category: ExpenseCategory | null
   expense_category_label: string | null
   purpose: string | null
@@ -323,7 +345,6 @@ export interface CashPaymentPayload {
   party_id: number | null
   payee_name: string | null
   payment_type: CashPaymentType
-  loan_receipt_id: number | null
   expense_category: ExpenseCategory | null
   purpose: string | null
   bill_no: string | null
@@ -414,6 +435,10 @@ export interface CashBookLine {
   in: number
   out: number
   balance: number
+  /** All cash book only: the money it went through (e.g. "Bank", "Cash in hand → Bank"). */
+  via?: string
+  /** All cash book only: a deposit or withdrawal's amount (moved, not in or out). */
+  contra?: number
 }
 
 export interface CashBookDay {
@@ -425,7 +450,11 @@ export interface CashBookDay {
   closing: number
 }
 
+/** Which book: cash in hand (the hand cash book), the bank, mobile banking, or all three. */
+export type CashBookKind = 'cash' | 'bank' | 'mobile_banking' | 'all'
+
 export interface CashBook {
+  book: CashBookKind
   from: string | null
   to: string | null
   opening_balance: number
@@ -443,11 +472,15 @@ export interface FinanceSummary {
   opening_balance: number
   opening_date: string | null
   today: string
-  /** Today's opening cash: yesterday's closing cash on hand (worked out, never typed). */
+  /** Today's opening cash: yesterday's closing cash on hand + bank + mobile banking (worked out). */
   opening_today: number
   /** Approved receipts / payments up to today, any method (transfers not counted). */
   total_received: number
   total_paid: number
+  /** What total_paid was for (they add up to it): a loan to an owner is not spending. */
+  paid_breakdown: { expenses: number; refunds: number; owner_loans: number }
+  /** What the company spent: expense payments plus approved owner loan bills. */
+  total_expenses: number
   cash_in_hand: number
   /** Bank receipts and deposits minus bank payments and withdrawals (starts at zero). */
   bank_balance: number
@@ -468,38 +501,134 @@ export interface CashSettings extends Partial<FinanceSummary> {
 
 /* ---------- Owner loans ---------- */
 
-/** An approved loan from an owner: open while something is still owed, then settled. */
-export interface OwnerLoan {
+/** A company bill an owner paid with a loan, with a copy of the bill; settles that much. */
+export interface OwnerLoanBill {
+  id: number
+  owner_loan_id: number
+  date: string
+  expense_category: ExpenseCategory
+  expense_category_label: string
+  purpose: string
+  bill_no: string | null
+  amount: number
+  note: string | null
+  has_copy: boolean
+  copy_name: string | null
+  status: ApprovalStatus
+  status_label: string
+  returned_by: string | null
+  return_reason: string | null
+  can: { update: boolean; delete: boolean }
+}
+
+/** Money the owner gave back on a loan (a loan return cash receipt). */
+export interface OwnerLoanReturn {
   id: number
   receipt_no: string
   date: string
-  owner: Pick<Party, 'id' | 'code' | 'name'>
   amount: number
-  /** Approved repayments only. */
-  repaid: number
-  still_owed: number
-  /** Repayments waiting for approval (not counting the payment being edited). */
-  pending_repaid: number
+  payment_method_label: string
+  status: Exclude<ApprovalStatus, 'rejected'>
+  status_label: string
+}
+
+/**
+ * An approved loan the company gave an owner (a cash payment): open until the approved returns
+ * and bills cover it, then settled.
+ */
+export interface OwnerLoan {
+  id: number
+  payment_no: string
+  date: string
+  owner: Pick<Party, 'id' | 'code' | 'name' | 'mobile' | 'address'>
+  payment_method: PaymentMethod
+  payment_method_label: string
+  amount: number
+  /** Approved returns and bills only. */
+  returned: number
+  billed: number
+  outstanding: number
+  /** Waiting for approval (not counting the receipt being edited). */
+  pending_returned: number
+  pending_billed: number
   status: 'open' | 'settled'
   note: string | null
+  returns: OwnerLoanReturn[]
+  bills: OwnerLoanBill[]
 }
 
 export interface OwnerCapital {
   id: number
   code: string
   name: string
-  /** Capital paid in, less payments to the owner. */
+  /** Capital the owner paid in. */
   capital: number
-  loan_owed: number
+  /** What the owner still owes on loans. */
+  loan_outstanding: number
 }
 
 export interface OwnerLoanReport {
   summary: {
     total_capital: number
-    loans_owed: number
+    loans_outstanding: number
     open_count: number
     settled_count: number
     owners: OwnerCapital[]
   }
   data: OwnerLoan[]
+}
+
+/** Fields of the owner loan bill form (sent as multipart, with the copy as "bill_copy"). */
+export interface OwnerLoanBillPayload {
+  date: string
+  expense_category: ExpenseCategory
+  purpose: string
+  bill_no: string | null
+  amount: number
+  note: string | null
+}
+
+/* ---------- Expenses ---------- */
+
+/** Paid directly (an expense payment) or a company bill an owner paid with a loan. */
+export type ExpenseSource = 'direct' | 'owner_loan'
+
+/** One row of GET /accounts/expenses. */
+export interface Expense {
+  key: string
+  id: number
+  source: ExpenseSource
+  /** "Paid directly" or "Owner loan CP-2026-0005". */
+  source_label: string
+  date: string
+  expense_category: ExpenseCategory
+  expense_category_label: string
+  purpose: string | null
+  bill_no: string | null
+  paid_to: string | null
+  /** The payment number, or the loan an owner bill settles. */
+  reference: string
+  payment_method_label: string
+  /** An owner loan bill with a copy of the bill. */
+  has_copy: boolean
+  amount: number
+}
+
+/** meta.totals of the expense list: every matching expense, all pages. */
+export interface ExpenseTotals {
+  count: number
+  amount: number
+  direct: number
+  owner_loan: number
+  by_category: { category: ExpenseCategory; label: string; count: number; amount: number }[]
+}
+
+export interface ExpenseFilters {
+  q?: string
+  from?: string
+  to?: string
+  category?: ExpenseCategory
+  source?: ExpenseSource
+  page?: number
+  per_page?: number
 }

@@ -159,8 +159,9 @@ const inputClass =
 const actionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap hover:bg-primary-50 focus-visible:bg-primary-50 disabled:opacity-50'
 const money = (value: number | undefined) => (value ? formatMoney(value) : '—')
-/** Loans taken from the party, less what was repaid. */
-const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repayment : undefined)
+/** What the owner still owes on company loans: lent, less bills shown and money returned. */
+const loanBalance = (p: Party) =>
+  p.totals ? p.totals.owner_loan - p.totals.loan_bill - p.totals.loan_return : undefined
 </script>
 
 <template>
@@ -269,19 +270,26 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
                 <tr>
                   <th scope="col" :class="TABLE_TH">ID</th>
                   <th v-if="query.type === 'client'" scope="col" :class="TABLE_TH">RL Number</th>
-                  <th scope="col" :class="TABLE_TH">Name</th>
-                  <th scope="col" :class="TABLE_TH">NID / Passport</th>
+                  <th scope="col" :class="TABLE_TH">
+                    {{ query.type === 'client' ? 'Agency Name' : 'Name' }}
+                  </th>
+                  <th v-if="query.type === 'owner'" scope="col" :class="TABLE_TH">Designation</th>
+                  <th v-if="query.type === 'client'" scope="col" :class="TABLE_TH">Agency owner</th>
+                  <th scope="col" :class="TABLE_TH">
+                    {{ query.type === 'client' ? 'Agency owner NID / Passport' : 'NID / Passport' }}
+                  </th>
                   <th scope="col" :class="[TABLE_TH, 'text-right']">Opening</th>
                   <template v-if="query.type === 'client'">
                     <th scope="col" :class="[TABLE_TH, 'text-right']">Receivable</th>
-                    <th scope="col" :class="[TABLE_TH, 'text-right']">Payment</th>
-                    <th scope="col" :class="[TABLE_TH, 'text-right']">Refund</th>
+                    <th scope="col" :class="[TABLE_TH, 'text-right']">Payment Received</th>
+                    <th scope="col" :class="[TABLE_TH, 'text-right']">Payment Refund</th>
                   </template>
                   <template v-else>
                     <th scope="col" :class="[TABLE_TH, 'text-right']">Capital</th>
-                    <th scope="col" :class="[TABLE_TH, 'text-right']">Drawing</th>
                   </template>
-                  <th scope="col" :class="[TABLE_TH, 'text-right']">Loan balance</th>
+                  <th v-if="query.type === 'owner'" scope="col" :class="[TABLE_TH, 'text-right']">
+                    Loan outstanding
+                  </th>
                   <th scope="col" :class="[TABLE_TH, 'text-right']">Closing balance</th>
                   <th scope="col" :class="TABLE_TH">Status</th>
                   <th scope="col" class="py-3"><span class="sr-only">Actions</span></th>
@@ -306,6 +314,16 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
                     </RouterLink>
                     <span class="block text-xs font-normal text-muted">{{ p.mobile }}</span>
                   </th>
+                  <td
+                    v-if="query.type === 'owner'"
+                    :class="[TABLE_TD, 'whitespace-nowrap']"
+                    data-designation
+                  >
+                    {{ p.designation_label ?? '—' }}
+                  </td>
+                  <td v-if="query.type === 'client'" :class="TABLE_TD" data-agency-owner>
+                    {{ p.agency_owner_name ?? '—' }}
+                  </td>
                   <td :class="TABLE_TD">
                     {{ p.nid_passport }}
                     <span v-if="p.tin_bin" class="block text-xs text-muted"
@@ -336,11 +354,12 @@ const loanBalance = (p: Party) => (p.totals ? p.totals.loan - p.totals.loan_repa
                     <td :class="[TABLE_TD, 'text-right tabular-nums']">
                       {{ money(p.totals?.capital) }}
                     </td>
-                    <td :class="[TABLE_TD, 'text-right tabular-nums']">
-                      {{ money(p.totals?.drawing) }}
-                    </td>
                   </template>
-                  <td :class="[TABLE_TD, 'text-right tabular-nums']" data-loan>
+                  <td
+                    v-if="query.type === 'owner'"
+                    :class="[TABLE_TD, 'text-right tabular-nums']"
+                    data-loan
+                  >
                     {{ money(loanBalance(p)) }}
                   </td>
                   <td
