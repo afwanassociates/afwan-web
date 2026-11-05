@@ -30,7 +30,7 @@ export async function createReference(payload: NewReference): Promise<Reference>
   return data.data
 }
 
-/* ---------- Management (the operations head). References are never deleted. ---------- */
+/* ---------- Management (the operations head) ---------- */
 
 const ADMIN = '/api/admin/references'
 
@@ -64,4 +64,12 @@ export async function updateAdminReference(
 ): Promise<Reference> {
   const { data } = await api.patch<{ data: Reference }>(`${ADMIN}/${id}`, changes)
   return data.data
+}
+
+/**
+ * Only a reference with no passports (deleted ones included) and nothing in accounts. 422 with
+ * code reference_has_passports or reference_has_accounts otherwise.
+ */
+export async function deleteAdminReference(id: number): Promise<void> {
+  await api.delete(`${ADMIN}/${id}`)
 }

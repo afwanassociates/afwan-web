@@ -12,8 +12,8 @@ import type { Company } from '@/types/passport'
 
 /**
  * Companies (the operations head): every company with search and an active
- * filter, plus create, edit, (de)activate and delete. A company with passports cannot be
- * deleted; it is deactivated instead.
+ * filter, plus create, edit, (de)activate and delete. Delete shows only for a company with no
+ * passports (deleted ones included); any other one is deactivated instead.
  */
 const PER_PAGE = 15
 
@@ -324,7 +324,9 @@ const actionClass =
                         {{ c.is_active ? 'Deactivate' : 'Activate'
                         }}<span class="sr-only"> {{ c.name }}</span>
                       </button>
+                      <!-- Only a company without passports (deleted ones included) can be deleted. -->
                       <button
+                        v-if="c.can_delete"
                         type="button"
                         :class="[actionClass, 'text-red-700 hover:bg-red-50']"
                         data-delete

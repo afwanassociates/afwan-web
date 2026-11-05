@@ -3,7 +3,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import PartiesView from '../PartiesView.vue'
-import { createParty, listParties, updateParty } from '@/api/accounts'
+import { createParty, deleteParty, listParties, updateParty } from '@/api/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { makeUser } from '@/test/helpers'
 import type { Role } from '@/types/auth'
@@ -13,6 +13,7 @@ vi.mock('@/api/accounts', () => ({
   listParties: vi.fn(),
   createParty: vi.fn(),
   updateParty: vi.fn(),
+  deleteParty: vi.fn(),
 }))
 
 function party(overrides: Partial<Party> = {}): Party {
@@ -293,15 +294,31 @@ describe('PartiesView', () => {
     expect(updateParty).toHaveBeenCalledWith(1, { is_active: false })
   })
 
-  it.each(['accounts', 'accounts_head'] as const)(
-    'offers no Delete to %s: parties and owners are never deleted',
-    async (role) => {
-      await mountView(role)
-      expect(wrapper.find('[data-party="1"]').exists()).toBe(true)
-      expect(wrapper.find('[data-delete]').exists()).toBe(false)
-      expect(wrapper.text()).not.toContain('Delete')
-      // Deactivate stays.
-      expect(wrapper.find('[data-toggle-active]').exists()).toBe(true)
-    },
-  )
+  it('offers no Delete to accounts users, even for an unused party', async () => {
+    vi.mocked(listParties).mockResolvedValue(page([party({ can_delete: true })]))
+    await mountView('accounts')
+    expect(wrapper.find('[data-party="1"]').exists()).toBe(true)
+    expect(wrapper.find('[data-delete]').exists()).toBe(false)
+    // Deactivate stays.
+    expect(wrapper.find('[data-toggle-active]').exists()).toBe(true)
+  })
+
+  it('lets the accounts head delete only a party with no passports or accounts records', async () => {
+    vi.mocked(listParties).mockResolvedValue(
+      page([
+        party({ id: 1, can_delete: false }),
+        party({ id: 2, code: 'PT-0002', can_delete: true }),
+      ]),
+    )
+    vi.mocked(deleteParty).mockResolvedValue()
+    await mountView('accounts_head')
+
+    expect(wrapper.find('[data-party="1"] [data-delete]').exists()).toBe(false)
+    await wrapper.get('[data-party="2"] [data-delete]').trigger('click')
+    const buttons = wrapper.findComponent({ name: 'ConfirmDialog' }).findAll('button')
+    await buttons[buttons.length - 1]!.trigger('click')
+    await flushPromises()
+
+    expect(deleteParty).toHaveBeenCalledWith(2)
+  })
 })

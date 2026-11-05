@@ -228,6 +228,7 @@ describe('StaffLayout menu', () => {
 
   it.each([
     ['operation_head', true],
+    ['accounts_head', false],
     ['admin', false],
     ['super_admin', false],
     ['data_entry', false],

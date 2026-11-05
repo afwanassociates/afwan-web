@@ -180,6 +180,8 @@ export interface Party {
   opening_balance_type: BalanceType
   is_active: boolean
   totals?: PartyTotals
+  /** In the list and responses: no passports and nothing in accounts (only these may be deleted). */
+  can_delete?: boolean
   created_at: string
   updated_at: string
 }

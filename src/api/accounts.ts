@@ -85,6 +85,14 @@ export async function updateParty(
   return data.data
 }
 
+/**
+ * The accounts head only, and only a party or owner with no passports and nothing in accounts
+ * (`can_delete`). 422 with code party_has_passports or party_has_accounts otherwise.
+ */
+export async function deleteParty(id: number): Promise<void> {
+  await api.delete(`${BASE}/parties/${id}`)
+}
+
 /** The ledger for an optional date range (from/to inclusive, 'YYYY-MM-DD'). */
 export async function fetchPartyLedger(
   id: number,

@@ -166,7 +166,26 @@ describe('Companies (operations head)', () => {
     expect(updateAdminCompany).toHaveBeenCalledWith(1, { is_active: false })
   })
 
-  it('explains a blocked delete and offers to deactivate instead', async () => {
+  it('offers Delete only for a company without passports', async () => {
+    vi.mocked(listAdminCompanies).mockResolvedValue(
+      page([
+        company({ id: 1, can_delete: false }),
+        company({ id: 2, name: 'Unused Co', passports_count: 0, can_delete: true }),
+      ]),
+    )
+    vi.mocked(deleteAdminCompany).mockResolvedValue()
+    await mountView()
+
+    expect(wrapper.find('[data-company="1"] [data-delete]').exists()).toBe(false)
+    await wrapper.get('[data-company="2"] [data-delete]').trigger('click')
+    await confirmButton().trigger('click')
+    await flushPromises()
+
+    expect(deleteAdminCompany).toHaveBeenCalledWith(2)
+  })
+
+  it('explains a delete refused since the list loaded and offers to deactivate instead', async () => {
+    vi.mocked(listAdminCompanies).mockResolvedValue(page([company({ can_delete: true })]))
     vi.mocked(deleteAdminCompany).mockRejectedValue(
       httpError(422, {
         message: 'This company has passports, so it cannot be deleted. Deactivate it instead.',

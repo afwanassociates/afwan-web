@@ -175,7 +175,8 @@ const navItems = computed(() => {
   }
   // Users: for every role that manages another (admins, and the accounts head for accounts users).
   if (USER_MANAGER_ROLES.includes(role)) items.push({ name: 'staff-users', label: 'Users' })
-  // Companies and References management (create / edit / deactivate): the operations head.
+  // Companies and References management (create / edit / deactivate / delete an unused one):
+  // the operations head only.
   if (PASSPORT_MANAGER_ROLES.includes(role)) {
     items.push({ name: 'admin-companies', label: 'Companies' })
     items.push({ name: 'admin-references', label: 'References' })

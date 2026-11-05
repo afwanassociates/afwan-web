@@ -104,6 +104,9 @@ export const PASSPORT_ROLES: readonly Role[] = ['data_entry', 'operation_head']
 /** Roles that correct passport work: delete, Undo, re-tests and editing anyone's entries. */
 export const PASSPORT_MANAGER_ROLES: readonly Role[] = ['operation_head']
 
+/** Roles that delete an unused party or owner on Party / Owner (UserRole::partyDeleters()). */
+export const PARTY_DELETER_ROLES: readonly Role[] = ['accounts_head']
+
 /** Roles that may open the admin settings (countries and defaults). */
 export const SETTINGS_ROLES: readonly Role[] = ['admin', 'super_admin']
 

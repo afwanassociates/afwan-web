@@ -38,6 +38,8 @@ export interface Reference {
   is_active: boolean
   /** Only in the management list and its responses. */
   passports_count?: number
+  /** Only in the management list: no passport (deleted ones included) has ever named it. */
+  can_delete?: boolean
   created_at: string
   updated_at: string
 }
@@ -55,6 +57,8 @@ export interface Company {
   is_active: boolean
   /** Only in the admin list and admin responses. */
   passports_count?: number
+  /** Only in the management list: no passport (deleted ones included) has ever named it. */
+  can_delete?: boolean
   created_at: string
   updated_at: string
 }

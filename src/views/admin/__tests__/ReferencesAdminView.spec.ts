@@ -3,7 +3,13 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import ReferencesAdminView from '../ReferencesAdminView.vue'
-import { createAdminReference, listAdminReferences, updateAdminReference } from '@/api/references'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import {
+  createAdminReference,
+  deleteAdminReference,
+  listAdminReferences,
+  updateAdminReference,
+} from '@/api/references'
 import { useAuthStore } from '@/stores/auth'
 import { httpError, makeUser } from '@/test/helpers'
 import type { Reference } from '@/types/passport'
@@ -12,6 +18,7 @@ vi.mock('@/api/references', () => ({
   listAdminReferences: vi.fn(),
   createAdminReference: vi.fn(),
   updateAdminReference: vi.fn(),
+  deleteAdminReference: vi.fn(),
   searchReferences: vi.fn(async () => []),
 }))
 
@@ -68,6 +75,12 @@ async function mountView(path = '/admin/references') {
     },
   )
   await flushPromises()
+}
+
+/** The dialog's last button is its confirm button. */
+const confirmButton = () => {
+  const buttons = wrapper.findComponent(ConfirmDialog).findAll('button')
+  return buttons[buttons.length - 1]!
 }
 
 beforeEach(() => {
@@ -202,11 +215,46 @@ describe('References (operations head)', () => {
     expect(updateAdminReference).toHaveBeenCalledWith(1, { is_active: false })
   })
 
-  it('offers no Delete: references are parties, and parties are never deleted', async () => {
+  it('offers Delete only for a reference without passports or accounts records', async () => {
+    vi.mocked(listAdminReferences).mockResolvedValue(
+      page([
+        reference({ id: 1, can_delete: false }),
+        reference({ id: 2, name: 'Unused', passports_count: 0, can_delete: true }),
+      ]),
+    )
+    vi.mocked(deleteAdminReference).mockResolvedValue()
     await mountView()
 
-    expect(wrapper.find('[data-delete]').exists()).toBe(false)
-    expect(wrapper.get('[data-reference="1"]').text()).not.toContain('Delete')
+    expect(wrapper.find('[data-reference="1"] [data-delete]').exists()).toBe(false)
+    await wrapper.get('[data-reference="2"] [data-delete]').trigger('click')
+    await confirmButton().trigger('click')
+    await flushPromises()
+
+    expect(deleteAdminReference).toHaveBeenCalledWith(2)
+    expect(listAdminReferences).toHaveBeenCalledTimes(2)
+  })
+
+  it('explains a refused delete and offers to deactivate instead', async () => {
+    vi.mocked(listAdminReferences).mockResolvedValue(page([reference({ can_delete: true })]))
+    vi.mocked(deleteAdminReference).mockRejectedValue(
+      httpError(422, {
+        message:
+          'This party has records in accounts, so it cannot be deleted. Deactivate it instead.',
+        code: 'reference_has_accounts',
+      }),
+    )
+    vi.mocked(updateAdminReference).mockResolvedValue(reference({ is_active: false }))
+    await mountView()
+
+    await wrapper.get('button[data-delete]').trigger('click')
+    await confirmButton().trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-delete-blocked]').text()).toContain('records in accounts')
+    expect(confirmButton().text()).toBe('Deactivate instead')
+    await confirmButton().trigger('click')
+    await flushPromises()
+    expect(updateAdminReference).toHaveBeenCalledWith(1, { is_active: false })
   })
 
   it('shows an error with a retry button', async () => {
