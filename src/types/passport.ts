@@ -19,12 +19,21 @@ export interface EntryModeValue {
   label: string
 }
 
+/**
+ * A reference is a client party (Party / Owner page) as the passport team sees it: `type`
+ * is the party's kind and `phone` its mobile. Old references merged into parties may have
+ * no phone yet.
+ */
 export interface Reference {
   id: number
+  /** The party ID, e.g. PT-0007. */
+  code: string
   type: ReferenceType
   type_label: string
   name: string
   phone: string | null
+  /** Agencies only. */
+  rl_number: string | null
   notes: string | null
   is_active: boolean
   /** Only in the management list and its responses. */
@@ -237,10 +246,12 @@ export interface PassportFilters {
   per_page?: number
 }
 
+/** Quick Add: the phone is required; an agency also needs its RL number. */
 export interface NewReference {
   type: ReferenceType
   name: string
-  phone?: string | null
+  phone: string | null
+  rl_number?: string | null
 }
 
 /** The reference management form (the operations head). */
@@ -248,6 +259,7 @@ export interface AdminReferencePayload {
   type: ReferenceType
   name: string
   phone: string | null
+  rl_number: string | null
   notes: string | null
 }
 

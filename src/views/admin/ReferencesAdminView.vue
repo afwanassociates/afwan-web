@@ -2,8 +2,7 @@
 import { computed, ref, shallowRef, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import ReferenceFormDialog from '@/components/ReferenceFormDialog.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import { deleteAdminReference, listAdminReferences, updateAdminReference } from '@/api/references'
+import { listAdminReferences, updateAdminReference } from '@/api/references'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus } from '@/lib/errors'
@@ -12,8 +11,8 @@ import type { Reference, ReferenceType } from '@/types/passport'
 
 /**
  * References (the operations head), the same way as Companies: every reference with search, a
- * type and an active filter, plus create, edit, (de)activate and delete. A reference with
- * passports cannot be deleted; it is deactivated instead.
+ * type and an active filter, plus create, edit and (de)activate. References are the client
+ * parties of the accounts team's Party / Owner page, so they are never deleted.
  */
 const PER_PAGE = 15
 
@@ -159,53 +158,6 @@ async function setActive(reference: Reference, active: boolean) {
   }
 }
 
-/* ---------- Delete ---------- */
-
-const deleteTarget = ref<Reference | null>(null)
-const deleteOpen = ref(false)
-const deleteBusy = ref(false)
-const deleteError = ref<string | null>(null)
-/** The API refused: the reference has passports. Offer to deactivate instead. */
-const deleteBlocked = ref(false)
-
-function askDelete(reference: Reference) {
-  deleteTarget.value = reference
-  deleteError.value = null
-  deleteBlocked.value = false
-  deleteOpen.value = true
-}
-
-async function confirmDelete() {
-  const reference = deleteTarget.value
-  if (!reference) return
-  if (deleteBlocked.value) {
-    // The confirm button now means "Deactivate instead".
-    deleteOpen.value = false
-    await setActive(reference, false)
-    return
-  }
-  deleteBusy.value = true
-  deleteError.value = null
-  try {
-    await deleteAdminReference(reference.id)
-    deleteOpen.value = false
-    toast.success(`Reference “${reference.name}” deleted.`)
-    load()
-  } catch (error) {
-    const code = (error as { response?: { data?: { code?: string } } }).response?.data?.code
-    if (errorStatus(error) === 422 && code === 'reference_has_passports') {
-      deleteBlocked.value = true
-    } else if (errorStatus(error) === 404) {
-      deleteOpen.value = false
-      load()
-    } else if (errorStatus(error) !== 401) {
-      deleteError.value = errorMessage(error, 'Could not delete the reference. Please try again.')
-    }
-  } finally {
-    deleteBusy.value = false
-  }
-}
-
 const inputClass =
   'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus:border-primary-600'
 const actionClass =
@@ -218,7 +170,8 @@ const actionClass =
       <div>
         <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">References</h1>
         <p class="mt-1 text-sm text-muted">
-          Create, edit and deactivate the people and agencies who refer passports.
+          Create, edit and deactivate the people and agencies who give passports. They are the same
+          parties the accounts team sees on the Party / Owner page.
         </p>
       </div>
       <button type="button" class="btn btn-accent" data-create @click="openCreate">
@@ -235,7 +188,7 @@ const actionClass =
             v-model="search"
             type="search"
             autocomplete="off"
-            placeholder="Reference name"
+            placeholder="Name, phone, party ID or RL number"
             :class="inputClass"
             data-search
             @input="debounced.run()"
@@ -314,7 +267,13 @@ const actionClass =
                 <tr v-for="r in list.data" :key="r.id" class="align-top" :data-reference="r.id">
                   <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
                     {{ r.name }}
-                    <span class="block text-xs font-normal text-muted">{{ r.type_label }}</span>
+                    <span class="block text-xs font-normal text-muted">
+                      {{
+                        [r.code, r.type_label, r.rl_number && `RL ${r.rl_number}`]
+                          .filter(Boolean)
+                          .join(' · ')
+                      }}
+                    </span>
                     <span
                       v-if="r.notes"
                       class="block max-w-sm truncate text-xs font-normal text-muted"
@@ -358,14 +317,6 @@ const actionClass =
                         {{ r.is_active ? 'Deactivate' : 'Activate'
                         }}<span class="sr-only"> {{ r.name }}</span>
                       </button>
-                      <button
-                        type="button"
-                        :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-                        data-delete
-                        @click="askDelete(r)"
-                      >
-                        Delete<span class="sr-only"> {{ r.name }}</span>
-                      </button>
                     </div>
                   </td>
                 </tr>
@@ -405,25 +356,5 @@ const actionClass =
     </section>
 
     <ReferenceFormDialog v-model:open="formOpen" :reference="editing" @saved="onSaved" />
-
-    <ConfirmDialog
-      v-model:open="deleteOpen"
-      :title="deleteBlocked ? 'This reference cannot be deleted' : 'Delete reference'"
-      :confirm-label="deleteBlocked ? 'Deactivate instead' : 'Delete'"
-      :danger="!deleteBlocked"
-      :busy="deleteBusy"
-      :error="deleteError"
-      @confirm="confirmDelete"
-    >
-      <p v-if="deleteBlocked && deleteTarget" data-delete-blocked>
-        <strong>{{ deleteTarget.name }}</strong> has passports, so it can't be deleted. You can
-        deactivate it instead: it stays on its passports and in the reports, but can no longer be
-        chosen for new passports.
-      </p>
-      <p v-else-if="deleteTarget">
-        Delete the reference <strong>{{ deleteTarget.name }}</strong
-        >? This cannot be undone.
-      </p>
-    </ConfirmDialog>
   </div>
 </template>

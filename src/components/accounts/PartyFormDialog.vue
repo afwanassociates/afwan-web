@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
+import ReferenceTypeToggle from '@/components/ReferenceTypeToggle.vue'
 import { createParty, updateParty } from '@/api/accounts'
 import {
   MOBILE_PATTERN,
@@ -10,11 +11,15 @@ import {
   parseAmount,
 } from '@/lib/accounts'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
-import type { BalanceType, OwnerDesignation, Party, PartyType } from '@/types/accounts'
+import type { BalanceType, OwnerDesignation, Party, PartyKind, PartyType } from '@/types/accounts'
 
 /**
  * Create / edit a party or owner. The party ID (PT-0001, OW-001) is given by the server and
  * the type is chosen once, on create. `party` null creates one of type `defaultType`.
+ *
+ * A client is an agency (with an RL number and an agency owner) or a person, and is also the
+ * reference of the passports it gives: data entry adds clients with only a name and phone,
+ * so a client's address and NID / passport are optional. Owners need every field.
  */
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ party: Party | null; defaultType: PartyType }>()
@@ -23,6 +28,7 @@ const emit = defineEmits<{ saved: [party: Party, created: boolean] }>()
 const id = useId()
 
 const type = ref<PartyType>('client')
+const kind = ref<PartyKind>('agency')
 const rlNumber = ref('')
 const name = ref('')
 const agencyOwnerName = ref('')
@@ -31,6 +37,7 @@ const mobile = ref('')
 const address = ref('')
 const nidPassport = ref('')
 const tinBin = ref('')
+const notes = ref('')
 const openingBalance = ref<string | number>('')
 const openingBalanceType = ref<BalanceType>('receivable')
 const errors = ref<Record<string, string>>({})
@@ -38,18 +45,20 @@ const banner = ref<string | null>(null)
 const isSaving = ref(false)
 
 const isEdit = computed(() => props.party !== null)
-/** Only clients have an RL number; owners never see the field. */
 const isClient = computed(() => type.value === 'client')
+/** Only agencies have an RL number and an agency owner. */
+const isAgency = computed(() => isClient.value && kind.value === 'agency')
 const title = computed(() =>
   isEdit.value
     ? `Edit ${props.party!.code}`
-    : `New ${type.value === 'owner' ? 'owner' : 'Party / Agency'}`,
+    : `New ${type.value === 'owner' ? 'owner' : 'Party / Client'}`,
 )
 
 watch(open, (isOpen) => {
   if (!isOpen) return
   const p = props.party
   type.value = p?.type ?? props.defaultType
+  kind.value = p?.kind ?? 'agency'
   rlNumber.value = p?.rl_number ?? ''
   name.value = p?.name ?? ''
   designation.value = p?.designation ?? ''
@@ -58,6 +67,7 @@ watch(open, (isOpen) => {
   nidPassport.value = p?.nid_passport ?? ''
   agencyOwnerName.value = p?.agency_owner_name ?? ''
   tinBin.value = p?.tin_bin ?? ''
+  notes.value = p?.notes ?? ''
   openingBalance.value = p && p.opening_balance > 0 ? p.opening_balance.toFixed(2) : ''
   openingBalanceType.value = p?.opening_balance_type ?? 'receivable'
   errors.value = {}
@@ -70,35 +80,31 @@ async function save() {
   if (isSaving.value) return
   banner.value = null
   const e: Record<string, string> = {}
-  if (isClient.value && !squish(rlNumber.value)) e.rl_number = 'Enter the RL number.'
-  if (!squish(name.value)) e.name = isClient.value ? 'Enter the agency name.' : 'Enter the name.'
+  if (isAgency.value && !squish(rlNumber.value)) e.rl_number = 'Enter the RL number of the agency.'
+  if (!squish(name.value)) e.name = isAgency.value ? 'Enter the agency name.' : 'Enter the name.'
   if (!isClient.value && !designation.value) e.designation = 'Choose the designation.'
   if (!squish(mobile.value))
-    e.mobile = isClient.value ? "Enter the agency's mobile number." : 'Enter the mobile number.'
+    e.mobile = isAgency.value ? "Enter the agency's mobile number." : 'Enter the mobile number.'
   else if (!MOBILE_PATTERN.test(squish(mobile.value)))
     e.mobile = 'Enter a valid mobile number (digits, spaces or dashes, optional +).'
-  if (!squish(address.value))
-    e.address = isClient.value ? "Enter the agency's address." : 'Enter the address.'
-  if (isClient.value && !squish(agencyOwnerName.value))
-    e.agency_owner_name = 'Enter the agency owner name.'
-  if (!nidPassport.value.trim())
-    e.nid_passport = isClient.value
-      ? "Enter the agency owner's NID or passport number."
-      : 'Enter the NID or passport number.'
+  if (!isClient.value && !squish(address.value)) e.address = 'Enter the address.'
+  if (!isClient.value && !nidPassport.value.trim())
+    e.nid_passport = 'Enter the NID or passport number.'
   const opening = parseAmount(openingBalance.value, { allowZero: true })
   if (opening.error) e.opening_balance = opening.error
   errors.value = e
   if (Object.keys(e).length > 0) return
 
   const payload = {
-    rl_number: isClient.value ? squish(rlNumber.value).toUpperCase() : null,
+    ...(isClient.value ? { kind: kind.value } : { designation: designation.value || undefined }),
+    rl_number: isAgency.value ? squish(rlNumber.value).toUpperCase() : null,
     name: squish(name.value),
-    ...(isClient.value ? {} : { designation: designation.value || undefined }),
     mobile: squish(mobile.value),
-    address: squish(address.value),
-    agency_owner_name: isClient.value ? squish(agencyOwnerName.value) : null,
-    nid_passport: nidPassport.value.replace(/\s+/g, '').toUpperCase(),
+    address: squish(address.value) || null,
+    agency_owner_name: isAgency.value ? squish(agencyOwnerName.value) || null : null,
+    nid_passport: nidPassport.value.replace(/\s+/g, '').toUpperCase() || null,
     tin_bin: squish(tinBin.value) || null,
+    notes: notes.value.trim() || null,
     opening_balance: opening.amount!,
     opening_balance_type: openingBalanceType.value,
   }
@@ -129,22 +135,36 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
 const describedBy = (field: string) => (errors.value[field] ? `${id}-${field}-error` : undefined)
 
 /**
- * Fields in form order: [key, label, required, autocomplete]. A client is an agency, so it
- * also has the agency owner's name, and its NID / passport is the agency owner's.
+ * Fields in form order: [key, label, required, autocomplete]. An agency also has the agency
+ * owner's name, and its NID / passport is the agency owner's. A client's address and NID /
+ * passport are optional (data entry adds clients with only a name and phone).
  */
 const textFields = computed(
   () =>
     [
       ['rl_number', 'RL Number', true, 'off'],
-      ['name', isClient.value ? 'Agency Name' : 'Name', true, 'off'],
-      ['mobile', isClient.value ? 'Agency Mobile' : 'Mobile', true, 'off'],
-      ['address', isClient.value ? 'Agency Address' : 'Address', true, 'off'],
+      ['name', isAgency.value ? 'Agency Name' : 'Name', true, 'off'],
+      ['mobile', isAgency.value ? 'Agency Mobile' : 'Mobile', true, 'off'],
+      [
+        'address',
+        isAgency.value
+          ? 'Agency Address (optional)'
+          : isClient.value
+            ? 'Address (optional)'
+            : 'Address',
+        !isClient.value,
+        'off',
+      ],
       ['tin_bin', 'TIN / BIN (optional)', false, 'off'],
-      ['agency_owner_name', 'Agency owner name', true, 'off'],
+      ['agency_owner_name', 'Agency owner name (optional)', false, 'off'],
       [
         'nid_passport',
-        isClient.value ? 'Agency owner NID / Passport' : 'NID / Passport',
-        true,
+        isAgency.value
+          ? 'Agency owner NID / Passport (optional)'
+          : isClient.value
+            ? 'NID / Passport (optional)'
+            : 'NID / Passport',
+        !isClient.value,
         'off',
       ],
     ] as const,
@@ -152,18 +172,22 @@ const textFields = computed(
 /** A hint in each empty field: what to type, with an example. */
 const placeholders = computed<Record<string, string>>(() => ({
   rl_number: 'e.g. RL 1234',
-  name: isClient.value ? 'e.g. Karim Overseas' : "Owner's full name",
+  name: isAgency.value
+    ? 'e.g. Karim Overseas'
+    : isClient.value
+      ? 'e.g. Md Abdul Karim'
+      : "Owner's full name",
   mobile: 'e.g. 01711-000000',
   address: 'e.g. House 7, Road 45, Gulshan-2, Dhaka',
   tin_bin: 'e.g. 123456789012',
   agency_owner_name: 'e.g. Md Abdul Karim',
   nid_passport: 'NID or passport number',
 }))
-/** Clients only: the RL number and the agency owner. */
-const CLIENT_ONLY = ['rl_number', 'agency_owner_name'] as const
+/** Agencies only: the RL number and the agency owner. */
+const AGENCY_ONLY = ['rl_number', 'agency_owner_name'] as const
 const visibleFields = computed(() =>
   textFields.value.filter(
-    ([key]) => isClient.value || !(CLIENT_ONLY as readonly string[]).includes(key),
+    ([key]) => isAgency.value || !(AGENCY_ONLY as readonly string[]).includes(key),
   ),
 )
 const models = {
@@ -212,6 +236,15 @@ const models = {
       <p v-else class="text-sm text-muted sm:col-span-2 lg:col-span-3">
         {{ party!.type_label }} · ID <strong class="text-ink">{{ party!.code }}</strong>
       </p>
+
+      <div v-if="isClient" class="sm:col-span-2 lg:col-span-3" data-field="kind">
+        <ReferenceTypeToggle v-model="kind" label="Agency or person" />
+        <p class="mt-1 text-xs text-muted">
+          An agency has an RL number; a person does not. The passport team sees this party as a
+          reference.
+        </p>
+        <p v-if="errors.kind" class="mt-1 text-sm text-red-700">{{ errors.kind }}</p>
+      </div>
 
       <div
         v-for="[key, label, required, autocomplete] in visibleFields"
@@ -302,6 +335,24 @@ const models = {
           <option value="payable">Payable (we owe them · Cr)</option>
         </select>
       </div>
+      <div class="sm:col-span-2 lg:col-span-3" data-field="notes">
+        <label :for="`${id}-notes`" class="block text-sm font-medium text-slate-700">
+          Notes (optional)
+        </label>
+        <textarea
+          :id="`${id}-notes`"
+          v-model="notes"
+          rows="2"
+          maxlength="2000"
+          :class="[inputClass, border('notes')]"
+          :aria-invalid="errors.notes ? 'true' : undefined"
+          :aria-describedby="describedBy('notes')"
+        />
+        <p v-if="errors.notes" :id="`${id}-notes-error`" class="mt-1 text-sm text-red-700">
+          {{ errors.notes }}
+        </p>
+      </div>
+
       <p v-if="isEdit && party!.totals" class="text-xs text-muted sm:col-span-2 lg:col-span-3">
         Current closing balance: {{ formatMoney(Math.abs(party!.totals.closing_balance)) }}
         {{ party!.totals.closing_balance >= 0 ? 'Dr' : 'Cr' }}. Changing the opening balance changes

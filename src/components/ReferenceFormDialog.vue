@@ -6,9 +6,9 @@ import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import type { Reference, ReferenceType } from '@/types/passport'
 
 /**
- * Create / edit form for a reference (the operations head): type and name required, phone and
- * notes optional. `reference` null creates a new one (always active; references are
- * (de)activated from the list).
+ * Create / edit form for a reference (the operations head): a client party. Type, name and
+ * phone required, an RL number for an agency, notes optional. `reference` null creates a new
+ * one (always active; references are (de)activated from the list).
  */
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{ reference: Reference | null }>()
@@ -18,6 +18,8 @@ const emit = defineEmits<{ saved: [reference: Reference, created: boolean] }>()
 const NAME_MAX = 150
 const PHONE_MAX = 30
 const NOTES_MAX = 2000
+const RL_MAX = 50
+const PHONE_PATTERN = /^\+?[0-9][0-9 -]{5,28}$/
 
 const TYPES: { value: ReferenceType; label: string }[] = [
   { value: 'person', label: 'Person' },
@@ -29,6 +31,7 @@ const fieldId = useId()
 const type = ref<ReferenceType>('person')
 const name = ref('')
 const phone = ref('')
+const rlNumber = ref('')
 const notes = ref('')
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
@@ -42,6 +45,7 @@ watch(open, (isOpen) => {
   type.value = r?.type ?? 'person'
   name.value = r?.name ?? ''
   phone.value = r?.phone ?? ''
+  rlNumber.value = r?.rl_number ?? ''
   notes.value = r?.notes ?? ''
   errors.value = {}
   banner.value = null
@@ -55,8 +59,17 @@ async function save() {
   if (!trimmedName) e.name = 'Enter the reference name.'
   else if (trimmedName.length > NAME_MAX)
     e.name = `The reference name must be at most ${NAME_MAX} characters.`
-  if (phone.value.trim().length > PHONE_MAX)
+  const trimmedPhone = phone.value.trim()
+  if (!trimmedPhone) e.phone = 'Enter the phone number.'
+  else if (trimmedPhone.length > PHONE_MAX)
     e.phone = `The phone number must be at most ${PHONE_MAX} characters.`
+  else if (!PHONE_PATTERN.test(trimmedPhone))
+    e.phone = 'Enter a valid phone number (digits, spaces or dashes, optional +).'
+  const isAgency = type.value === 'agency'
+  const trimmedRl = rlNumber.value.trim()
+  if (isAgency && !trimmedRl) e.rl_number = 'Enter the RL number of the agency.'
+  else if (isAgency && trimmedRl.length > RL_MAX)
+    e.rl_number = `The RL number must be at most ${RL_MAX} characters.`
   if (notes.value.trim().length > NOTES_MAX)
     e.notes = `The notes must be at most ${NOTES_MAX} characters.`
   errors.value = e
@@ -65,7 +78,8 @@ async function save() {
   const payload = {
     type: type.value,
     name: trimmedName,
-    phone: phone.value.trim() || null,
+    phone: trimmedPhone,
+    rl_number: isAgency ? trimmedRl : null,
     notes: notes.value.trim() || null,
   }
   isSaving.value = true
@@ -146,15 +160,36 @@ const inputClass =
         </p>
       </div>
 
+      <div v-if="type === 'agency'" data-field="rl_number">
+        <label :for="`${fieldId}-rl`" class="block text-sm font-medium text-slate-700">
+          RL number<span class="text-red-700" aria-hidden="true"> *</span>
+        </label>
+        <input
+          :id="`${fieldId}-rl`"
+          v-model="rlNumber"
+          type="text"
+          autocomplete="off"
+          required
+          :maxlength="RL_MAX"
+          :class="[inputClass, errors.rl_number ? 'border-red-500' : 'border-slate-300']"
+          :aria-invalid="errors.rl_number ? 'true' : undefined"
+          :aria-describedby="errors.rl_number ? `${fieldId}-rl-error` : undefined"
+        />
+        <p v-if="errors.rl_number" :id="`${fieldId}-rl-error`" class="mt-1 text-sm text-red-700">
+          {{ errors.rl_number }}
+        </p>
+      </div>
+
       <div data-field="phone">
         <label :for="`${fieldId}-phone`" class="block text-sm font-medium text-slate-700">
-          Phone
+          Phone<span class="text-red-700" aria-hidden="true"> *</span>
         </label>
         <input
           :id="`${fieldId}-phone`"
           v-model="phone"
           type="tel"
           autocomplete="off"
+          required
           :maxlength="PHONE_MAX"
           :class="[inputClass, errors.phone ? 'border-red-500' : 'border-slate-300']"
           :aria-invalid="errors.phone ? 'true' : undefined"

@@ -276,7 +276,12 @@ function openCompanyModal(query: string) {
 }
 
 const saveReference = (values: QuickAddValues) =>
-  createReference({ type: values.type ?? 'person', name: values.name, phone: values.phone })
+  createReference({
+    type: values.type ?? 'person',
+    name: values.name,
+    phone: values.phone,
+    rl_number: values.rl_number,
+  })
 
 const saveCompany = (values: QuickAddValues) =>
   createCompany({

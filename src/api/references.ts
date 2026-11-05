@@ -24,13 +24,13 @@ export async function searchReferences(params: {
   return data.data
 }
 
-/** 422 with errors.name when a reference with this name already exists. */
+/** 422 with errors.name when the name is taken for this type, errors.rl_number, errors.phone. */
 export async function createReference(payload: NewReference): Promise<Reference> {
   const { data } = await api.post<{ data: Reference }>(BASE, payload)
   return data.data
 }
 
-/* ---------- Management (the operations head) ---------- */
+/* ---------- Management (the operations head). References are never deleted. ---------- */
 
 const ADMIN = '/api/admin/references'
 
@@ -64,9 +64,4 @@ export async function updateAdminReference(
 ): Promise<Reference> {
   const { data } = await api.patch<{ data: Reference }>(`${ADMIN}/${id}`, changes)
   return data.data
-}
-
-/** 422 with code reference_has_passports when the reference has passports. */
-export async function deleteAdminReference(id: number): Promise<void> {
-  await api.delete(`${ADMIN}/${id}`)
 }

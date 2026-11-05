@@ -271,12 +271,12 @@ const loanBalance = (p: Party) =>
                   <th scope="col" :class="TABLE_TH">ID</th>
                   <th v-if="query.type === 'client'" scope="col" :class="TABLE_TH">RL Number</th>
                   <th scope="col" :class="TABLE_TH">
-                    {{ query.type === 'client' ? 'Agency Name' : 'Name' }}
+                    {{ query.type === 'client' ? 'Agency / Person' : 'Name' }}
                   </th>
                   <th v-if="query.type === 'owner'" scope="col" :class="TABLE_TH">Designation</th>
                   <th v-if="query.type === 'client'" scope="col" :class="TABLE_TH">Agency owner</th>
                   <th scope="col" :class="TABLE_TH">
-                    {{ query.type === 'client' ? 'Agency owner NID / Passport' : 'NID / Passport' }}
+                    {{ query.type === 'client' ? 'Owner NID / Passport' : 'NID / Passport' }}
                   </th>
                   <th scope="col" :class="[TABLE_TH, 'text-right']">Opening</th>
                   <template v-if="query.type === 'client'">
@@ -312,7 +312,9 @@ const loanBalance = (p: Party) =>
                     >
                       {{ p.name }}
                     </RouterLink>
-                    <span class="block text-xs font-normal text-muted">{{ p.mobile }}</span>
+                    <span class="block text-xs font-normal text-muted">
+                      {{ [p.kind_label, p.mobile].filter(Boolean).join(' · ') }}
+                    </span>
                   </th>
                   <td
                     v-if="query.type === 'owner'"
@@ -325,7 +327,7 @@ const loanBalance = (p: Party) =>
                     {{ p.agency_owner_name ?? '—' }}
                   </td>
                   <td :class="TABLE_TD">
-                    {{ p.nid_passport }}
+                    {{ p.nid_passport ?? '—' }}
                     <span v-if="p.tin_bin" class="block text-xs text-muted"
                       >TIN/BIN {{ p.tin_bin }}</span
                     >

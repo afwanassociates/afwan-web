@@ -147,22 +147,35 @@ export interface PartyTotals {
   closing_balance: number
 }
 
+/** What kind of client a party is (also a passport's reference type). */
+export type PartyKind = 'agency' | 'person'
+
+/**
+ * A client is also the reference of the passports it gives; data entry quick-adds clients
+ * with only a name and phone (plus the RL number for an agency), so a client's mobile,
+ * address and NID / passport may be empty until the accounts team fills them in.
+ */
 export interface Party {
   id: number
   code: string
   type: PartyType
   type_label: string
+  /** Clients only: agency or person. */
+  kind: PartyKind | null
+  kind_label: string | null
+  /** Agencies only. */
   rl_number: string | null
   name: string
-  /** Clients only: the agency's owner, whose NID / passport is nid_passport. */
+  /** Agencies only: the agency's owner, whose NID / passport is nid_passport. */
   agency_owner_name: string | null
   /** Owners only; null for clients and for owners added before it was asked. */
   designation: OwnerDesignation | null
   designation_label: string | null
-  mobile: string
-  address: string
-  nid_passport: string
+  mobile: string | null
+  address: string | null
+  nid_passport: string | null
   tin_bin: string | null
+  notes: string | null
   opening_balance: number
   opening_balance_type: BalanceType
   is_active: boolean
@@ -174,16 +187,21 @@ export interface Party {
 /** Body of POST /parties (type only on create) and PATCH /parties/{id}. */
 export interface PartyPayload {
   type?: PartyType
+  /** Clients only (required); left out for owners. */
+  kind?: PartyKind
+  /** Agencies only (required); null for persons and owners. */
   rl_number: string | null
   name: string
-  /** Clients only; null for owners. */
+  /** Agencies only (optional); null for persons and owners. */
   agency_owner_name: string | null
   /** Owners only (required on create); left out for clients. */
   designation?: OwnerDesignation
   mobile: string
-  address: string
-  nid_passport: string
+  /** Required for owners, optional for clients. */
+  address: string | null
+  nid_passport: string | null
   tin_bin: string | null
+  notes?: string | null
   opening_balance: number
   opening_balance_type: BalanceType
 }

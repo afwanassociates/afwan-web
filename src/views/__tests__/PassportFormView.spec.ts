@@ -546,8 +546,10 @@ describe('PassportFormView', () => {
       const added = {
         ...PERSON,
         id: 99,
+        code: 'PT-0099',
         name: 'New Agent',
-        phone: null,
+        phone: '01711-000000',
+        rl_number: 'RL 1234',
         notes: null,
         is_active: true,
         created_at: '',
@@ -576,13 +578,24 @@ describe('PassportFormView', () => {
       expect(typeButtons.map((b) => b.text())).toEqual(['Person', 'Agency'])
       expect(typeButtons[0]!.attributes('aria-pressed')).toBe('true')
       await typeButtons[1]!.trigger('click')
+      // A reference needs a phone, and an agency its RL number.
+      await dialogForm.trigger('submit')
+      await flushPromises()
+      expect(createReference).not.toHaveBeenCalled()
+      expect(dialogForm.find('[data-field="phone"]').text()).toContain('Enter the phone number.')
+      expect(dialogForm.find('[data-field="rl_number"]').text()).toContain(
+        'Enter the RL number of the agency.',
+      )
+      await dialogForm.get('[data-field="phone"] input').setValue('01711-000000')
+      await dialogForm.get('[data-field="rl_number"] input').setValue('RL 1234')
       await dialogForm.trigger('submit')
       await flushPromises()
 
       expect(createReference).toHaveBeenCalledWith({
         type: 'agency',
         name: 'New Agent',
-        phone: null,
+        phone: '01711-000000',
+        rl_number: 'RL 1234',
       })
       expect(select('Reference').value()).toEqual(added)
       expect(select('Reference').error()).toBeUndefined()

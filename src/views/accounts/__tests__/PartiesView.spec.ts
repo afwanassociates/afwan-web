@@ -21,6 +21,8 @@ function party(overrides: Partial<Party> = {}): Party {
     code: 'PT-0001',
     type: 'client',
     type_label: 'Party / Client',
+    kind: 'agency',
+    kind_label: 'Agency',
     rl_number: null,
     name: 'Karim Traders',
     agency_owner_name: null,
@@ -30,6 +32,7 @@ function party(overrides: Partial<Party> = {}): Party {
     address: 'Dhaka',
     nid_passport: 'N1',
     tin_bin: null,
+    notes: null,
     opening_balance: 1000,
     opening_balance_type: 'receivable',
     is_active: true,
@@ -109,8 +112,8 @@ describe('PartiesView', () => {
     expect(row.text()).toContain('5,000.00')
     expect(row.find('[data-closing]').text()).toBe('3,200.00 Dr')
     expect(row.find('[data-agency-owner]').text()).toBe('—')
-    expect(wrapper.find('thead').text()).toContain('Agency owner NID / Passport')
-    expect(wrapper.find('thead').text()).toContain('Agency Name')
+    expect(wrapper.find('thead').text()).toContain('Owner NID / Passport')
+    expect(wrapper.find('thead').text()).toContain('Agency / Person')
     // Loan outstanding is for owners only.
     expect(row.find('[data-loan]').exists()).toBe(false)
     expect(wrapper.find('thead').text()).not.toContain('Loan outstanding')
@@ -170,7 +173,9 @@ describe('PartiesView', () => {
     await wrapper.find('[data-create]').trigger('click')
     await flushPromises()
     const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
-    expect(dialog.find('h2').text()).toBe('New Party / Agency')
+    expect(dialog.find('h2').text()).toBe('New Party / Client')
+    // A new client starts as an agency.
+    expect(dialog.find('[data-field="kind"] button[aria-pressed="true"]').text()).toBe('Agency')
     // Agency name first; the agency owner's name and NID / passport last.
     const order = dialog
       .findAll('[data-field] input[type="text"]')
@@ -186,7 +191,8 @@ describe('PartiesView', () => {
     ])
     expect(dialog.find('[data-field="name"] label').text()).toBe('Agency Name *')
     expect(dialog.find('[data-field="mobile"] label').text()).toBe('Agency Mobile *')
-    expect(dialog.find('[data-field="address"] label').text()).toBe('Agency Address *')
+    // Data entry adds clients with only a name and phone: the rest is optional.
+    expect(dialog.find('[data-field="address"] label').text()).toBe('Agency Address (optional)')
     // Every empty field shows what to type.
     for (const input of dialog.findAll('[data-field] input[type="text"]'))
       expect(input.attributes('placeholder')).toBeTruthy()
@@ -205,6 +211,7 @@ describe('PartiesView', () => {
 
     expect(createParty).toHaveBeenCalledWith({
       type: 'client',
+      kind: 'agency',
       rl_number: 'RL 1234',
       name: 'Rahim Uddin',
       agency_owner_name: 'Abdul Karim',
@@ -212,10 +219,46 @@ describe('PartiesView', () => {
       address: 'Feni',
       nid_passport: 'AB1234',
       tin_bin: null,
+      notes: null,
       opening_balance: 500,
       opening_balance_type: 'receivable',
     })
     expect(listParties).toHaveBeenCalledTimes(2)
+  })
+
+  it('creates a person: no RL number or agency owner, only a name and a mobile', async () => {
+    vi.mocked(createParty).mockResolvedValue(party({ id: 2, code: 'PT-0002' }))
+    await mountView()
+
+    await wrapper.find('[data-create]').trigger('click')
+    await flushPromises()
+    const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
+    const person = dialog.findAll('[data-field="kind"] button').find((b) => b.text() === 'Person')!
+    await person.trigger('click')
+
+    expect(dialog.find('[data-field="rl_number"]').exists()).toBe(false)
+    expect(dialog.find('[data-field="agency_owner_name"]').exists()).toBe(false)
+    expect(dialog.find('[data-field="name"] label').text()).toBe('Name *')
+    expect(dialog.find('[data-field="nid_passport"] label').text()).toBe(
+      'NID / Passport (optional)',
+    )
+    await dialog.find('[data-field="name"] input').setValue('Abdul Karim')
+    await dialog.find('[data-field="mobile"] input').setValue('01711-000000')
+    await dialog.find('form').trigger('submit')
+    await flushPromises()
+
+    expect(createParty).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'client',
+        kind: 'person',
+        rl_number: null,
+        agency_owner_name: null,
+        name: 'Abdul Karim',
+        mobile: '01711-000000',
+        address: null,
+        nid_passport: null,
+      }),
+    )
   })
 
   it('checks the form before sending', async () => {
@@ -229,14 +272,14 @@ describe('PartiesView', () => {
     await flushPromises()
 
     expect(createParty).not.toHaveBeenCalled()
-    expect(dialog.find('[data-field="rl_number"]').text()).toContain('Enter the RL number.')
+    expect(dialog.find('[data-field="rl_number"]').text()).toContain(
+      'Enter the RL number of the agency.',
+    )
     expect(dialog.find('[data-field="name"]').text()).toContain('Enter the agency name.')
-    expect(dialog.find('[data-field="agency_owner_name"]').text()).toContain(
-      'Enter the agency owner name.',
-    )
-    expect(dialog.find('[data-field="nid_passport"]').text()).toContain(
-      "Enter the agency owner's NID or passport number.",
-    )
+    // Optional for a client: the accounts team may fill them in later.
+    expect(dialog.find('[data-field="agency_owner_name"] p').exists()).toBe(false)
+    expect(dialog.find('[data-field="nid_passport"] p').exists()).toBe(false)
+    expect(dialog.find('[data-field="address"] p').exists()).toBe(false)
     expect(dialog.find('[data-field="mobile"]').text()).toContain('valid mobile')
   })
 
