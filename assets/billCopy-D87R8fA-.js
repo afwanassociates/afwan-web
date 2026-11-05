@@ -1,0 +1,1 @@
+import{t as e}from"./errors-CjLoi1u6.js";import{I as t}from"./index-BJTlGeXI.js";async function n(n){let r=window.open(``,`_blank`);try{let e=await t(n),i=URL.createObjectURL(e);return r?r.location.href=i:window.location.href=i,setTimeout(()=>URL.revokeObjectURL(i),6e4),null}catch(t){return r?.close(),e(t,`Could not open the bill copy. Please try again.`)}}export{n as t};
