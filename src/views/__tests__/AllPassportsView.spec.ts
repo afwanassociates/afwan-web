@@ -261,13 +261,11 @@ describe('All Passports (read-only overview)', () => {
     expect(row.get('a').attributes('href')).toBe('/passports/7')
   })
 
-  it('has no Company, Country or Sort-by controls and no sortable headers', async () => {
+  it('has the search, reference and company lookups, Step and Date, and no Country or Sort-by controls', async () => {
     await mountPage()
 
     const labels = wrapper.findAll('label').map((l) => l.text().trim())
-    expect(labels).toEqual(['Search', 'Search reference', 'Search company'])
-    expect(wrapper.find('select').exists()).toBe(false)
-    expect(wrapper.find('input[role="combobox"]').exists()).toBe(false)
+    expect(labels).toEqual(['Search', 'Filter by reference', 'Filter by company', 'Step', 'Date'])
     expect(wrapper.text()).not.toMatch(/Company country|Sort by|Any company|All countries/)
     expect(wrapper.find('th[aria-sort]').exists()).toBe(false)
     expect(wrapper.find('th button').exists()).toBe(false)
@@ -293,21 +291,33 @@ describe('All Passports (read-only overview)', () => {
     )
     expect(filters.sort).toBeUndefined()
     expect(filters.direction).toBeUndefined()
-    expect(filters).not.toHaveProperty('company_id')
+    expect(filters.company_id).toBeUndefined()
     expect(filters).not.toHaveProperty('company_country_code')
   })
 
-  it('ignores and drops old status, stage, sort, company and country parameters', async () => {
+  it('ignores and drops old status, sort, company text and country parameters', async () => {
     await mountPage(
       'admin',
-      '/all-passports?status=unfit&stage=medical&sort=status_date:asc&company_id=3&company_country_code=MY&q=rahim',
+      '/all-passports?status=unfit&stage=medical&sort=status_date:asc&company=desert&company_id=3&company_country_code=MY&q=rahim',
     )
     await flushPromises()
 
-    expect(router.currentRoute.value.query).toEqual({ q: 'rahim' })
-    expect(lastFilters()).toEqual(expect.objectContaining({ medical_status: 'all', q: 'rahim' }))
+    // Step and the company lookup are current filters and stay.
+    expect(router.currentRoute.value.query).toEqual({
+      q: 'rahim',
+      stage: 'medical',
+      company_id: '3',
+    })
+    expect(lastFilters()).toEqual(
+      expect.objectContaining({
+        medical_status: 'all',
+        q: 'rahim',
+        stage: 'medical',
+        company_id: 3,
+      }),
+    )
     expect(lastFilters()!.sort).toBeUndefined()
-    expect(lastFilters()!.company_id).toBeUndefined()
+    expect(lastFilters()).not.toHaveProperty('company')
   })
 
   describe('Step and date filters', () => {
@@ -477,73 +487,53 @@ describe('All Passports (read-only overview)', () => {
     })
   })
 
-  describe('company search', () => {
-    it('renders next to the other searches, empty, with no clear button yet', async () => {
+  describe('company filter', () => {
+    const DESERT = { id: 3, name: 'Desert Rose', country_code: 'SA' } as const
+
+    it('is a lookup next to the other searches, with "All companies"', async () => {
       await mountPage()
 
-      const input = wrapper.get<HTMLInputElement>('input[data-company-search]')
-      expect(input.element.value).toBe('')
-      expect(input.attributes('type')).toBe('text')
-      expect(wrapper.find('button[data-clear-company]').exists()).toBe(false)
-      // Still a plain text search, not the old Company dropdown.
-      expect(wrapper.find('input[role="combobox"]').exists()).toBe(false)
+      expect(wrapper.find('input[data-company-search]').exists()).toBe(false)
+      expect(filterSelect('Filter by company').props()).toMatchObject({
+        placeholder: 'Search company…',
+        noneLabel: 'All companies',
+        clearable: true,
+      })
     })
 
-    it('is debounced (300 ms) and sends ?company= together with q and reference', async () => {
-      vi.useFakeTimers()
-      try {
-        await mountPage('admin', '/all-passports?q=rahim&reference=green')
+    it('choosing a company sends ?company_id= with the other searches; clearing removes it', async () => {
+      await mountPage('admin', '/all-passports?q=rahim&reference_id=8&page=2')
 
-        await wrapper.get('input[data-company-search]').setValue('Desert R')
-        await vi.advanceTimersByTimeAsync(200)
-        expect(router.currentRoute.value.query.company).toBeUndefined()
-
-        await vi.advanceTimersByTimeAsync(150)
-        await flushPromises()
-        expect(router.currentRoute.value.query).toEqual({
-          q: 'rahim',
-          reference: 'green',
-          company: 'Desert R',
-        })
-        expect(lastFilters()).toEqual(
-          expect.objectContaining({
-            q: 'rahim',
-            reference: 'green',
-            company: 'Desert R',
-            page: 1,
-          }),
-        )
-      } finally {
-        vi.useRealTimers()
-      }
-    })
-
-    it('is read from the URL, so a refresh or shared link keeps it', async () => {
-      await mountPage('admin', '/all-passports?company=desert')
-
-      expect(wrapper.get<HTMLInputElement>('input[data-company-search]').element.value).toBe(
-        'desert',
+      filterSelect('Filter by company').vm.$emit('update:modelValue', DESERT)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({
+        q: 'rahim',
+        reference_id: '8',
+        company_id: '3',
+      })
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ q: 'rahim', reference_id: 8, company_id: 3, page: 1 }),
       )
-      expect(lastFilters()).toEqual(expect.objectContaining({ company: 'desert' }))
-      // The old company id filter is never sent.
+
+      filterSelect('Filter by company').vm.$emit('update:modelValue', null)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({ q: 'rahim', reference_id: '8' })
       expect(lastFilters()!.company_id).toBeUndefined()
     })
 
-    it('has a clear (x) button that keeps the other two searches', async () => {
-      await mountPage('admin', '/all-passports?company=desert&reference=green&q=rahim&page=2')
+    it('is read from the URL, so a refresh or shared link keeps it; the old ?company= text is dropped', async () => {
+      await mountPage('admin', '/all-passports?company_id=3&company=desert')
 
-      const clear = wrapper.get('button[data-clear-company]')
-      expect(clear.text()).toBe('Clear company search')
-      await clear.trigger('click')
-      await flushPromises()
-
-      expect(router.currentRoute.value.query).toEqual({ q: 'rahim', reference: 'green' })
-      expect(lastFilters()!.company).toBeUndefined()
-      expect(lastFilters()).toEqual(expect.objectContaining({ q: 'rahim', reference: 'green' }))
+      expect(lastFilters()).toEqual(expect.objectContaining({ company_id: 3 }))
+      expect(lastFilters()).not.toHaveProperty('company')
+      expect(router.currentRoute.value.query).toEqual({ company_id: '3' })
     })
 
     it('"Clear searches" clears all three', async () => {
-      await mountPage('admin', '/all-passports?company=desert&reference=green&q=rahim')
+      await mountPage('admin', '/all-passports?company_id=3&reference_id=8&q=rahim')
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ q: 'rahim', reference_id: 8, company_id: 3 }),
+      )
 
       const clearAll = wrapper.findAll('button').find((b) => b.text() === 'Clear searches')!
       await clearAll.trigger('click')

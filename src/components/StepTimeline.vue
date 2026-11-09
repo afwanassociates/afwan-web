@@ -16,9 +16,10 @@ import type { StepRecord, StepRecordSummary } from '@/types/workflow'
 
 /**
  * A passport's steps as a vertical timeline: each step's state, latest record and older
- * records (collapsed). Read-only: steps are recorded and changed on their own pages. Records
- * are never deleted; the operations head's "Undo Online mark" sits in the first recorded step
- * (where the Online badge is).
+ * records (collapsed). Steps are recorded on their own pages; here the latest record can be
+ * corrected and its last action undone (stepActions). Records are never deleted; the
+ * operations head's "Undo Online mark" sits in the first recorded step (where the Online badge
+ * is) and "Back to Passport Entry" in Medical.
  */
 const props = defineProps<{
   passport: PassportEntry
@@ -27,9 +28,15 @@ const props = defineProps<{
   role: Role | undefined
   userId: number | null
   /** The operations head, before any step record: the Online mark to undo. */
-  earlyUndo?: { kind: 'mark'; label: string } | null
+  earlyUndo?: { kind: 'mark' | 'slip'; label: string } | null
+  /**
+   * Buttons under a step's latest record (Calling onwards), by step key: "edit" (correct the
+   * record) and the undos (BMET actions, flight booking and confirmation). The page decides
+   * which apply; the API checks them again.
+   */
+  stepActions?: Record<string, { key: string; label: string; tone: 'edit' | 'undo' }[]>
 }>()
-defineEmits<{ earlyUndo: [] }>()
+defineEmits<{ earlyUndo: []; stepAction: [stepKey: string, actionKey: string] }>()
 
 const workflow = useWorkflowStore()
 
@@ -267,8 +274,34 @@ const smallButton =
         </details>
       </template>
 
-      <!-- The operations head: undo the Online mark (by its badge) -->
-      <div v-if="earlyUndo && step.key === firstRecordStep" class="mt-2 -ml-2 flex flex-wrap gap-1">
+      <!-- Correct the latest record, or undo its last action -->
+      <div
+        v-if="stepActions?.[step.key]?.length"
+        class="mt-2 -ml-2 flex flex-wrap gap-1"
+        :data-step-actions="step.key"
+      >
+        <button
+          v-for="action in stepActions[step.key]"
+          :key="action.key"
+          type="button"
+          :class="[
+            smallButton,
+            action.tone === 'edit'
+              ? 'text-primary-700 hover:bg-primary-50'
+              : 'text-red-700 hover:bg-red-50',
+          ]"
+          :data-step-action="action.key"
+          @click="$emit('stepAction', step.key, action.key)"
+        >
+          {{ action.label }}
+        </button>
+      </div>
+
+      <!-- The operations head: back to Passport Entry (on Medical) or undo the Online mark -->
+      <div
+        v-if="earlyUndo && step.key === (earlyUndo.kind === 'slip' ? 'medical' : firstRecordStep)"
+        class="mt-2 -ml-2 flex flex-wrap gap-1"
+      >
         <button
           type="button"
           :class="[smallButton, 'text-red-700 hover:bg-red-50']"

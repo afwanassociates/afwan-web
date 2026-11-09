@@ -1,4 +1,5 @@
 import { addMonthsNoOverflow, toApiDate, todayApiDate } from '@/lib/dates'
+import { DATE_RULE_DEFAULTS } from '@/lib/dateRules'
 
 /**
  * Client-side mirror of the API's passport rules (StorePassportEntryRequest).
@@ -8,7 +9,21 @@ import { addMonthsNoOverflow, toApiDate, todayApiDate } from '@/lib/dates'
 export const PASSPORT_NAME_MAX = 150
 export const PASSPORT_NUMBER_PATTERN = /^[A-Z0-9]{6,20}$/
 /** The passport must be valid for at least this many months after it is received. */
-export const PASSPORT_MIN_VALIDITY_MONTHS = 18
+/** The defaults; the form passes the current Settings → Date rules values. */
+export const PASSPORT_MIN_VALIDITY_MONTHS = DATE_RULE_DEFAULTS.passport_min_validity_months
+export const PASSPORT_MINIMUM_AGE_YEARS = DATE_RULE_DEFAULTS.minimum_age_years
+
+export interface PassportDateLimits {
+  /** The passport must be valid this many months after it is received. */
+  minValidityMonths: number
+  /** The person must be at least this many years old (0: no check). */
+  minimumAgeYears: number
+}
+
+/** The latest date of birth for the minimum age (the API counts the same way). */
+export function latestBirthDate(today: string, minimumAgeYears: number): string {
+  return addMonthsNoOverflow(today, -12 * minimumAgeYears)
+}
 
 /** While typing: uppercase only, so spaces can still be typed between words. */
 export function normalizePassportNameInput(value: string): string {
@@ -47,6 +62,10 @@ export type PassportFormErrors = Partial<Record<keyof PassportFormValues, string
 export function validatePassportForm(
   values: PassportFormValues,
   today: string = todayApiDate(),
+  limits: PassportDateLimits = {
+    minValidityMonths: PASSPORT_MIN_VALIDITY_MONTHS,
+    minimumAgeYears: PASSPORT_MINIMUM_AGE_YEARS,
+  },
 ): PassportFormErrors {
   const errors: PassportFormErrors = {}
 
@@ -66,15 +85,12 @@ export function validatePassportForm(
 
   // YYYY-MM-DD strings compare correctly as text.
   const birth = toApiDate(values.date_of_birth)
-  const minAge18 = (() => {
-    const [y, m, d] = today.split('-').map(Number) as [number, number, number]
-    const date = new Date(y - 18, m - 1, d)
-    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-  })()
+  const latestBirth = latestBirthDate(today, limits.minimumAgeYears)
   if (!values.date_of_birth) errors.date_of_birth = 'Enter the date of birth.'
   else if (!birth) errors.date_of_birth = 'Enter a valid date.'
   else if (birth >= today) errors.date_of_birth = 'The date of birth must be in the past.'
-  else if (birth > minAge18) errors.date_of_birth = 'The person must be at least 18 years old.'
+  else if (limits.minimumAgeYears > 0 && birth > latestBirth)
+    errors.date_of_birth = `The person must be at least ${limits.minimumAgeYears} years old.`
 
   const received = toApiDate(values.passport_received_date)
   if (!values.passport_received_date) errors.passport_received_date = 'Enter the received date.'
@@ -88,8 +104,8 @@ export function validatePassportForm(
   else if (received && expiry <= received)
     errors.passport_expiry_date =
       'The passport expiry date must be after the passport received date.'
-  else if (received && expiry < addMonthsNoOverflow(received, PASSPORT_MIN_VALIDITY_MONTHS))
-    errors.passport_expiry_date = `The passport must be valid for at least ${PASSPORT_MIN_VALIDITY_MONTHS} months after the received date.`
+  else if (received && expiry < addMonthsNoOverflow(received, limits.minValidityMonths))
+    errors.passport_expiry_date = `The passport must be valid for at least ${limits.minValidityMonths} months after the received date.`
 
   return errors
 }

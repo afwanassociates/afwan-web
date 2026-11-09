@@ -5,6 +5,7 @@ import type {
   ExpenseCategory,
   MobileBankingProvider,
   OwnerDesignation,
+  PartyPassport,
   PartyType,
 } from '@/types/accounts'
 
@@ -158,5 +159,30 @@ export function useCashRefresh(): () => void {
   const context = inject(CASH_CONTEXT, null)
   return () => {
     void context?.refresh()
+  }
+}
+
+/**
+ * The payment badge of a party's passport (cash receive form and ledger): paid off, waiting
+ * for the receipt that pays it off, part paid (with those receipts) or unpaid.
+ */
+export function passportPaymentBadge(p: PartyPassport): { text: string; cls: string } {
+  const full = p.receipts.find((r) => r.is_full_payment)
+  const numbers = p.receipts.map((r) => r.receipt_no).join(', ')
+  switch (p.status) {
+    case 'paid':
+      return {
+        text: `Paid · ${full?.receipt_no ?? numbers}`,
+        cls: 'bg-green-50 text-green-800 ring-green-300',
+      }
+    case 'pending':
+      return {
+        text: `Pending · ${full?.receipt_no ?? numbers}`,
+        cls: 'bg-amber-50 text-amber-900 ring-amber-300',
+      }
+    case 'part_paid':
+      return { text: `Part paid · ${numbers}`, cls: 'bg-sky-50 text-sky-900 ring-sky-300' }
+    default:
+      return { text: 'Unpaid', cls: 'bg-slate-100 text-slate-700 ring-slate-300' }
   }
 }

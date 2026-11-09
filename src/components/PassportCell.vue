@@ -4,7 +4,7 @@ import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StageBadge from '@/components/StageBadge.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import { daysLeft, toDisplayDate } from '@/lib/dates'
-import { EXPIRING_SOON_DAYS } from '@/lib/medical'
+import { useDateRules } from '@/lib/dateRules'
 import type { PassportColumn } from '@/lib/passportColumns'
 import type { PassportEntry } from '@/types/passport'
 
@@ -18,6 +18,8 @@ const props = defineProps<{
 }>()
 
 const medical = computed(() => props.entry.current_medical)
+/** Settings → Date rules: Medical "expiring soon" days. */
+const dateRules = useDateRules(() => props.entry.company?.country?.code)
 
 /** Days left of a fit result: from the API, or worked out from valid_until. */
 const left = computed(() => {
@@ -113,7 +115,7 @@ const enteredBy = computed(() => {
       :class="
         left < 0
           ? 'bg-orange-50 text-orange-800'
-          : left <= EXPIRING_SOON_DAYS
+          : left <= dateRules.medical_expiring_soon_days
             ? 'bg-accent-50 text-accent-800'
             : 'bg-green-50 text-green-800'
       "

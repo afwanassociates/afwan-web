@@ -3,7 +3,8 @@ import api from '@/lib/api'
 /** Settings → Danger zone: delete all data. Super admin only (403 for everyone else). */
 const BASE = '/api/super-admin/data-reset'
 
-export type DataGroupKey = 'passports' | 'companies' | 'accounts'
+/** "transactions" is accounts without the parties; "accounts" holds every transactions table too. */
+export type DataGroupKey = 'passports' | 'companies' | 'transactions' | 'accounts'
 
 export interface DataGroup {
   key: DataGroupKey
@@ -46,8 +47,8 @@ export async function fetchDataReset(): Promise<DataResetOverview> {
 }
 
 /**
- * Back up, then delete the groups. 422 on confirmation / password / groups (companies need
- * passports); 429 after 5 tries a minute.
+ * Back up, then delete the groups. 422 on confirmation / password / groups (companies and
+ * accounts need passports; transactions need nothing); 429 after 5 tries a minute.
  */
 export async function resetData(payload: {
   groups: DataGroupKey[]

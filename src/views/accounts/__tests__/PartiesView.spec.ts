@@ -112,9 +112,18 @@ describe('PartiesView', () => {
     expect(row.text()).toContain('1,000.00 Dr')
     expect(row.text()).toContain('5,000.00')
     expect(row.find('[data-closing]').text()).toBe('3,200.00 Dr')
-    expect(row.find('[data-agency-owner]').text()).toBe('—')
-    expect(wrapper.find('thead').text()).toContain('Owner NID / Passport')
     expect(wrapper.find('thead').text()).toContain('Agency / Person')
+    // Agency owner and NID / passport sit behind the details button, not in the table.
+    expect(wrapper.find('thead').text()).not.toContain('NID')
+    expect(wrapper.find('[data-details-row="1"]').exists()).toBe(false)
+    const details = row.get('[data-details]')
+    expect(details.attributes('aria-expanded')).toBe('false')
+    await details.trigger('click')
+    expect(details.attributes('aria-expanded')).toBe('true')
+    const detailsRow = wrapper.get('[data-details-row="1"]')
+    expect(detailsRow.text()).toContain('N1')
+    await details.trigger('click')
+    expect(wrapper.find('[data-details-row="1"]').exists()).toBe(false)
     // Loan outstanding is for owners only.
     expect(row.find('[data-loan]').exists()).toBe(false)
     expect(wrapper.find('thead').text()).not.toContain('Loan outstanding')
@@ -259,6 +268,73 @@ describe('PartiesView', () => {
         address: null,
         nid_passport: null,
       }),
+    )
+  })
+
+  it('keeps a separate draft for a new person and a new agency', async () => {
+    vi.mocked(createParty).mockResolvedValue(party({ id: 2, code: 'PT-0002' }))
+    await mountView()
+
+    await wrapper.find('[data-create]').trigger('click')
+    await flushPromises()
+    const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
+    const kindButton = (label: string) =>
+      dialog.findAll('[data-field="kind"] button').find((b) => b.text() === label)!
+    const value = (field: string) =>
+      (dialog.find(`[data-field="${field}"] input`).element as HTMLInputElement).value
+
+    await kindButton('Person').trigger('click')
+    await dialog.find('[data-field="name"] input').setValue('Md Abdul Karim')
+    await dialog.find('[data-field="nid_passport"] input').setValue('1990123')
+
+    // The agency starts empty: the person's name and NID do not become the agency's.
+    await kindButton('Agency').trigger('click')
+    expect(value('name')).toBe('')
+    expect(value('nid_passport')).toBe('')
+    await dialog.find('[data-field="name"] input').setValue('Sea Star Overseas')
+
+    // Back to the person: their details are still there.
+    await kindButton('Person').trigger('click')
+    expect(value('name')).toBe('Md Abdul Karim')
+    expect(value('nid_passport')).toBe('1990123')
+    await kindButton('Agency').trigger('click')
+    expect(value('name')).toBe('Sea Star Overseas')
+
+    // The owner tab has its own draft too.
+    await kindButton('Person').trigger('click')
+    await dialog.find('input[type="radio"][value="owner"]').setValue(true)
+    expect(value('name')).toBe('')
+    await dialog.find('[data-field="name"] input').setValue('Chairman')
+    await dialog.find('input[type="radio"][value="client"]').setValue(true)
+    expect(value('name')).toBe('Md Abdul Karim')
+    await dialog.find('input[type="radio"][value="owner"]').setValue(true)
+    expect(value('name')).toBe('Chairman')
+    await dialog.find('input[type="radio"][value="client"]').setValue(true)
+
+    // Only the chosen kind is saved.
+    await kindButton('Person').trigger('click')
+    await dialog.find('[data-field="mobile"] input').setValue('01711-000000')
+    await dialog.find('form').trigger('submit')
+    await flushPromises()
+    expect(createParty).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'person', name: 'Md Abdul Karim', nid_passport: '1990123' }),
+    )
+  })
+
+  it('keeps the details when an existing party changes kind', async () => {
+    vi.mocked(updateParty).mockResolvedValue(party())
+    await mountView()
+
+    await wrapper.find('[data-party="1"] [data-edit]').trigger('click')
+    await flushPromises()
+    const dialog = wrapper.findComponent({ name: 'PartyFormDialog' })
+    await dialog
+      .findAll('[data-field="kind"] button')
+      .find((b) => b.text() === 'Person')!
+      .trigger('click')
+
+    expect((dialog.find('[data-field="name"] input').element as HTMLInputElement).value).toBe(
+      'Karim Traders',
     )
   })
 

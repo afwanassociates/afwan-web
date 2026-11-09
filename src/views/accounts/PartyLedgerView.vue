@@ -5,6 +5,7 @@ import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import ApprovalBadge from '@/components/accounts/ApprovalBadge.vue'
 import ReturnReasonDialog from '@/components/accounts/ReturnReasonDialog.vue'
 import PartyTransactionDialog from '@/components/accounts/PartyTransactionDialog.vue'
+import PartyPassportsCard from '@/components/accounts/PartyPassportsCard.vue'
 import { deletePartyTransaction, fetchPartyLedger } from '@/api/accounts'
 import { useApprovalActions } from '@/composables/useApprovalActions'
 import { useToast } from '@/composables/useToast'
@@ -54,7 +55,11 @@ const isLoading = ref(false)
 const loadError = ref<string | null>(null)
 let requestId = 0
 
+/** Bumped on every reload, so the passports card reloads too (receipts may have changed). */
+const loadCount = ref(0)
+
 async function load() {
+  loadCount.value++
   const id = ++requestId
   isLoading.value = true
   loadError.value = null
@@ -511,6 +516,8 @@ const amount = (value: number) => (value ? formatMoney(value) : '')
           </table>
         </div>
       </section>
+
+      <PartyPassportsCard v-if="party && !isOwner" :party-id="party.id" :version="loadCount" />
 
       <ReturnReasonDialog
         v-model:open="actions.returnOpen.value"

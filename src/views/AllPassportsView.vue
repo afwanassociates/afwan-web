@@ -24,9 +24,9 @@ import type { CompanySummary, PassportOverview, ReferenceSummary } from '@/types
  * All Passports: a read-only overview of every passport in every status (unfit included),
  * each with one coloured "Latest status". No create, edit or delete controls, no sorting
  * (newest entered first) and no "Completed" bucket: Flight is the final step and shows
- * through the latest status. Three searches, all in the URL and combined (AND): ?q= (name
- * or passport number), ?reference= (part of the reference's name) and ?company= (part of
- * the company's name).
+ * through the latest status. Filters, all in the URL and combined (AND): ?q= (name or
+ * passport number), ?reference_id= and ?company_id= (lookups), ?stage= and the date of the
+ * current step's status (?date=, or ?date_from= / ?date_to= for a custom range).
  */
 const PER_PAGE = 15
 
@@ -35,9 +35,9 @@ const OLD_KEYS = [
   'status',
   'medical_status',
   'sort',
-  'company_id',
   'company_name',
   'company_country_code',
+  // The old company text search (now Filter by company, ?company_id=).
   'company',
   // The old reference text search (now Filter by reference, ?reference_id=).
   'reference',

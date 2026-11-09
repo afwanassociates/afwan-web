@@ -28,6 +28,10 @@ export interface AppDefaults {
   /** A fit result's standard validity in days (prefills its expiry date). */
   medical_validity_days?: number
   medical_expiring_soon_days?: number
+  /** Every date rule (Settings → Date rules); see src/lib/dateRules.ts. */
+  date_rules?: Partial<Record<string, number>>
+  /** Company countries with their own values: code => every rule's value for it. */
+  date_rules_by_country?: Record<string, Partial<Record<string, number>>>
 }
 
 export interface NewCountry {

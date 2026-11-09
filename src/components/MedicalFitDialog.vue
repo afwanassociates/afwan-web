@@ -4,6 +4,8 @@ import BaseDialog from '@/components/staff/BaseDialog.vue'
 import { recordMedicalResult } from '@/api/medical'
 import { addDays, businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
+import { useCountriesStore } from '@/stores/countries'
+import { useDateRules } from '@/lib/dateRules'
 import type { MedicalSaveResponse } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
 
@@ -30,15 +32,21 @@ const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
 
-const VALIDITY_DAYS = 90
+const countries = useCountriesStore()
+const dateRules = useDateRules(() => props.passport?.company?.country?.code)
+/** Settings → Date rules: Fit result validity (90 days until changed). */
+const validityDays = computed(() => dateRules.value.medical_validity_days)
 
 const standardExpiry = computed(() => {
   const issue = toApiDate(issueDate.value)
-  return issue ? addDays(issue, VALIDITY_DAYS) : ''
+  return issue ? addDays(issue, validityDays.value) : ''
 })
 
 watch(open, async (isOpen) => {
   if (!isOpen) return
+  // A changed setting applies without reloading the app; on failure the last values stay.
+  await countries.refreshDefaults()
+  if (!open.value) return
   today.value = businessToday()
   const medicalDate = props.passport?.medical_date ?? ''
   issueDate.value = medicalDate && medicalDate <= today.value ? medicalDate : today.value
@@ -64,7 +72,7 @@ function onExpiryInput(value: string) {
 const validityHint = computed(() => {
   const expiry = toApiDate(expiryDate.value)
   if (!standardExpiry.value || !expiry || expiry === standardExpiry.value) return null
-  return `The standard validity is ${VALIDITY_DAYS} days (${toDisplayDate(standardExpiry.value)}). This expiry date is different.`
+  return `The standard validity is ${validityDays.value} days (${toDisplayDate(standardExpiry.value)}). This expiry date is different.`
 })
 
 async function save() {
@@ -167,7 +175,7 @@ const inputClass =
         />
         <p v-if="!errors.expiry_date" :id="`${expiryId}-hint`" class="mt-1 text-xs text-muted">
           {{ toDisplayDate(toApiDate(expiryDate)) || 'DD-MM-YYYY' }} · after the issue date ·
-          standard {{ VALIDITY_DAYS }} days
+          standard {{ validityDays }} days
         </p>
         <p v-else :id="`${expiryId}-error`" class="mt-1 text-sm text-red-700">
           {{ errors.expiry_date }}

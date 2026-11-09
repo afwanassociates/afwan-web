@@ -2,14 +2,17 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import MedicalRetestDialog from '@/components/MedicalRetestDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import PassportHistoryTable from '@/components/PassportHistoryTable.vue'
 import PassportScanCard from '@/components/PassportScanCard.vue'
+import RecordStepModal from '@/components/RecordStepModal.vue'
 import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
-import { listStepRecords } from '@/api/steps'
+import { updateMedicalSlip } from '@/api/medical'
+import { clearFlightBooking, listStepRecords, undoFlightConfirm, undoStepAction } from '@/api/steps'
 import {
   getPassport,
   getPassportHistory,
@@ -19,10 +22,12 @@ import {
 import { useToast } from '@/composables/useToast'
 import { businessToday, daysLeft, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
-import { EXPIRING_SOON_DAYS, isMedicalAdmin } from '@/lib/medical'
+import { useDateRules } from '@/lib/dateRules'
+import { isMedicalAdmin } from '@/lib/medical'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { PassportEntry, PassportHistoryEvent } from '@/types/passport'
+import type { MedicalResult } from '@/types/medical'
 import type { StepRecord } from '@/types/workflow'
 
 /** One passport: its progress, details, current medical and its history (entry to flight). */
@@ -35,6 +40,8 @@ const today = businessToday()
 const passportId = computed(() => Number(route.params.id))
 
 const passport = ref<PassportEntry | null>(null)
+/** Settings → Date rules for the passport's company country. */
+const dateRules = useDateRules(() => passport.value?.company?.country?.code)
 const history = ref<PassportHistoryEvent[]>([])
 /** Steps 3+ history, grouped by step key. */
 const stepHistory = ref<Record<string, StepRecord[]>>({})
@@ -76,17 +83,24 @@ function afterChange() {
 }
 
 /*
- * ---------- Undo the Online mark (the operations head) ----------
- * Before Calling starts, the Online mark can be cleared. Records (medical results, steps) are
- * never deleted, so there is no other undo here. The API refuses everyone else.
+ * ---------- Early undos (the operations head) ----------
+ * Pending medical (slip entered, no result yet): back to the Passport Entry list, clearing the
+ * slip, medical date and centre. Before Calling starts: clear the Online mark. Records (medical
+ * results, steps) are never deleted, so there is no other undo here. The API refuses everyone else.
  */
 
-type EarlyUndo = { kind: 'mark'; label: string; text: string }
+type EarlyUndo = { kind: 'mark' | 'slip'; label: string; text: string }
 
 const earlyUndo = computed<EarlyUndo | null>(() => {
   const p = passport.value
   if (!p || p.returned || !isMedicalAdmin(auth.user?.role)) return null
   if (Object.values(stepHistory.value).some((records) => records.length > 0)) return null
+  if (p.medical_status === 'pending')
+    return {
+      kind: 'slip',
+      label: 'Back to Passport Entry',
+      text: 'Send this passport back to the Passport Entry list? The medical slip, medical date and medical centre are cleared; add a new slip to send it to Medical again.',
+    }
   if (p.entry_mode)
     return {
       kind: 'mark',
@@ -112,9 +126,17 @@ async function confirmEarlyUndo() {
   earlyUndoBusy.value = true
   earlyUndoError.value = null
   try {
-    await updateEntryMode(p.id, null)
+    if (undo.kind === 'slip') {
+      await updateMedicalSlip(p.id, { medical_slip_date: null, medical_center_id: null })
+    } else {
+      await updateEntryMode(p.id, null)
+    }
     earlyUndoOpen.value = false
-    toast.success(`${p.passport_number}: Online mark undone.`)
+    toast.success(
+      undo.kind === 'slip'
+        ? `${p.passport_number}: back on the Passport Entry list.`
+        : `${p.passport_number}: Online mark undone.`,
+    )
     afterChange()
   } catch (error) {
     const code = errorStatus(error)
@@ -200,6 +222,149 @@ async function confirmUndoReturn() {
   } finally {
     undoReturnBusy.value = false
   }
+}
+
+/* ---------- Correct a step record, undo its last action (Calling onwards) ---------- */
+
+type StepButton = { key: string; label: string; tone: 'edit' | 'undo' }
+
+/** The flight's own undo actions (its booking and confirmation have their own endpoints). */
+const FLIGHT_CONFIRM = 'confirm'
+const FLIGHT_BOOKING = 'booking'
+
+/**
+ * Per step, the buttons under its latest record. "Edit" when the API allows it (the operations
+ * head on any record; data entry on their own, before a later step). The undos are the
+ * operations head's: a BMET action (Training / Finger while in progress, the clearance once
+ * cleared and the flight not confirmed), the flight confirmation, or the booking date.
+ */
+const stepActions = computed<Record<string, StepButton[]>>(() => {
+  const p = passport.value
+  const out: Record<string, StepButton[]> = {}
+  if (!p || p.returned) return out
+  const isHead = isMedicalAdmin(auth.user?.role)
+  for (const [key, records] of Object.entries(stepHistory.value)) {
+    const latest = records[0]
+    if (!latest) continue
+    const config = workflow.stepConfig(key)
+    const buttons: StepButton[] = []
+    if (latest.can?.update)
+      buttons.push({ key: 'edit', label: `Edit ${config?.short_label ?? key}`, tone: 'edit' })
+    if (isHead && config?.actions?.length) {
+      const complete = config.actions[config.actions.length - 1]!
+      const nextDone = Object.entries(stepHistory.value).some(
+        ([other, list]) => other !== key && isAfter(other, key) && list[0]?.status === 'completed',
+      )
+      if (latest.status === 'completed' && !nextDone)
+        buttons.push({
+          key: complete.key,
+          label: `Undo ${actionName(complete.label)}`,
+          tone: 'undo',
+        })
+      if (latest.status === 'in_process')
+        for (const action of config.actions.slice(0, -1))
+          if (latest.details?.[action.field])
+            buttons.push({
+              key: action.key,
+              label: `Undo ${actionName(action.label)}`,
+              tone: 'undo',
+            })
+    }
+    if (isHead && key === 'flight') {
+      if (latest.status === 'completed')
+        buttons.push({ key: FLIGHT_CONFIRM, label: 'Undo flight', tone: 'undo' })
+      else if (latest.details?.booking_date)
+        buttons.push({ key: FLIGHT_BOOKING, label: 'Clear booking date', tone: 'undo' })
+    }
+    if (buttons.length) out[key] = buttons
+  }
+  return out
+})
+
+/** Whether step `a` comes after step `b` in the passport's workflow. */
+function isAfter(a: string, b: string) {
+  const order = passport.value?.workflow.steps.map((step) => step.key) ?? []
+  return order.indexOf(a) > order.indexOf(b)
+}
+
+/** "Training done" → "Training", "BMET clearance done" → "BMET clearance". */
+const actionName = (label: string) => label.replace(/\s+done$/i, '')
+
+const editOpen = ref(false)
+const editStepKey = ref<string | null>(null)
+const editRecord = ref<StepRecord | null>(null)
+
+const stepUndoOpen = ref(false)
+const stepUndoBusy = ref(false)
+const stepUndoError = ref<string | null>(null)
+const stepUndo = ref<{ stepKey: string; button: StepButton } | null>(null)
+
+function onStepAction(stepKey: string, actionKey: string) {
+  const button = stepActions.value[stepKey]?.find((b) => b.key === actionKey)
+  if (!button) return
+  if (button.tone === 'edit') {
+    editStepKey.value = stepKey
+    editRecord.value = stepHistory.value[stepKey]?.[0] ?? null
+    editOpen.value = true
+    return
+  }
+  stepUndo.value = { stepKey, button }
+  stepUndoError.value = null
+  stepUndoOpen.value = true
+}
+
+const stepUndoText = computed(() => {
+  const u = stepUndo.value
+  if (!u) return ''
+  if (u.stepKey === 'flight' && u.button.key === FLIGHT_CONFIRM)
+    return 'The flight goes back to Flight Pending; its booking date is kept.'
+  if (u.stepKey === 'flight') return 'The flight booking date is cleared.'
+  return `${u.button.label.replace(/^Undo /, '')} is cleared; the step goes back to in progress (or pending when nothing is left).`
+})
+
+async function confirmStepUndo() {
+  const p = passport.value
+  const u = stepUndo.value
+  if (!p || !u) return
+  stepUndoBusy.value = true
+  stepUndoError.value = null
+  try {
+    if (u.stepKey === 'flight' && u.button.key === FLIGHT_CONFIRM) await undoFlightConfirm(p.id)
+    else if (u.stepKey === 'flight' && u.button.key === FLIGHT_BOOKING)
+      await clearFlightBooking(p.id)
+    else await undoStepAction(p.id, u.stepKey, u.button.key)
+    stepUndoOpen.value = false
+    toast.success(`${p.passport_number}: ${u.button.label.replace(/^Undo /, '')} undone.`)
+    afterChange()
+  } catch (error) {
+    const code = errorStatus(error)
+    if (code === 403) stepUndoError.value = 'Only the Operations Head can undo a step.'
+    else if (code !== 401)
+      stepUndoError.value = errorMessage(error, 'Could not undo. Please try again.')
+  } finally {
+    stepUndoBusy.value = false
+  }
+}
+
+/* ---------- Medical re-test (the operations head) ---------- */
+
+/**
+ * After a result (fit, expired or unfit), before Calling has a record: a new medical date
+ * and result. The old result stays in the history.
+ */
+const canRetest = computed(() => {
+  const p = passport.value
+  if (!p || p.returned || !p.current_medical || !isMedicalAdmin(auth.user?.role)) return false
+  return !Object.values(stepHistory.value).some((records) => records.length > 0)
+})
+const retestOpen = ref(false)
+
+function onRetestSaved(result: MedicalResult) {
+  const p = passport.value
+  toast.success(
+    `${p?.passport_number ?? 'Passport'}: re-test saved (${result === 'fit' ? 'Fit' : 'Unfit'}).`,
+  )
+  afterChange()
 }
 
 /* ---------- Medical slip ---------- */
@@ -327,7 +492,9 @@ const dd = 'font-medium text-ink'
             :role="auth.user?.role"
             :user-id="auth.user?.id ?? null"
             :early-undo="earlyUndo"
+            :step-actions="stepActions"
             @early-undo="askEarlyUndo"
+            @step-action="onStepAction"
           />
         </div>
       </section>
@@ -379,10 +546,21 @@ const dd = 'font-medium text-ink'
         >
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h2 id="medical-heading" class="text-lg font-semibold text-ink">Current medical</h2>
-            <MedicalStatusBadge
-              :status="passport.medical_status"
-              :valid-until="medical?.valid_until"
-            />
+            <div class="flex flex-wrap items-center gap-2">
+              <MedicalStatusBadge
+                :status="passport.medical_status"
+                :valid-until="medical?.valid_until"
+              />
+              <button
+                v-if="canRetest"
+                type="button"
+                class="rounded-full px-3 py-1.5 text-sm font-semibold whitespace-nowrap text-primary-700 hover:bg-primary-50"
+                data-retest
+                @click="retestOpen = true"
+              >
+                Re-test
+              </button>
+            </div>
           </div>
           <dl
             v-if="passport.medical_slip?.date"
@@ -413,7 +591,8 @@ const dd = 'font-medium text-ink'
               <dd
                 :class="[
                   dd,
-                  medicalDaysLeft !== null && medicalDaysLeft <= EXPIRING_SOON_DAYS
+                  medicalDaysLeft !== null &&
+                  medicalDaysLeft <= dateRules.medical_expiring_soon_days
                     ? 'text-accent-800'
                     : '',
                 ]"
@@ -449,6 +628,28 @@ const dd = 'font-medium text-ink'
     </template>
 
     <MedicalSlipModal v-model:open="slipModalOpen" :passport="passport" @saved="afterChange" />
+
+    <MedicalRetestDialog v-model:open="retestOpen" :passport="passport" @saved="onRetestSaved" />
+
+    <RecordStepModal
+      v-model:open="editOpen"
+      :passport="passport"
+      :step-key="editStepKey"
+      :record="editRecord"
+      @saved="afterChange"
+    />
+
+    <ConfirmDialog
+      v-model:open="stepUndoOpen"
+      :title="stepUndo?.button.label ?? 'Undo'"
+      confirm-label="Undo"
+      danger
+      :busy="stepUndoBusy"
+      :error="stepUndoError"
+      @confirm="confirmStepUndo"
+    >
+      <p>{{ stepUndoText }}</p>
+    </ConfirmDialog>
 
     <ReturnPassportDialog v-model:open="returnOpen" :passport="passport" @returned="afterChange" />
 

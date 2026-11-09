@@ -275,6 +275,7 @@ const actionClass =
               <thead class="border-b border-stroke text-xs tracking-wider text-muted uppercase">
                 <tr>
                   <th scope="col" class="py-3 pr-4 font-semibold">Company</th>
+                  <th scope="col" class="py-3 pr-4 font-semibold">Country</th>
                   <th scope="col" class="py-3 pr-4 text-right font-semibold">Quota</th>
                   <th scope="col" class="py-3 pr-4 text-right font-semibold">Passports</th>
                   <th scope="col" class="py-3 pr-4 font-semibold">Status</th>
@@ -287,8 +288,8 @@ const actionClass =
                 <tr v-for="c in list.data" :key="c.id" class="align-top" :data-company="c.id">
                   <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
                     {{ c.name }}
-                    <span class="block text-xs font-normal text-muted">{{ c.country.name }}</span>
                   </th>
+                  <td class="py-3 pr-4" data-country>{{ c.country?.name ?? '—' }}</td>
                   <td class="py-3 pr-4 text-right tabular-nums">{{ c.quota ?? '—' }}</td>
                   <td class="py-3 pr-4 text-right tabular-nums">{{ c.passports_count ?? '—' }}</td>
                   <td class="py-3 pr-4">

@@ -17,14 +17,14 @@ export interface QuickAddValues {
   quota: number | null
   /** Only with `withReferenceType`: person or agency. */
   type: ReferenceType | null
-  /** Only with `withReferenceType` and an agency: its RL number. */
+  /** Only with `withReferenceType` and an agency: its RL number, if known. */
   rl_number: string | null
 }
 
 /**
  * Small "add new" dialog used from a SearchSelect: a required name, an optional phone, and
  * for references (client parties) a Person | Agency choice (`withReferenceType`) with a
- * required phone and, for an agency, a required RL number; for companies a required quota (`withQuota`) and a required country preselected with
+ * required phone and, for an agency, an optional RL number; for companies a required quota (`withQuota`) and a required country preselected with
  * `defaultCountryCode` (`withCountry`). The company's other details stay on the admin
  * Companies page. `save` calls the API; a 422 (e.g. the name already exists) keeps the
  * dialog open with the errors under their fields.
@@ -113,8 +113,7 @@ async function onSubmit() {
     errors.value.phone = 'Enter a valid phone number (digits, spaces or dashes, optional +).'
   const isAgency = props.withReferenceType && referenceType.value === 'agency'
   const trimmedRl = rlNumber.value.trim()
-  if (isAgency && !trimmedRl) errors.value.rl_number = 'Enter the RL number of the agency.'
-  else if (isAgency && trimmedRl.length > RL_MAX)
+  if (isAgency && trimmedRl.length > RL_MAX)
     errors.value.rl_number = `The RL number must be at most ${RL_MAX} characters.`
   const quotaText = String(quota.value ?? '').trim()
   if (props.withQuota) {
@@ -133,7 +132,7 @@ async function onSubmit() {
       country_code: props.withCountry ? (country.value?.code ?? null) : null,
       quota: props.withQuota ? Number(quotaText) : null,
       type: props.withReferenceType ? referenceType.value : null,
-      rl_number: isAgency ? trimmedRl : null,
+      rl_number: isAgency ? trimmedRl || null : null,
     })
     emit('saved', item)
     open.value = false
@@ -190,26 +189,6 @@ const inputClass =
         </p>
       </div>
 
-      <div v-if="withReferenceType && referenceType === 'agency'" data-field="rl_number">
-        <label :for="rlId" class="block text-sm font-medium text-slate-700">
-          RL number<span class="text-red-700" aria-hidden="true"> *</span>
-        </label>
-        <input
-          :id="rlId"
-          v-model="rlNumber"
-          type="text"
-          autocomplete="off"
-          required
-          :maxlength="RL_MAX"
-          :class="[inputClass, errors.rl_number ? 'border-red-500' : 'border-slate-300']"
-          :aria-invalid="errors.rl_number ? 'true' : undefined"
-          :aria-describedby="errors.rl_number ? `${rlId}-error` : undefined"
-        />
-        <p v-if="errors.rl_number" :id="`${rlId}-error`" class="mt-1 text-sm text-red-700">
-          {{ errors.rl_number }}
-        </p>
-      </div>
-
       <div v-if="withPhone" data-field="phone">
         <label :for="phoneId" class="block text-sm font-medium text-slate-700">
           Phone<span v-if="withReferenceType" class="text-red-700" aria-hidden="true"> *</span>
@@ -228,6 +207,25 @@ const inputClass =
         />
         <p v-if="errors.phone" :id="`${phoneId}-error`" class="mt-1 text-sm text-red-700">
           {{ errors.phone }}
+        </p>
+      </div>
+
+      <div v-if="withReferenceType && referenceType === 'agency'" data-field="rl_number">
+        <label :for="rlId" class="block text-sm font-medium text-slate-700">
+          RL number <span class="font-normal text-muted">(optional)</span>
+        </label>
+        <input
+          :id="rlId"
+          v-model="rlNumber"
+          type="text"
+          autocomplete="off"
+          :maxlength="RL_MAX"
+          :class="[inputClass, errors.rl_number ? 'border-red-500' : 'border-slate-300']"
+          :aria-invalid="errors.rl_number ? 'true' : undefined"
+          :aria-describedby="errors.rl_number ? `${rlId}-error` : undefined"
+        />
+        <p v-if="errors.rl_number" :id="`${rlId}-error`" class="mt-1 text-sm text-red-700">
+          {{ errors.rl_number }}
         </p>
       </div>
 

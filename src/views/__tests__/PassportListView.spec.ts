@@ -93,19 +93,24 @@ describe('Passport List ("Passport entered" only)', () => {
   })
 
   describe('filters', () => {
-    it('has only the three searches: no reference type, company, country, stage or date filters', async () => {
+    it('has the search, reference and company lookups and the received date range; no reference type, country or stage filters', async () => {
       await mountList()
 
       const labels = wrapper
         .get('[role="search"]')
         .findAll('label')
         .map((l) => l.text().trim())
-      expect(labels).toEqual(['Search', 'Search reference', 'Search company'])
+      expect(labels).toEqual([
+        'Search',
+        'Filter by reference',
+        'Filter by company',
+        'Received from',
+        'Received to',
+      ])
       const search = wrapper.get('[role="search"]')
       expect(search.find('select').exists()).toBe(false)
-      expect(search.find('input[role="combobox"]').exists()).toBe(false)
-      expect(search.find('input[type="date"]').exists()).toBe(false)
-      expect(wrapper.text()).not.toMatch(/Reference type|Company country|Received date|All stages/)
+      expect(search.findAll('input[type="date"]')).toHaveLength(2)
+      expect(wrapper.text()).not.toMatch(/Reference type|Company country|All stages/)
     })
 
     describe('Filter by reference', () => {
@@ -158,23 +163,30 @@ describe('Passport List ("Passport entered" only)', () => {
       })
     })
 
-    it('drops the old filter and stage parameters from the URL', async () => {
+    it('drops the old filter and stage parameters from the URL, keeping the current ones', async () => {
       await mountList(
-        '/passports?stage=bmet&reference_type=agency&company_id=3&company_country_code=MY&received_from=2026-01-01&q=karim',
+        '/passports?stage=bmet&reference_type=agency&company=desert&company_id=3&company_country_code=MY&received_from=2026-01-01&q=karim',
       )
       await flushPromises()
 
-      expect(router.currentRoute.value.query).toEqual({ q: 'karim' })
-      expect(lastFilters()).toEqual(expect.objectContaining({ stage: 'passport', q: 'karim' }))
+      expect(router.currentRoute.value.query).toEqual({
+        q: 'karim',
+        company_id: '3',
+        received_from: '2026-01-01',
+      })
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ stage: 'passport', q: 'karim', company_id: 3 }),
+      )
+      expect(lastFilters()).not.toHaveProperty('company')
     })
 
-    it('mentions the reference and company searches when nothing matches', async () => {
+    it('mentions the reference, company and received date searches when nothing matches', async () => {
       vi.mocked(listPassports).mockResolvedValue(page([]))
-      await mountList('/passports?company=nobody')
+      await mountList('/passports?company_id=99')
 
       const empty = wrapper.get('[data-empty]').text()
       expect(empty).toContain('No passports match these searches.')
-      expect(empty).toContain('reference and company searches')
+      expect(empty).toContain('reference, company and received date searches')
     })
   })
 
@@ -205,7 +217,7 @@ describe('Passport List ("Passport entered" only)', () => {
       expect(wrapper.text()).not.toMatch(/scan/i)
     })
 
-    it('has the row actions Add medical slip, Edit and Return (no Delete)', async () => {
+    it('has the row actions Add medical slip, Edit and Return to owner (no Delete)', async () => {
       await mountList()
 
       const actions = wrapper
@@ -217,7 +229,9 @@ describe('Passport List ("Passport entered" only)', () => {
             .replace(/\s+(for )?passport.*$/, '')
             .trim(),
         )
-      expect(actions).toEqual(expect.arrayContaining(['Add medical slip', 'Edit', 'Return']))
+      expect(actions).toEqual(
+        expect.arrayContaining(['Add medical slip', 'Edit', 'Return to owner']),
+      )
       expect(actions).not.toContain('Delete')
     })
   })

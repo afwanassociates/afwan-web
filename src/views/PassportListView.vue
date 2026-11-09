@@ -405,7 +405,7 @@ const inputClass =
           <p class="mt-1 text-sm text-muted">
             {{
               hasFilters
-                ? 'Check the name or passport number, reference and company searches, or clear them.'
+                ? 'Check the name or passport number, reference, company and received date searches, or clear them.'
                 : 'New passports appear here until their medical slip is added.'
             }}
           </p>

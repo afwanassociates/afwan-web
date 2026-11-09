@@ -14,9 +14,10 @@ import { errorMessage, errorStatus, fieldErrors, firstFieldError } from '@/lib/e
 import { addDays, addMonthsNoOverflow, toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
 import { useCountriesStore } from '@/stores/countries'
 import { useWorkflowStore } from '@/stores/workflow'
+import { useDateRules } from '@/lib/dateRules'
 import {
-  PASSPORT_MIN_VALIDITY_MONTHS,
   PASSPORT_NAME_MAX,
+  latestBirthDate,
   normalizePassportName,
   normalizePassportNameInput,
   normalizePassportNumber,
@@ -91,12 +92,23 @@ const reference = ref<ReferenceSummary | null>(null)
 const company = ref<CompanySummary | null>(null)
 const receivedDate = ref(today)
 const expiryDate = ref('')
-/** The passport must be valid for at least 18 months after the received date. */
+/** Settings → Date rules: minimum passport validity and minimum age. */
+// The chosen company's country: its own limits apply.
+const dateRules = useDateRules(() => company.value?.country?.code)
+const dateLimits = computed(() => ({
+  minValidityMonths: dateRules.value.passport_min_validity_months,
+  minimumAgeYears: dateRules.value.minimum_age_years,
+}))
+/** The passport must be valid for at least the minimum months after the received date. */
 const minExpiryDate = computed(
-  () => addMonthsNoOverflow(receivedDate.value, PASSPORT_MIN_VALIDITY_MONTHS) || undefined,
+  () => addMonthsNoOverflow(receivedDate.value, dateLimits.value.minValidityMonths) || undefined,
 )
-/** Date of birth max: must be at least 18 years before today. */
-const maxDateOfBirth = computed(() => addDays(today, -(18 * 365 + 4)))
+/** Date of birth max: the minimum age before today (yesterday when there is none). */
+const maxDateOfBirth = computed(() =>
+  dateLimits.value.minimumAgeYears > 0
+    ? latestBirthDate(today, dateLimits.value.minimumAgeYears)
+    : yesterday,
+)
 
 const errors = ref<PassportFormErrors>({})
 /** The passport scan copy: required on create, and on edit while the passport has none. */
@@ -378,7 +390,7 @@ async function save(action: SaveAction) {
   banner.value = null
 
   const values = formValues()
-  errors.value = validatePassportForm(values, today)
+  errors.value = validatePassportForm(values, today, dateLimits.value)
   scanError.value =
     scanRequired.value && !scanFile.value ? 'Please upload the passport scan copy.' : undefined
   if (Object.values(errors.value).some(Boolean) || scanError.value) {
@@ -591,7 +603,7 @@ const inputClass =
               />
               <p :id="`${expiryId}-hint`" class="mt-1 text-xs text-muted">
                 {{ toDisplayDate(expiryDate) || 'DD-MM-YYYY' }} · valid
-                {{ PASSPORT_MIN_VALIDITY_MONTHS }}+ months after the received date
+                {{ dateLimits.minValidityMonths }}+ months after the received date
               </p>
               <p
                 v-if="errors.passport_expiry_date"

@@ -578,14 +578,14 @@ describe('PassportFormView', () => {
       expect(typeButtons.map((b) => b.text())).toEqual(['Person', 'Agency'])
       expect(typeButtons[0]!.attributes('aria-pressed')).toBe('true')
       await typeButtons[1]!.trigger('click')
-      // A reference needs a phone, and an agency its RL number.
+      // A reference needs a phone; an agency's RL number is optional. Phone comes right after the name.
+      const fields = dialogForm.findAll('[data-field]').map((f) => f.attributes('data-field'))
+      expect(fields).toEqual(['type', 'phone', 'rl_number'])
       await dialogForm.trigger('submit')
       await flushPromises()
       expect(createReference).not.toHaveBeenCalled()
       expect(dialogForm.find('[data-field="phone"]').text()).toContain('Enter the phone number.')
-      expect(dialogForm.find('[data-field="rl_number"]').text()).toContain(
-        'Enter the RL number of the agency.',
-      )
+      expect(dialogForm.find('[data-field="rl_number"]').text()).not.toContain('Enter the RL')
       await dialogForm.get('[data-field="phone"] input').setValue('01711-000000')
       await dialogForm.get('[data-field="rl_number"] input').setValue('RL 1234')
       await dialogForm.trigger('submit')

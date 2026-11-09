@@ -91,9 +91,18 @@ describe('validatePassportForm', () => {
 
   describe('date of birth', () => {
     it('must be in the past', () => {
-      expect(validate({ date_of_birth: '2026-10-04' }).date_of_birth).toBeUndefined()
       expect(validate({ date_of_birth: TODAY }).date_of_birth).toBe(
         'The date of birth must be in the past.',
+      )
+    })
+
+    it('must be at least 18 years ago', () => {
+      expect(validate({ date_of_birth: '2008-10-05' }).date_of_birth).toBeUndefined()
+      expect(validate({ date_of_birth: '2008-10-06' }).date_of_birth).toBe(
+        'The person must be at least 18 years old.',
+      )
+      expect(validate({ date_of_birth: '2026-10-04' }).date_of_birth).toBe(
+        'The person must be at least 18 years old.',
       )
     })
   })

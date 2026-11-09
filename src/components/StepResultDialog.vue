@@ -4,6 +4,7 @@ import TopModal from '@/components/TopModal.vue'
 import StepFields from '@/components/StepFields.vue'
 import { recordStepResult, type StepSaveResponse } from '@/api/steps'
 import { addMonthsNoOverflow, businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
+import { useDateRules } from '@/lib/dateRules'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { statusLabel, stepResultPayload, stepWithPhase, validateStepForm } from '@/lib/workflow'
 import type { StepConfig, StepListRow, WorkflowWarning } from '@/types/workflow'
@@ -47,7 +48,8 @@ const banner = ref<string | null>(null)
 const warnings = ref<WorkflowWarning[]>([])
 const isSaving = ref(false)
 
-const RESULT_VALIDITY_MONTHS = 3
+/** Settings → Date rules: Visa validity (prefills the expired date). */
+const dateRules = useDateRules(() => props.row?.company.country_code)
 
 /** Whether the user has manually edited valid_until (stops auto-fill). */
 const validUntilEdited = ref(false)
@@ -72,7 +74,7 @@ function onFieldUpdate(name: string, value: string) {
   }
   if (name === 'issue_date' && !validUntilEdited.value && 'valid_until' in values) {
     const issue = toApiDate(value)
-    if (issue) values.valid_until = addMonthsNoOverflow(issue, RESULT_VALIDITY_MONTHS)
+    if (issue) values.valid_until = addMonthsNoOverflow(issue, dateRules.value.visa_validity_months)
   }
 }
 

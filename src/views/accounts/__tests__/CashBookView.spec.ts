@@ -133,9 +133,11 @@ describe('Cash section', () => {
     )
     expect(wrapper.find('[data-closing="paid"]').text()).toMatch(/Total Paid Amount\s*৳ 8,800.00/)
     // What was paid, split: a loan to an owner is not spending.
-    expect(wrapper.find('[data-closing="paid"] [data-note]').text()).toBe(
-      'Expenses ৳ 3,800.00 · Refunds ৳ 0.00 · Owner loans ৳ 5,000.00',
-    )
+    expect(wrapper.findAll('[data-closing="paid"] [data-note] li').map((li) => li.text())).toEqual([
+      'Expenses ৳ 3,800.00',
+      'Refunds ৳ 0.00',
+      'Owner loans ৳ 5,000.00',
+    ])
     expect(wrapper.find('[data-closing="expenses"]').text()).toMatch(/Total Expenses\s*৳ 6,800.00/)
     expect(wrapper.find('[data-closing="cash"]').text()).toMatch(
       /Closing Cash on Hand\s*৳ 1,200.00/,

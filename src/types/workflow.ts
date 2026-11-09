@@ -138,7 +138,8 @@ export interface StepListRow {
   passport_name: string
   passport_number: string
   reference: { id: number; name: string } | null
-  company: { id: number; name: string }
+  /** country_code: the company's country (its date rules apply). */
+  company: { id: number; name: string; country_code?: string | null }
   /** The latest record of this step, if any. */
   record: StepListRecord | null
   /** The step before's record (e.g. the calling permit on a visa row), when there is one. */

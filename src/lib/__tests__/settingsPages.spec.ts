@@ -25,10 +25,11 @@ describe('SETTINGS_PAGES registry', () => {
     expect(new Set(SETTINGS_PAGES.map((p) => p.path)).size).toBe(SETTINGS_PAGES.length)
   })
 
-  it('gives super admins every page, admins all but the Danger zone, and other roles none', () => {
+  it('gives super admins every page, admins all but Date rules and the Danger zone, and other roles none', () => {
+    const superAdminOnly = ['settings-date-rules', 'settings-danger-zone']
     expect(settingsPagesFor('super_admin')).toHaveLength(SETTINGS_PAGES.length)
     expect(settingsPagesFor('admin').map((p) => p.name)).toEqual(
-      SETTINGS_PAGES.map((p) => p.name).filter((name) => name !== 'settings-danger-zone'),
+      SETTINGS_PAGES.map((p) => p.name).filter((name) => !superAdminOnly.includes(name)),
     )
     expect(settingsPagesFor('accounts_head')).toEqual([])
     expect(settingsPagesFor('data_entry')).toEqual([])

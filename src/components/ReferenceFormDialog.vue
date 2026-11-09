@@ -7,7 +7,7 @@ import type { Reference, ReferenceType } from '@/types/passport'
 
 /**
  * Create / edit form for a reference (the operations head): a client party. Type, name and
- * phone required, an RL number for an agency, notes optional. `reference` null creates a new
+ * phone required, an optional RL number for an agency, notes optional. `reference` null creates a new
  * one (always active; references are (de)activated from the list).
  */
 const open = defineModel<boolean>('open', { required: true })
@@ -67,8 +67,7 @@ async function save() {
     e.phone = 'Enter a valid phone number (digits, spaces or dashes, optional +).'
   const isAgency = type.value === 'agency'
   const trimmedRl = rlNumber.value.trim()
-  if (isAgency && !trimmedRl) e.rl_number = 'Enter the RL number of the agency.'
-  else if (isAgency && trimmedRl.length > RL_MAX)
+  if (isAgency && trimmedRl.length > RL_MAX)
     e.rl_number = `The RL number must be at most ${RL_MAX} characters.`
   if (notes.value.trim().length > NOTES_MAX)
     e.notes = `The notes must be at most ${NOTES_MAX} characters.`
@@ -79,7 +78,7 @@ async function save() {
     type: type.value,
     name: trimmedName,
     phone: trimmedPhone,
-    rl_number: isAgency ? trimmedRl : null,
+    rl_number: isAgency ? trimmedRl || null : null,
     notes: notes.value.trim() || null,
   }
   isSaving.value = true
@@ -160,26 +159,6 @@ const inputClass =
         </p>
       </div>
 
-      <div v-if="type === 'agency'" data-field="rl_number">
-        <label :for="`${fieldId}-rl`" class="block text-sm font-medium text-slate-700">
-          RL number<span class="text-red-700" aria-hidden="true"> *</span>
-        </label>
-        <input
-          :id="`${fieldId}-rl`"
-          v-model="rlNumber"
-          type="text"
-          autocomplete="off"
-          required
-          :maxlength="RL_MAX"
-          :class="[inputClass, errors.rl_number ? 'border-red-500' : 'border-slate-300']"
-          :aria-invalid="errors.rl_number ? 'true' : undefined"
-          :aria-describedby="errors.rl_number ? `${fieldId}-rl-error` : undefined"
-        />
-        <p v-if="errors.rl_number" :id="`${fieldId}-rl-error`" class="mt-1 text-sm text-red-700">
-          {{ errors.rl_number }}
-        </p>
-      </div>
-
       <div data-field="phone">
         <label :for="`${fieldId}-phone`" class="block text-sm font-medium text-slate-700">
           Phone<span class="text-red-700" aria-hidden="true"> *</span>
@@ -197,6 +176,25 @@ const inputClass =
         />
         <p v-if="errors.phone" :id="`${fieldId}-phone-error`" class="mt-1 text-sm text-red-700">
           {{ errors.phone }}
+        </p>
+      </div>
+
+      <div v-if="type === 'agency'" data-field="rl_number">
+        <label :for="`${fieldId}-rl`" class="block text-sm font-medium text-slate-700">
+          RL number <span class="font-normal text-muted">(optional)</span>
+        </label>
+        <input
+          :id="`${fieldId}-rl`"
+          v-model="rlNumber"
+          type="text"
+          autocomplete="off"
+          :maxlength="RL_MAX"
+          :class="[inputClass, errors.rl_number ? 'border-red-500' : 'border-slate-300']"
+          :aria-invalid="errors.rl_number ? 'true' : undefined"
+          :aria-describedby="errors.rl_number ? `${fieldId}-rl-error` : undefined"
+        />
+        <p v-if="errors.rl_number" :id="`${fieldId}-rl-error`" class="mt-1 text-sm text-red-700">
+          {{ errors.rl_number }}
         </p>
       </div>
 

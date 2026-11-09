@@ -19,6 +19,7 @@ import {
   type StepSaveResponse,
 } from '@/api/steps'
 import { addMonthsNoOverflow, businessToday, toApiDate } from '@/lib/dates'
+import { useDateRules } from '@/lib/dateRules'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { stepPayload, stepWithPhase, validateStepForm } from '@/lib/workflow'
 import type { StepConfig, StepListRow, WorkflowWarning } from '@/types/workflow'
@@ -66,7 +67,8 @@ const startStepConfig = computed(() => {
 /** The status the values are checked for: update completes the step (all required). */
 const checkStatus = computed(() => (isUpdate.value ? 'completed' : 'in_process'))
 
-const CALLING_VALIDITY_MONTHS = 3
+/** Settings → Date rules: Calling / work permit validity. */
+const dateRules = useDateRules(() => props.row.company.country_code)
 
 const values = reactive<Record<string, string>>(
   Object.fromEntries(
@@ -78,13 +80,14 @@ const values = reactive<Record<string, string>>(
   ),
 )
 
-// When issue_date changes in the calling update modal, auto-set valid_until to +3 months.
+// When issue_date changes in the calling update modal, auto-set valid_until to + the calling validity months.
 watch(
   () => values.issue_date,
   (issueRaw) => {
     if (!isUpdate.value || !('valid_until' in values)) return
     const issue = toApiDate(issueRaw ?? '')
-    if (issue) values.valid_until = addMonthsNoOverflow(issue, CALLING_VALIDITY_MONTHS)
+    if (issue)
+      values.valid_until = addMonthsNoOverflow(issue, dateRules.value.calling_validity_months)
   },
 )
 const errors = ref<Record<string, string>>({})

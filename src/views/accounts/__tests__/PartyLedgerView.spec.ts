@@ -21,6 +21,45 @@ vi.mock('@/api/accounts', () => ({
   createPartyTransaction: vi.fn(),
   updatePartyTransaction: vi.fn(),
   deletePartyTransaction: vi.fn(),
+  fetchPartyPassports: vi.fn(async () => ({
+    data: [
+      {
+        company: { id: 1, name: 'Al Noor', country_code: 'MY' },
+        counts: { total: 2, paid: 1, pending: 0, part_paid: 0, unpaid: 1 },
+        passports: [
+          {
+            id: 11,
+            entry_no: 11,
+            passport_name: 'Worker 11',
+            passport_number: 'A11',
+            country_code: 'MY',
+            stage: 'Visa',
+            is_deleted: false,
+            status: 'paid',
+            receipts: [
+              { id: 2, receipt_no: 'CR-2026-0002', is_full_payment: true, is_approved: true },
+            ],
+            on_this_receipt: false,
+            can_tick: false,
+          },
+          {
+            id: 12,
+            entry_no: 12,
+            passport_name: 'Worker 12',
+            passport_number: 'A12',
+            country_code: 'MY',
+            stage: null,
+            is_deleted: false,
+            status: 'unpaid',
+            receipts: [],
+            on_this_receipt: false,
+            can_tick: true,
+          },
+        ],
+      },
+    ],
+    meta: { counts: { total: 2, paid: 1, pending: 0, part_paid: 0, unpaid: 1 } },
+  })),
 }))
 
 function ledger(overrides: Partial<PartyLedger> = {}): PartyLedger {
@@ -142,6 +181,17 @@ afterEach(() => {
 })
 
 describe('PartyLedgerView', () => {
+  it("shows the party's passports by company, each paid or unpaid", async () => {
+    await mountView()
+
+    const card = wrapper.get('[data-party-passports]')
+    expect(card.get('[data-total-counts]').text()).toContain('1 unpaid')
+    expect(card.find('[data-passport="11"]').exists()).toBe(false)
+    await card.get('[data-company="1"] button').trigger('click')
+    expect(card.get('[data-passport="11"] [data-status]').text()).toBe('Paid · CR-2026-0002')
+    expect(card.get('[data-passport="12"] [data-status]').text()).toBe('Unpaid')
+  })
+
   it('shows the party, the summary and each line with its running balance', async () => {
     await mountView()
 

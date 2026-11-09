@@ -22,6 +22,7 @@ import type {
   Party,
   PartyLedger,
   PartyPayload,
+  PartyPassportGroups,
   PartyTransaction,
   PartyTransactionPayload,
   PartyType,
@@ -176,6 +177,20 @@ export async function updateCashReceipt(
 
 export async function deleteCashReceipt(id: number): Promise<void> {
   await api.delete(`${BASE}/cash-receipts/${id}`)
+}
+
+/**
+ * A party's passports by company, each paid, pending or unpaid. `country_code` keeps one
+ * country's; `receipt_id` marks the passports that receipt pays (when editing it).
+ */
+export async function fetchPartyPassports(
+  partyId: number,
+  params: { country_code?: string; receipt_id?: number } = {},
+): Promise<PartyPassportGroups> {
+  const { data } = await api.get<PartyPassportGroups>(`${BASE}/parties/${partyId}/passports`, {
+    params,
+  })
+  return data
 }
 
 /** Business types, active countries and the default country for the cash receive form. */

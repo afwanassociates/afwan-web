@@ -1,10 +1,14 @@
 import { toDisplayDate } from '@/lib/dates'
+import { DATE_RULE_DEFAULTS } from '@/lib/dateRules'
 import { PASSPORT_MANAGER_ROLES } from '@/lib/roles'
 import type { Role } from '@/types/auth'
 import type { MedicalStatus, StepState } from '@/types/medical'
 
-/** Mirrors afwan-api config/medical.php. */
-export const EXPIRING_SOON_DAYS = 14
+/**
+ * The default "Medical expiring soon" days. Pages use the current value from
+ * Settings → Date rules (useDateRules().medical_expiring_soon_days).
+ */
+export const EXPIRING_SOON_DAYS = DATE_RULE_DEFAULTS.medical_expiring_soon_days
 
 /** Roles that may re-test an unfit passport and delete medical records (the API agrees). */
 export const MEDICAL_ADMIN_ROLES: readonly Role[] = PASSPORT_MANAGER_ROLES

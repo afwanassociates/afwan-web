@@ -285,9 +285,68 @@ export interface CashReceipt extends ApprovalFields {
   mobile_provider_label: string | null
   mobile_number: string | null
   note: string | null
+  /** A party's recruitment cash: what it pays for, per company. */
+  companies?: CashReceiptCompany[]
+  /** How many passports it pays for. */
+  passport_count?: number
   created_by?: string | null
   created_at: string
   updated_at: string
+}
+
+/** One company on a receipt: the typed amount and the passports it pays. */
+export interface CashReceiptCompany {
+  company_id: number
+  company_name: string | null
+  amount: number
+  /** Full payment: its passports are paid off. Part payment: more receipts may follow. */
+  is_full_payment: boolean
+  passports: { id: number; entry_no: number; passport_name: string; passport_number: string }[]
+}
+
+/**
+ * paid: an approved receipt paid it off · pending: the receipt paying it off waits for approval
+ * (or was returned) · part_paid: only part payments so far · unpaid: no receipt yet.
+ */
+export type PassportPaymentStatus = 'paid' | 'pending' | 'part_paid' | 'unpaid'
+
+export interface PassportPaymentCounts {
+  total: number
+  paid: number
+  pending: number
+  part_paid: number
+  unpaid: number
+}
+
+/** A party's passport as the cash receive form and the ledger see it. */
+export interface PartyPassport {
+  id: number
+  entry_no: number
+  passport_name: string
+  passport_number: string
+  /** The holder's nationality (the destination is the company's country). */
+  country_code: string
+  /** The current step's label, or "Returned". */
+  stage: string | null
+  is_deleted: boolean
+  status: PassportPaymentStatus
+  /** Every receipt that paid toward it, oldest first. */
+  receipts: { id: number; receipt_no: string; is_full_payment: boolean; is_approved: boolean }[]
+  /** Paid by the receipt being edited (may be unticked). */
+  on_this_receipt: boolean
+  /** Not paid off by another receipt: may be ticked. */
+  can_tick: boolean
+}
+
+/** GET /parties/{id}/passports: the party's passports by company. */
+export interface PartyPassportGroups {
+  data: {
+    /** country_code: the destination (the company's country). */
+    company: { id: number; name: string | null; country_code: string | null }
+    counts: PassportPaymentCounts
+    passports: PartyPassport[]
+  }[]
+  meta: { counts: PassportPaymentCounts }
 }
 
 export interface CashReceiptPayload {
@@ -308,6 +367,13 @@ export interface CashReceiptPayload {
   mobile_provider: MobileBankingProvider | null
   mobile_number: string | null
   note: string | null
+  /** A party's recruitment cash only: per company the amount and the ticked passports. */
+  companies?: {
+    company_id: number
+    amount: number
+    is_full_payment: boolean
+    passport_ids: number[]
+  }[]
 }
 
 /** meta.totals of the receipt list: every receipt matching the filters, all pages. */

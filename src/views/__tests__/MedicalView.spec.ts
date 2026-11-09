@@ -5,7 +5,8 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import MedicalView from '../MedicalView.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { useToast } from '@/composables/useToast'
-import { addMonthsNoOverflow } from '@/lib/dates'
+import { addDays } from '@/lib/dates'
+import SearchSelect from '@/components/SearchSelect.vue'
 import { listPassports } from '@/api/passports'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
@@ -18,13 +19,13 @@ vi.mock('@/api/passports', () => ({
   getPassport: vi.fn(),
   updateEntryMode: vi.fn(),
 }))
-// The standard validity comes from the settings (4 months here, to prove it is not hardcoded).
+// The standard validity comes from the settings (120 days here, to prove it is not hardcoded).
 vi.mock('@/api/countries', () => ({
   fetchCountries: vi.fn(async () => []),
   fetchDefaults: vi.fn(async () => ({
     default_company_country_code: 'MY',
     default_passport_country_code: 'MY',
-    medical_validity_months: 4,
+    medical_validity_days: 120,
     medical_expiring_soon_days: 14,
   })),
 }))
@@ -141,17 +142,26 @@ describe('Medical page', () => {
     expect(wrapper.find('tbody [data-state]').exists()).toBe(false)
   })
 
-  it('has no Company dropdown, Company country filter or Sort by, only the three searches', async () => {
+  it('Pending has search, company, medical centre and medical dates; result tabs have search, company and reference', async () => {
     await mountMedical()
 
-    const search = wrapper.get('[role="search"]')
-    expect(search.findAll('label').map((l) => l.text().trim())).toEqual([
+    const labels = () =>
+      wrapper
+        .get('[role="search"]')
+        .findAll('label')
+        .map((l) => l.text().trim())
+    expect(labels()).toEqual([
       'Search',
-      'Search company',
-      'Search reference',
+      'Filter by company',
+      'Filter by medical centre',
+      'Medical date from',
+      'Medical date to',
     ])
-    expect(search.find('select').exists()).toBe(false)
-    expect(search.find('input[role="combobox"]').exists()).toBe(false)
+    expect(wrapper.get('[role="search"]').find('select').exists()).toBe(false)
+
+    await wrapper.get('#medical-tab-fit').trigger('click')
+    await flushPromises()
+    expect(labels()).toEqual(['Search', 'Filter by company', 'Search reference'])
     expect(wrapper.text()).not.toMatch(/Company country|Sort by|Any company|All countries/)
   })
 
@@ -170,18 +180,42 @@ describe('Medical page', () => {
     )
     expect(filters.sort).toBeUndefined()
     expect(filters.direction).toBeUndefined()
-    expect(filters).not.toHaveProperty('company_id')
+    expect(filters.company_id).toBeUndefined()
     expect(filters).not.toHaveProperty('company_country_code')
   })
 
   describe('company and reference searches', () => {
-    it('send ?company= and ?reference= with the general search and the tab (debounced)', async () => {
+    const DESERT = { id: 3, name: 'Desert Rose', country_code: 'SA' }
+    const companyFilter = () =>
+      wrapper
+        .findAllComponents(SearchSelect)
+        .find((c) => (c.props() as Record<string, unknown>).label === 'Filter by company')!
+
+    it('choosing a company reloads the list with ?company_id=; clearing removes it', async () => {
+      await mountMedical('/medical?tab=fit&q=rahim&page=2')
+      const calls = vi.mocked(listPassports).mock.calls.length
+
+      companyFilter().vm.$emit('update:modelValue', DESERT)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({ tab: 'fit', q: 'rahim', company_id: '3' })
+      // Regression: company_id used to count as an old key, so the list never reloaded.
+      expect(vi.mocked(listPassports).mock.calls.length).toBe(calls + 1)
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ medical_status: 'fit', q: 'rahim', company_id: 3, page: 1 }),
+      )
+
+      companyFilter().vm.$emit('update:modelValue', null)
+      await flushPromises()
+      expect(router.currentRoute.value.query).toEqual({ tab: 'fit', q: 'rahim' })
+      expect(lastFilters().company_id).toBeUndefined()
+    })
+
+    it('sends ?reference= on the result tabs (debounced)', async () => {
       vi.useFakeTimers()
       try {
         await mountMedical('/medical?tab=fit&q=rahim')
 
-        await wrapper.get('input[data-search-box="company"]').setValue('Desert')
-        await wrapper.get('input[data-search-box="reference"]').setValue('green')
+        await wrapper.get('input[data-reference-search]').setValue('green')
         await vi.advanceTimersByTimeAsync(200)
         expect(router.currentRoute.value.query).toEqual({ tab: 'fit', q: 'rahim' })
 
@@ -190,7 +224,6 @@ describe('Medical page', () => {
         expect(router.currentRoute.value.query).toEqual({
           tab: 'fit',
           q: 'rahim',
-          company: 'Desert',
           reference: 'green',
         })
         expect(lastFilters()).toEqual(
@@ -198,7 +231,6 @@ describe('Medical page', () => {
             mode: 'medical',
             medical_status: 'fit',
             q: 'rahim',
-            company: 'Desert',
             reference: 'green',
           }),
         )
@@ -208,9 +240,10 @@ describe('Medical page', () => {
     })
 
     it('are read from the URL and kept when switching tabs', async () => {
-      await mountMedical('/medical?company=desert&reference=green')
-      expect(wrapper.get<HTMLInputElement>('input[data-search-box="company"]').element.value).toBe(
-        'desert',
+      await mountMedical('/medical?tab=fit&company_id=3&reference=green')
+      expect(lastFilters()).toEqual(expect.objectContaining({ company_id: 3, reference: 'green' }))
+      expect(wrapper.get<HTMLInputElement>('input[data-reference-search]').element.value).toBe(
+        'green',
       )
 
       await wrapper.get('#medical-tab-expired').trigger('click')
@@ -218,48 +251,41 @@ describe('Medical page', () => {
 
       expect(router.currentRoute.value.query).toEqual({
         tab: 'expired',
-        company: 'desert',
+        company_id: '3',
         reference: 'green',
       })
       expect(lastFilters()).toEqual(
-        expect.objectContaining({
-          medical_status: 'expired',
-          company: 'desert',
-          reference: 'green',
-        }),
+        expect.objectContaining({ medical_status: 'expired', company_id: 3, reference: 'green' }),
       )
     })
 
-    it.each(['company', 'reference'])('the %s (x) button clears only that search', async (key) => {
-      await mountMedical('/medical?tab=unfit&company=desert&reference=green&q=rahim')
+    it('the reference (x) button clears only that search', async () => {
+      await mountMedical('/medical?tab=unfit&company_id=3&reference=green&q=rahim')
 
-      await wrapper.get(`button[data-clear="${key}"]`).trigger('click')
+      await wrapper.get('button[data-clear-reference]').trigger('click')
       await flushPromises()
 
-      const expected: Record<string, string> = {
-        tab: 'unfit',
-        q: 'rahim',
-        company: 'desert',
-        reference: 'green',
-      }
-      delete expected[key]
-      expect(router.currentRoute.value.query).toEqual(expected)
+      expect(router.currentRoute.value.query).toEqual({ tab: 'unfit', q: 'rahim', company_id: '3' })
     })
 
-    it('drops the old sort and company dropdown parameters', async () => {
-      await mountMedical('/medical?sort=valid_until:asc&company_id=3&company_country_code=MY&q=x')
+    it('drops the old sort, company text and country parameters', async () => {
+      await mountMedical(
+        '/medical?sort=valid_until:asc&company=desert&company_id=3&company_country_code=MY&q=x',
+      )
       await flushPromises()
 
-      expect(router.currentRoute.value.query).toEqual({ q: 'x' })
+      expect(router.currentRoute.value.query).toEqual({ q: 'x', company_id: '3' })
+      expect(lastFilters()).toEqual(expect.objectContaining({ q: 'x', company_id: 3 }))
+      expect(lastFilters()).not.toHaveProperty('company')
     })
 
-    it('mentions company and reference in the empty state', async () => {
+    it('says no passports match when a search finds nothing', async () => {
       vi.mocked(listPassports).mockResolvedValue(page([]))
-      await mountMedical('/medical?company=nobody')
+      await mountMedical('/medical?company_id=99')
 
       const empty = wrapper.get('[data-empty]').text()
       expect(empty).toContain('No passports match these searches.')
-      expect(empty).toContain('company and reference searches')
+      expect(empty).toContain('company, medical centre and date searches')
     })
   })
 
@@ -300,11 +326,11 @@ describe('Medical page', () => {
     it('Medical date shows DD-MM-YYYY on the result tabs, "-" when not entered', async () => {
       vi.mocked(listPassports).mockResolvedValue(
         page([
-          makePassport({ id: 70, medical_status: 'fit', medical_date: '2026-09-15' }),
-          makePassport({ id: 71, medical_status: 'fit', medical_date: null }),
+          makePassport({ id: 70, medical_status: 'expired', medical_date: '2026-09-15' }),
+          makePassport({ id: 71, medical_status: 'expired', medical_date: null }),
         ]),
       )
-      await mountMedical('/medical?tab=fit')
+      await mountMedical('/medical?tab=expired')
 
       const cells = wrapper.findAll('td[data-column="medical_date"]').map((td) => td.text())
       expect(cells).toEqual(['15-09-2026', '-'])
@@ -445,6 +471,75 @@ describe('Medical page', () => {
       expect(wrapper.get('tr[data-row] button[data-edit-slip]').text()).toContain('Edit slip')
     })
 
+    describe('Unfit and Expired tabs', () => {
+      const UNFIT_ROW = makePassport({
+        id: 70,
+        medical_status: 'unfit',
+        medical_date: '2026-09-22',
+        current_medical: {
+          id: 9,
+          medical_date: '2026-09-22',
+          result: 'unfit',
+          valid_until: null,
+          days_left: null,
+          remarks: null,
+          recorded_by: null,
+          created_at: '',
+        } as PassportEntry['current_medical'],
+        can: { update: true, record_medical: true, return: true, undo_return: false },
+      })
+
+      for (const tabKey of ['unfit', 'expired'] as const) {
+        it(`${tabKey}: one "Return to owner", a Re-test and Edit for the operations head`, async () => {
+          vi.mocked(listPassports).mockResolvedValue(page([UNFIT_ROW]))
+          await mountMedical(`/medical?tab=${tabKey}`, 'operation_head')
+
+          const row = wrapper.get('tr[data-row]')
+          expect(row.findAll('button[data-return-action]')).toHaveLength(1)
+          expect(row.get('button[data-return-action]').text()).toContain('Return to owner')
+          expect(row.get('button[data-retest]').text()).toContain('Re-test')
+          expect(row.find('a[href$="/edit"]').exists()).toBe(true)
+        })
+      }
+
+      it('still one "Return to owner" when the row has no Re-test or Edit', async () => {
+        vi.mocked(listPassports).mockResolvedValue(
+          page([
+            {
+              ...UNFIT_ROW,
+              current_medical: null,
+              can: { ...UNFIT_ROW.can, update: false },
+            },
+          ]),
+        )
+        await mountMedical('/medical?tab=unfit', 'operation_head')
+
+        expect(wrapper.get('tr[data-row]').findAll('button[data-return-action]')).toHaveLength(1)
+      })
+
+      it('Re-test opens the re-test form for that passport', async () => {
+        vi.mocked(listPassports).mockResolvedValue(page([UNFIT_ROW]))
+        await mountMedical('/medical?tab=unfit', 'operation_head')
+
+        await wrapper.get('tr[data-row] button[data-retest]').trigger('click')
+        await flushPromises()
+
+        const form = wrapper.get('form[data-retest-dialog]')
+        expect(form.text()).toContain('(Unfit, 22-09-2026)')
+      })
+
+      it('data entry gets no Re-test and no Return', async () => {
+        vi.mocked(listPassports).mockResolvedValue(
+          page([{ ...UNFIT_ROW, can: { ...UNFIT_ROW.can, return: false } }]),
+        )
+        await mountMedical('/medical?tab=unfit', 'data_entry')
+
+        const row = wrapper.get('tr[data-row]')
+        expect(row.find('button[data-retest]').exists()).toBe(false)
+        expect(row.find('button[data-return-action]').exists()).toBe(false)
+      })
+    })
+
     it('accounts is read-only: no action buttons', async () => {
       await mountMedical()
       useAuthStore().user = makeUser({ role: 'accounts' })
@@ -474,18 +569,18 @@ describe('Medical page', () => {
       await flushPromises()
     }
 
-    it('asks for both dates, prefilled: issue = medical date, expiry = + the settings months', async () => {
+    it('asks for both dates, prefilled: issue = medical date, expiry = + the settings days', async () => {
       await openFit()
 
       expect(wrapper.text()).toContain('Mark MD RAHIM as FIT?')
       expect(fitForm().text()).toContain('Medical issue date')
       expect(fitForm().text()).toContain('Expiry date')
       expect(issue().element.value).toBe('2026-10-05')
-      expect(expiry().element.value).toBe(addMonthsNoOverflow('2026-10-05', 4))
-      expect(fitForm().text()).toContain('standard 4 months')
+      expect(expiry().element.value).toBe(addDays('2026-10-05', 120))
+      expect(fitForm().text()).toContain('standard 120 days')
       // Moving the issue date moves the prefilled expiry with it.
       await issue().setValue('2026-10-01')
-      expect(expiry().element.value).toBe('2027-02-01')
+      expect(expiry().element.value).toBe('2027-01-29')
     })
 
     it('requires both dates and an expiry after the issue date', async () => {
@@ -511,7 +606,7 @@ describe('Medical page', () => {
 
       await expiry().setValue('2027-04-05')
       expect(fitForm().get('[data-validity-hint]').text()).toContain(
-        'standard validity is 4 months',
+        'standard validity is 120 days',
       )
     })
 
@@ -529,7 +624,7 @@ describe('Medical page', () => {
 
       expect(recordMedicalResult).toHaveBeenCalledWith(60, 'fit', {
         issue_date: '2026-10-05',
-        expiry_date: addMonthsNoOverflow('2026-10-05', 4),
+        expiry_date: addDays('2026-10-05', 120),
       })
       expect(useToast().toasts.value.map((t) => t.message)).toContain(
         'AB1234567: Moved to Fit - mark Online to send it to Calling',
@@ -587,15 +682,14 @@ describe('Medical page', () => {
         await mountMedical(`/medical?tab=${tab}`)
 
         expect(headers()).toEqual([
+          'No.',
           'Passport name',
           'Passport number',
           'Reference',
           'Company',
           'Medical center',
-          'Medical date',
-          'Medical slip date',
           'Issue date',
-          'Expiry date',
+          'Days left',
           'Actions',
         ])
         const actions = rowOf('FT0000070')!.get('[data-actions]')
@@ -610,8 +704,7 @@ describe('Medical page', () => {
         const cells = rowOf('FT0000070')!
           .findAll('td')
           .map((td) => td.text())
-        expect(cells[headers().indexOf('Medical slip date')]).toBe('25-08-2026')
-        expect(cells[headers().indexOf('Expiry date')]).toBe('02-12-2026')
+        expect(cells[headers().indexOf('Issue date')]).toBe('02-09-2026')
       },
     )
 

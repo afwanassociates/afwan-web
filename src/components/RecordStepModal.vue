@@ -70,7 +70,8 @@ const title = computed(() => {
 
 function resetForm() {
   const s = step.value
-  status.value = null
+  // Correcting a record starts from its own status.
+  status.value = props.record?.status ?? null
   remarks.value = props.record?.remarks ?? ''
   errors.value = {}
   banner.value = null

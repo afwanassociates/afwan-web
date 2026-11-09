@@ -32,10 +32,24 @@ const overview = (rows = 3): DataResetOverview => ({
       files: null,
     },
     {
+      key: 'transactions',
+      label: 'Accounts transactions',
+      description: 'Transactions.',
+      tables: [
+        { name: 'cash_receipt_passports', rows: 1 },
+        { name: 'cash_receipts', rows: 2 },
+      ],
+      rows: 3,
+      files: null,
+    },
+    {
       key: 'accounts',
       label: 'Accounts',
       description: 'Accounts.',
-      tables: [],
+      tables: [
+        { name: 'cash_receipts', rows: 2 },
+        { name: 'parties', rows: 3 },
+      ],
       rows: 5,
       files: null,
     },
@@ -69,11 +83,13 @@ describe('DataResetSettingsView', () => {
     expect(wrapper.findAll('[data-group]').map((g) => g.attributes('data-group'))).toEqual([
       'passports',
       'companies',
+      'transactions',
       'accounts',
     ])
     expect(wrapper.find('[data-group="passports"] [data-count]').text()).toContain('2 file(s)')
     expect((checkbox('accounts').element as HTMLInputElement).checked).toBe(true)
-    expect(button().text()).toBe('Delete 14 item(s) permanently')
+    // 3 + 2 files + 4 + the receipts (shared by transactions and accounts) once: 1 + 2 + 3.
+    expect(button().text()).toBe('Delete 15 item(s) permanently')
     expect(wrapper.find('[data-no-backups]').exists()).toBe(true)
   })
 
@@ -97,6 +113,25 @@ describe('DataResetSettingsView', () => {
 
     await checkbox('companies').setValue(true)
     expect((checkbox('passports').element as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('can delete only the accounts transactions, keeping passports and parties', async () => {
+    await mountView()
+
+    // Without passports, companies and accounts (parties) go too; transactions stay.
+    await checkbox('passports').setValue(false)
+    expect((checkbox('accounts').element as HTMLInputElement).checked).toBe(false)
+    expect((checkbox('transactions').element as HTMLInputElement).checked).toBe(true)
+    expect(button().text()).toBe('Delete 3 item(s) permanently')
+
+    // Accounts needs passports and holds every transaction.
+    await checkbox('transactions').setValue(false)
+    await checkbox('accounts').setValue(true)
+    expect((checkbox('passports').element as HTMLInputElement).checked).toBe(true)
+    expect((checkbox('transactions').element as HTMLInputElement).checked).toBe(true)
+
+    await checkbox('transactions').setValue(false)
+    expect((checkbox('accounts').element as HTMLInputElement).checked).toBe(false)
   })
 
   it('sends the chosen groups, the words and the password, then shows the result', async () => {
@@ -126,7 +161,7 @@ describe('DataResetSettingsView', () => {
     await flushPromises()
 
     expect(resetData).toHaveBeenCalledWith({
-      groups: ['passports', 'accounts'],
+      groups: ['passports', 'transactions', 'accounts'],
       confirmation: 'DELETE ALL DATA',
       password: 'secret',
     })

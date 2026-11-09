@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import PassportDetailView from '../PassportDetailView.vue'
 import { getPassport, undoPassportReturn, updateEntryMode } from '@/api/passports'
+import { updateMedicalSlip } from '@/api/medical'
 import { listStepRecords } from '@/api/steps'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
@@ -148,7 +149,8 @@ describe('Passport page: undo in the Steps section (operations head only)', () =
     expect(wrapper.text()).not.toContain('Undo medical result')
   })
 
-  it('has no slip undo: a slip without a result shows no undo (Edit slip changes it)', async () => {
+  it('offers "Back to Passport Entry" on Medical while it is pending (slip, no result)', async () => {
+    vi.mocked(updateMedicalSlip).mockResolvedValue(makePassport({ id: 20 }))
     await mountDetail({
       current_medical: null,
       medical_status: 'pending',
@@ -156,8 +158,32 @@ describe('Passport page: undo in the Steps section (operations head only)', () =
       medical_slip: { date: '2026-10-05', medical_center: null },
     })
 
+    const button = wrapper.get('[data-timeline-step="medical"] button[data-early-undo]')
+    expect(button.text()).toBe('Back to Passport Entry')
+    expect(wrapper.findAll('button[data-early-undo]')).toHaveLength(1)
+    await button.trigger('click')
+    await flushPromises()
+    await confirmDialog('Back to Passport Entry')
+
+    expect(updateMedicalSlip).toHaveBeenCalledWith(20, {
+      medical_slip_date: null,
+      medical_center_id: null,
+    })
+    expect(updateEntryMode).not.toHaveBeenCalled()
+  })
+
+  it('shows no "Back to Passport Entry" to data entry', async () => {
+    await mountDetail(
+      {
+        current_medical: null,
+        medical_status: 'pending',
+        entry_mode: null,
+        medical_slip: { date: '2026-10-05', medical_center: null },
+      },
+      'data_entry',
+    )
+
     expect(wrapper.find('button[data-early-undo]').exists()).toBe(false)
-    expect(wrapper.text()).not.toContain('Undo medical slip')
   })
 
   it('shows nothing when there is nothing to undo (no slip yet)', async () => {

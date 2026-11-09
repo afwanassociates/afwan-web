@@ -54,10 +54,19 @@ export const useWorkflowStore = defineStore('workflow', () => {
     return configPending
   }
 
+  /** Fetches the step definitions again (e.g. after the date rules change their warnings). */
+  async function reloadConfig(): Promise<void> {
+    try {
+      config.value = await fetchWorkflowConfig()
+    } catch {
+      // Keeps the definitions it had.
+    }
+  }
+
   /** A step's definition by key. */
   function stepConfig(key: string | null | undefined): StepConfig | undefined {
     return key ? config.value?.steps.find((s) => s.key === key) : undefined
   }
 
-  return { summary, loadFailed, load, refresh, config, loadConfig, stepConfig }
+  return { summary, loadFailed, load, refresh, config, loadConfig, reloadConfig, stepConfig }
 })

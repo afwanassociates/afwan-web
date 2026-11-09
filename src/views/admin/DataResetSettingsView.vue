@@ -37,7 +37,7 @@ load()
 
 /* ---------- The form ---------- */
 
-const selected = ref<DataGroupKey[]>(['passports', 'companies', 'accounts'])
+const selected = ref<DataGroupKey[]>(['passports', 'companies', 'transactions', 'accounts'])
 const confirmation = ref('')
 const password = ref('')
 const errors = ref<Record<string, string>>({})
@@ -50,22 +50,44 @@ const canSubmit = computed(
   () => selected.value.length > 0 && phraseOk.value && password.value !== '' && !isDeleting.value,
 )
 
-/** Passports belong to companies: deleting companies needs passports too. */
+/**
+ * Passports belong to companies and name a party as their reference: deleting companies or
+ * accounts (which holds the parties) needs passports too. Accounts includes every transaction,
+ * so it ticks transactions; transactions alone keep the parties and need nothing else.
+ */
 function toggle(key: DataGroupKey, on: boolean) {
   const next = new Set(selected.value)
   if (on) next.add(key)
   else next.delete(key)
   if (key === 'companies' && on) next.add('passports')
-  if (key === 'passports' && !on) next.delete('companies')
-  selected.value = [...next]
+  if (key === 'accounts' && on) {
+    next.add('passports')
+    next.add('transactions')
+  }
+  if (key === 'passports' && !on) {
+    next.delete('companies')
+    next.delete('accounts')
+  }
+  if (key === 'transactions' && !on) next.delete('accounts')
+  // Keep the page's order, which is also the order the API deletes in.
+  selected.value = (overview.value?.groups.map((g) => g.key) ?? [...next]).filter((k) =>
+    next.has(k),
+  )
 }
 
-const selectedRows = computed(
-  () =>
-    overview.value?.groups
-      .filter((g) => selected.value.includes(g.key))
-      .reduce((sum, g) => sum + g.rows + (g.files ?? 0), 0) ?? 0,
-)
+/** Groups share tables (receipt links, every transaction in accounts): count each table once. */
+const selectedRows = computed(() => {
+  const tables = new Map<string, number>()
+  let total = 0
+  for (const group of overview.value?.groups ?? []) {
+    if (!selected.value.includes(group.key)) continue
+    total += group.files ?? 0
+    if (group.tables.length === 0) total += group.rows
+    for (const table of group.tables) tables.set(table.name, table.rows)
+  }
+  for (const rows of tables.values()) total += rows
+  return total
+})
 
 async function submit() {
   if (!canSubmit.value) return
@@ -141,6 +163,7 @@ async function confirmRemove() {
 const GROUP_LABELS: Record<DataGroupKey, string> = {
   passports: 'Passports',
   companies: 'Companies',
+  transactions: 'Accounts transactions',
   accounts: 'Accounts',
 }
 

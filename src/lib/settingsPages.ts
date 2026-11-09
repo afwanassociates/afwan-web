@@ -38,6 +38,16 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   },
   {
     // Super admin only: the API refuses everyone else as well.
+    name: 'settings-date-rules',
+    path: 'date-rules',
+    label: 'Date rules',
+    description:
+      'For each company country: how long medical, calling and visa results stay valid, when expiry dates warn, and the passport age and validity limits.',
+    roles: ['super_admin'],
+    component: () => import('@/views/admin/DateRulesSettingsView.vue'),
+  },
+  {
+    // Super admin only: the API refuses everyone else as well.
     name: 'settings-danger-zone',
     path: 'danger-zone',
     label: 'Danger zone',

@@ -94,13 +94,14 @@ beforeEach(() => {
 afterEach(() => wrapper.unmount())
 
 describe('Companies (operations head)', () => {
-  it('lists every company with its quota, passports and status (no agent columns)', async () => {
+  it('lists every company with its country, quota, passports and status (no agent columns)', async () => {
     await mountView()
 
     const headers = wrapper.findAll('thead th').map((th) => th.text())
-    expect(headers).toEqual(['Company', 'Quota', 'Passports', 'Status', 'Actions'])
+    expect(headers).toEqual(['Company', 'Country', 'Quota', 'Passports', 'Status', 'Actions'])
     const row = wrapper.get('[data-company="1"]')
     expect(row.text()).toContain('ABC Sdn Bhd')
+    expect(row.get('[data-country]').text()).toBe('Malaysia')
     expect(row.text()).toContain('10')
     expect(row.get('[data-active]').text()).toBe('Active')
   })

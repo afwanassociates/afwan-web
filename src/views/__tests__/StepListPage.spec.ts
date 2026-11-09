@@ -543,6 +543,9 @@ describe('Step pages (one per step)', () => {
 
       it('all three are required, each with its own inline error', async () => {
         const p = await openUpdate()
+        // The receive date starts as today; cleared, it is required like the others.
+        expect(field(p, 'receive_date').element.value).toBe(TODAY)
+        await field(p, 'receive_date').setValue('')
         await p.trigger('submit')
 
         expect(p.get('[data-step-field="receive_date"]').text()).toContain(
@@ -920,21 +923,21 @@ describe('Step pages (one per step)', () => {
       try {
         await mountStep('/visa?tab=issued')
 
+        // Calling expiry and the submitted date show on Pending only.
         expect(headers()).toEqual([
+          'No.',
           'Passport name',
           'Passport number',
           'Reference',
           'Company',
-          'Calling expiry',
-          'Visa submitted date',
           'Issue date',
           'Expired date',
           'Visa number',
         ])
         const cell = (id: number, name: string) =>
           wrapper.get(`tr[data-row="${id}"] [data-cell="${name}"]`)
-        expect(cell(56, 'previous_expiry').text()).toBe(toDisplay(addDays(TODAY, 300)))
-        expect(cell(56, 'step_date').text()).toBe('02-10-2026')
+        expect(wrapper.find('[data-cell="previous_expiry"]').exists()).toBe(false)
+        expect(wrapper.find('[data-cell="step_date"]').exists()).toBe(false)
         expect(cell(56, 'issue_date').text()).toBe('08-10-2026')
         expect(cell(56, 'reference_no').text()).toBe('V-56')
         expect(cell(57, 'reference_no').text()).toBe('-')
@@ -1245,8 +1248,9 @@ describe('Step pages (one per step)', () => {
 
     it('mentions company and reference when nothing matches', async () => {
       vi.mocked(listStepPassports).mockResolvedValue(page([]))
-      await mountStep('/calling?company=nobody')
+      await mountStep('/calling?company_id=99')
 
+      expect(wrapper.get('[data-empty]').text()).toContain('No passports match these searches.')
       expect(wrapper.get('[data-empty]').text()).toContain('company and reference searches')
     })
   })
@@ -1480,22 +1484,23 @@ describe('Step pages (one per step)', () => {
       expect(toastMessages()).toContain('FL0000073: Flight confirmed')
     })
 
-    it('Flight confirmed: booking and confirmed dates, read-only (the booking is locked)', async () => {
+    it('Flight done: the booking date and a Done mark, read-only (the booking is locked)', async () => {
       ROWS.confirmed = [
         flightRow(90, { clearance: '2026-10-11', booking: '2026-11-02', confirmed: '2026-10-13' }),
       ]
       await mountStep('/flight?tab=confirmed')
 
       expect(headers()).toEqual([
+        'No.',
         'Passport name',
         'Passport number',
         'Reference',
         'Company',
         'Flight booking date',
-        'Confirmed date',
+        'Flight done',
       ])
       expect(cell(90, 'booking_date').text()).toBe('02-11-2026')
-      expect(cell(90, 'confirmed_date').text()).toBe('13-10-2026')
+      expect(cell(90, 'passport_done').text()).toBe('Done')
       expect(wrapper.findAll('tbody button')).toHaveLength(0)
       expect(wrapper.find('[data-booking], [data-date-popover]').exists()).toBe(false)
     })

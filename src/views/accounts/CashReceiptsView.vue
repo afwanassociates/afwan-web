@@ -446,6 +446,18 @@ const actionClass =
                     >
                       {{ r.party.type === 'owner' ? 'Capital' : r.receipt_type_label }}
                     </span>
+                    <!-- What a party's recruitment money paid for, per company. -->
+                    <ul v-if="r.companies?.length" class="mt-1.5 space-y-0.5 text-xs" data-paid-for>
+                      <li v-for="c in r.companies" :key="c.company_id" class="whitespace-nowrap">
+                        <span class="font-medium text-ink">{{ c.company_name }}</span>
+                        <span class="text-muted">
+                          · {{ c.passports.length }} passport{{
+                            c.passports.length === 1 ? '' : 's'
+                          }}
+                          · {{ formatMoney(c.amount) }}</span
+                        >
+                      </li>
+                    </ul>
                   </td>
                   <td :class="TABLE_TD">
                     {{ r.payment_method_label }}

@@ -10,6 +10,9 @@ import {
   updateCashReceipt,
 } from '@/api/accounts'
 import MobileBankingFields from '@/components/accounts/MobileBankingFields.vue'
+import ReceiptPassportPicker, {
+  type PassportSelection,
+} from '@/components/accounts/ReceiptPassportPicker.vue'
 import { checkMobileBanking, formatMoney, parseAmount } from '@/lib/accounts'
 import { businessToday, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
@@ -34,7 +37,9 @@ import type {
  * the money came as cash in hand, into a bank (naming the bank, branch and account), or by
  * mobile banking (bKash, Nagad…). The amount is asked for once "Received via" is chosen.
  * A party's money also names the business it is for (recruitment by default; land, solar,
- * railway) and, for recruitment, the country (starting at the default country).
+ * railway) and, for recruitment, the country (starting at the default country); recruitment
+ * money may also say which of the party's passports it pays for, per company with a typed
+ * amount, and the receipt amount is then their total.
  * `receipt` null records a new one, optionally for `presetParty` (and `presetLoan`: a loan
  * return of that loan).
  */
@@ -65,6 +70,9 @@ const bankAccountNumber = ref('')
 const mobileProvider = ref<MobileBankingProvider | ''>('')
 const mobileNumber = ref('')
 const note = ref('')
+const passportSelection = ref<PassportSelection>({})
+/** Company errors from the API, by company id. */
+const companyErrors = ref<Record<number, string>>({})
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
@@ -128,6 +136,17 @@ watch(open, (isOpen) => {
   mobileProvider.value = r?.mobile_provider ?? ''
   mobileNumber.value = r?.mobile_number ?? ''
   note.value = r?.note ?? ''
+  passportSelection.value = Object.fromEntries(
+    (r?.companies ?? []).map((c) => [
+      c.company_id,
+      {
+        passportIds: c.passports.map((p) => p.id),
+        amount: c.amount.toFixed(2),
+        fullPayment: c.is_full_payment,
+      },
+    ]),
+  )
+  companyErrors.value = {}
   errors.value = {}
   banner.value = null
   void loadOptions()
@@ -182,6 +201,30 @@ watch(
   },
 )
 
+/** A party's recruitment money: tick the passports it pays for. */
+const showsPassports = computed(
+  () =>
+    partyType.value === 'client' &&
+    businessType.value === 'recruitment' &&
+    !!party.value &&
+    !!countryCode.value,
+)
+const passportLines = computed(() =>
+  showsPassports.value
+    ? Object.entries(passportSelection.value).map(([companyId, s]) => ({
+        companyId: Number(companyId),
+        ...s,
+      }))
+    : [],
+)
+const hasPassportLines = computed(() => passportLines.value.length > 0)
+const linesTotal = computed(
+  () =>
+    Math.round(
+      passportLines.value.reduce((sum, l) => sum + (parseAmount(l.amount).amount ?? 0), 0) * 100,
+    ) / 100,
+)
+
 const fetchPayers = (q: string): Promise<Payer[]> => searchParties(partyType.value, q)
 const payerSubtitle = (p: Payer) => `${p.code} · ${p.mobile}`
 
@@ -204,7 +247,13 @@ async function save() {
   const isRecruitment = isClient && businessType.value === 'recruitment'
   if (isRecruitment && !countryCode.value) e.country_code = 'Choose the country.'
   if (!date.value) e.date = 'Choose the date.'
-  const parsed = parseAmount(amount.value)
+  const parsed = hasPassportLines.value ? { amount: linesTotal.value } : parseAmount(amount.value)
+  const lineErrors: Record<number, string> = {}
+  for (const line of passportLines.value) {
+    const lineAmount = parseAmount(line.amount)
+    if (lineAmount.error) lineErrors[line.companyId] = lineAmount.error
+  }
+  companyErrors.value = lineErrors
   if (!method.value) e.payment_method = 'Choose how the money was received.'
   else if (parsed.error) e.amount = parsed.error
   if (isLoanReturn.value && party.value) {
@@ -229,7 +278,7 @@ async function save() {
   const mobile = checkMobileBanking(mobileProvider.value, mobileNumber.value)
   if (method.value === 'mobile_banking') Object.assign(e, mobile.errors)
   errors.value = e
-  if (Object.keys(e).length > 0) return
+  if (Object.keys(e).length > 0 || Object.keys(lineErrors).length > 0) return
 
   const isBank = method.value === 'bank'
   const isMobile = method.value === 'mobile_banking'
@@ -250,7 +299,14 @@ async function save() {
     mobile_provider: isMobile ? mobile.mobile_provider : null,
     mobile_number: isMobile ? mobile.mobile_number : null,
     note: squish(note.value) || null,
+    companies: passportLines.value.map((l) => ({
+      company_id: l.companyId,
+      amount: parseAmount(l.amount).amount!,
+      is_full_payment: l.fullPayment,
+      passport_ids: l.passportIds,
+    })),
   }
+  const sentCompanies = payload.companies.map((c) => c.company_id)
   isSaving.value = true
   try {
     const saved = props.receipt
@@ -260,8 +316,18 @@ async function save() {
     open.value = false
   } catch (error) {
     if (errorStatus(error) === 422) {
-      errors.value = fieldErrors(error)
-      if (Object.keys(errors.value).length === 0) banner.value = errorMessage(error)
+      const all = fieldErrors(error)
+      const byCompany: Record<number, string> = {}
+      const rest: Record<string, string> = {}
+      for (const [key, message] of Object.entries(all)) {
+        const match = /^companies\.(\d+)\./.exec(key)
+        const companyId = match ? sentCompanies[Number(match[1])] : undefined
+        if (companyId !== undefined) byCompany[companyId] ??= message
+        else rest[key.startsWith('companies') ? 'amount' : key] = message
+      }
+      errors.value = rest
+      companyErrors.value = byCompany
+      if (Object.keys(all).length === 0) banner.value = errorMessage(error)
     } else if (errorStatus(error) === 403) {
       banner.value = 'You do not have permission to record receipts.'
     } else if (errorStatus(error) !== 401) {
@@ -282,7 +348,7 @@ const segment = (active: boolean) =>
 </script>
 
 <template>
-  <BaseDialog v-model:open="open" :title="title" :busy="isSaving">
+  <BaseDialog v-model:open="open" :title="title" :busy="isSaving" :wide="showsPassports">
     <p
       v-if="banner"
       role="alert"
@@ -384,6 +450,15 @@ const segment = (active: boolean) =>
             {{ errors.country_code }}
           </p>
         </div>
+
+        <ReceiptPassportPicker
+          v-if="showsPassports"
+          v-model="passportSelection"
+          :party-id="party!.id"
+          :country-code="countryCode"
+          :receipt-id="receipt?.id ?? null"
+          :errors="companyErrors"
+        />
       </template>
 
       <div class="grid gap-4 sm:grid-cols-2">
@@ -567,6 +642,17 @@ const segment = (active: boolean) =>
           Amount<span class="text-red-700" aria-hidden="true"> *</span>
         </label>
         <input
+          v-if="hasPassportLines"
+          :id="`${id}-amount`"
+          :value="formatMoney(linesTotal)"
+          type="text"
+          readonly
+          :class="[inputClass, border('amount'), 'bg-slate-50 text-right text-lg tabular-nums']"
+          :aria-describedby="`${id}-amount-hint`"
+          data-lines-total
+        />
+        <input
+          v-else
           :id="`${id}-amount`"
           v-model="amount"
           type="text"
@@ -577,6 +663,13 @@ const segment = (active: boolean) =>
           :aria-invalid="errors.amount ? 'true' : undefined"
         />
         <p v-if="errors.amount" class="mt-1 text-sm text-red-700">{{ errors.amount }}</p>
+        <p
+          v-else-if="hasPassportLines"
+          :id="`${id}-amount-hint`"
+          class="mt-1 text-right text-xs text-muted"
+        >
+          The total of the companies above.
+        </p>
         <p v-else-if="parseAmount(amount).amount" class="mt-1 text-right text-xs text-muted">
           ৳ {{ formatMoney(parseAmount(amount).amount!) }}
         </p>

@@ -26,6 +26,7 @@ import {
 } from '@/api/steps'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
+import { useDateRulesFor, type DateRuleKey } from '@/lib/dateRules'
 import { businessToday, daysLeft, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { staffTitle } from '@/lib/pageTitle'
@@ -146,9 +147,14 @@ type Filters = typeof filters.value
 
 const hasFilters = computed(() =>
   Boolean(
-    filters.value.q || filters.value.company_id || filters.value.reference_id ||
-    (activeTab.value === 'permitted' && (filters.value.receive_date_from || filters.value.receive_date_to)) ||
-    (stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed') && (filters.value.booking_date_from || filters.value.booking_date_to)),
+    filters.value.q ||
+    filters.value.company_id ||
+    filters.value.reference_id ||
+    (activeTab.value === 'permitted' &&
+      (filters.value.receive_date_from || filters.value.receive_date_to)) ||
+    (stepKey.value === 'flight' &&
+      (isPendingTab.value || activeTab.value === 'confirmed') &&
+      (filters.value.booking_date_from || filters.value.booking_date_to)),
   ),
 )
 
@@ -212,7 +218,17 @@ function clearFilters() {
   bookingDateFrom.value = ''
   bookingDateTo.value = ''
   debouncedSearch.cancel()
-  router.replace({ query: queryWith({ q: '', company_id: null, reference_id: null, receive_date_from: '', receive_date_to: '', booking_date_from: '', booking_date_to: '' }) })
+  router.replace({
+    query: queryWith({
+      q: '',
+      company_id: null,
+      reference_id: null,
+      receive_date_from: '',
+      receive_date_to: '',
+      booking_date_from: '',
+      booking_date_to: '',
+    }),
+  })
 }
 
 watch(filters, (f) => {
@@ -250,7 +266,6 @@ const isPendingTab = computed(() => activeTab.value === 'pending')
 const isBookingStepConfig = (s: StepConfig) => s.fields.some((f) => f.phase === 'booking')
 const isBookingStep = computed(() => (step.value ? isBookingStepConfig(step.value) : false))
 const bookingField = computed(() => step.value?.fields.find((f) => f.phase === 'booking'))
-const confirmField = computed(() => step.value?.fields.find((f) => f.phase === 'confirm'))
 
 /**
  * No "in process" tab (every step now): started passports stay in Pending with their date,
@@ -289,14 +304,18 @@ const apiFilters = (f: Filters) => ({
   search: f.q || undefined,
   company_id: f.company_id ?? undefined,
   reference_id: f.reference_id ?? undefined,
-  ...(activeTab.value === 'permitted' ? {
-    receive_date_from: f.receive_date_from || undefined,
-    receive_date_to: f.receive_date_to || undefined,
-  } : {}),
-  ...(stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed') ? {
-    booking_date_from: f.booking_date_from || undefined,
-    booking_date_to: f.booking_date_to || undefined,
-  } : {}),
+  ...(activeTab.value === 'permitted'
+    ? {
+        receive_date_from: f.receive_date_from || undefined,
+        receive_date_to: f.receive_date_to || undefined,
+      }
+    : {}),
+  ...(stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed')
+    ? {
+        booking_date_from: f.booking_date_from || undefined,
+        booking_date_to: f.booking_date_to || undefined,
+      }
+    : {}),
 })
 
 async function load() {
@@ -405,16 +424,33 @@ const startColumns = computed(() =>
  * (Dhaka calendar date).
  */
 function expiryClass(row: StepListRow, field: StepFieldConfig): string | undefined {
-  return field.name === 'valid_until' ? expiryTone(row.record?.valid_until) : undefined
+  return field.name === 'valid_until' ? expiryTone(row.record?.valid_until, row) : undefined
 }
 
-/** Amber within the warning days, red once passed (Dhaka date); nothing otherwise. */
-function expiryTone(value: string | null | undefined): string | undefined {
+/** Settings → Date rules, by each row's company country. */
+const dateRulesFor = useDateRulesFor()
+
+/** The expiry warning in days of a step's date (`dateStep`) for the row's company country. */
+function warningDays(row: StepListRow, dateStep: string | undefined): number {
+  const key = `${dateStep ?? stepKey.value}_warning_days` as DateRuleKey
+  const rules = dateRulesFor.value(row.company.country_code)
+  return key in rules ? rules[key] : (step.value?.warning_days ?? 30)
+}
+
+/**
+ * Amber within the warning days of the step the date belongs to (`dateStep`, default this
+ * page's step), red once passed (Dhaka date); nothing otherwise.
+ */
+function expiryTone(
+  value: string | null | undefined,
+  row: StepListRow,
+  dateStep?: string,
+): string | undefined {
   if (!value) return undefined
   const left = daysLeft(value, businessToday())
   if (left === null) return undefined
   if (left < 0) return 'font-semibold text-red-700'
-  if (left <= (step.value?.warning_days ?? 30)) return 'font-semibold text-amber-700'
+  if (left <= warningDays(row, dateStep)) return 'font-semibold text-amber-700'
   return undefined
 }
 
@@ -428,9 +464,7 @@ const showVisaExpiry = computed(
 )
 
 /** Calling expiry on Visa Pending only (not on Issued or Rejected). */
-const showPreviousExpiry = computed(
-  () => previousExpiry.value !== null && isPendingTab.value,
-)
+const showPreviousExpiry = computed(() => previousExpiry.value !== null && isPendingTab.value)
 const previousExpiry = computed(() => {
   const prev = previousStep.value
   if (
@@ -633,9 +667,7 @@ async function markAction(row: StepListRow, a: StepAction, date?: string) {
         }`,
         {
           duration: UNDO_MS,
-          ...(canUndo.value
-            ? { action: { label: 'Undo', run: () => undoAction(row, a) } }
-            : {}),
+          ...(canUndo.value ? { action: { label: 'Undo', run: () => undoAction(row, a) } } : {}),
         },
       )
     }
@@ -782,7 +814,6 @@ async function undoConfirm(row: StepListRow) {
 }
 
 /* ---------- Permitted → the next step (optimistic) ---------- */
-
 
 /**
  * Starts the next step (calling → visa) from the Permitted tab: the row leaves at once and
@@ -1248,7 +1279,9 @@ function afterReturn() {
               <!-- Permitted tab only: receive date range filter -->
               <template v-if="activeTab === 'permitted' && stepKey === 'calling'">
                 <div>
-                  <label :for="receiveDateFromId" class="block text-sm font-medium text-slate-700">Receive date from</label>
+                  <label :for="receiveDateFromId" class="block text-sm font-medium text-slate-700"
+                    >Receive date from</label
+                  >
                   <input
                     :id="receiveDateFromId"
                     v-model="receiveDateFrom"
@@ -1256,11 +1289,20 @@ function afterReturn() {
                     :max="receiveDateTo || undefined"
                     :class="inputClass"
                     data-receive-date-from
-                    @change="router.replace({ query: queryWith({ receive_date_from: receiveDateFrom, receive_date_to: receiveDateTo }) })"
+                    @change="
+                      router.replace({
+                        query: queryWith({
+                          receive_date_from: receiveDateFrom,
+                          receive_date_to: receiveDateTo,
+                        }),
+                      })
+                    "
                   />
                 </div>
                 <div>
-                  <label :for="receiveDateToId" class="block text-sm font-medium text-slate-700">Receive date to</label>
+                  <label :for="receiveDateToId" class="block text-sm font-medium text-slate-700"
+                    >Receive date to</label
+                  >
                   <input
                     :id="receiveDateToId"
                     v-model="receiveDateTo"
@@ -1268,14 +1310,23 @@ function afterReturn() {
                     :min="receiveDateFrom || undefined"
                     :class="inputClass"
                     data-receive-date-to
-                    @change="router.replace({ query: queryWith({ receive_date_from: receiveDateFrom, receive_date_to: receiveDateTo }) })"
+                    @change="
+                      router.replace({
+                        query: queryWith({
+                          receive_date_from: receiveDateFrom,
+                          receive_date_to: receiveDateTo,
+                        }),
+                      })
+                    "
                   />
                 </div>
               </template>
               <!-- Flight pending + confirmed tabs: booking date range filter -->
               <template v-if="stepKey === 'flight' && (isPendingTab || activeTab === 'confirmed')">
                 <div>
-                  <label :for="bookingDateFromId" class="block text-sm font-medium text-slate-700">Flight date from</label>
+                  <label :for="bookingDateFromId" class="block text-sm font-medium text-slate-700"
+                    >Flight date from</label
+                  >
                   <input
                     :id="bookingDateFromId"
                     v-model="bookingDateFrom"
@@ -1283,11 +1334,20 @@ function afterReturn() {
                     :max="bookingDateTo || undefined"
                     :class="inputClass"
                     data-booking-date-from
-                    @change="router.replace({ query: queryWith({ booking_date_from: bookingDateFrom, booking_date_to: bookingDateTo }) })"
+                    @change="
+                      router.replace({
+                        query: queryWith({
+                          booking_date_from: bookingDateFrom,
+                          booking_date_to: bookingDateTo,
+                        }),
+                      })
+                    "
                   />
                 </div>
                 <div>
-                  <label :for="bookingDateToId" class="block text-sm font-medium text-slate-700">Flight date to</label>
+                  <label :for="bookingDateToId" class="block text-sm font-medium text-slate-700"
+                    >Flight date to</label
+                  >
                   <input
                     :id="bookingDateToId"
                     v-model="bookingDateTo"
@@ -1295,7 +1355,14 @@ function afterReturn() {
                     :min="bookingDateFrom || undefined"
                     :class="inputClass"
                     data-booking-date-to
-                    @change="router.replace({ query: queryWith({ booking_date_from: bookingDateFrom, booking_date_to: bookingDateTo }) })"
+                    @change="
+                      router.replace({
+                        query: queryWith({
+                          booking_date_from: bookingDateFrom,
+                          booking_date_to: bookingDateTo,
+                        }),
+                      })
+                    "
                   />
                 </div>
               </template>
@@ -1469,7 +1536,9 @@ function afterReturn() {
                       <td
                         v-if="showPreviousExpiry"
                         class="py-3 pr-4 whitespace-nowrap text-slate-800"
-                        :class="expiryTone(row.previous_record?.valid_until)"
+                        :class="
+                          expiryTone(row.previous_record?.valid_until, row, previousStep?.key)
+                        "
                         data-cell="previous_expiry"
                       >
                         {{ toDisplayDate(row.previous_record?.valid_until) || '-' }}
@@ -1477,7 +1546,7 @@ function afterReturn() {
                       <td
                         v-if="showVisaExpiry"
                         class="py-3 pr-4 whitespace-nowrap text-slate-800"
-                        :class="expiryTone(row.visa_valid_until)"
+                        :class="expiryTone(row.visa_valid_until, row, 'visa')"
                         data-cell="visa_valid_until"
                       >
                         {{ toDisplayDate(row.visa_valid_until) || '-' }}
@@ -1616,7 +1685,16 @@ function afterReturn() {
                         </td>
                         <td class="py-3 pr-4 whitespace-nowrap" data-cell="passport_done">
                           <span class="inline-flex items-center gap-1 font-medium text-green-700">
-                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <svg
+                              class="h-4 w-4"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="3"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              aria-hidden="true"
+                            >
                               <path d="M5 12l5 5L20 7" />
                             </svg>
                             Done
@@ -1764,7 +1842,9 @@ function afterReturn() {
                             :data-return-action="row.id"
                             @click="askReturn(row)"
                           >
-                            Return<span class="sr-only">{{ ` passport ${row.passport_number}` }}</span>
+                            Return to owner<span class="sr-only">{{
+                              ` passport ${row.passport_number}`
+                            }}</span>
                           </button>
                         </div>
                       </td>
@@ -1885,8 +1965,8 @@ function afterReturn() {
     >
       <p>{{ bulkQuestion }}</p>
       <p class="mt-2 text-sm text-muted">
-        Each passport is checked as if done one by one; any that cannot be updated are skipped
-        and listed.
+        Each passport is checked as if done one by one; any that cannot be updated are skipped and
+        listed.
       </p>
     </ConfirmDialog>
   </div>

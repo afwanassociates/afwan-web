@@ -114,7 +114,7 @@ const actionClass =
             :data-return-action="entry.id"
             @click="$emit('return', entry)"
           >
-            Return<span class="sr-only"> passport {{ entry.passport_number }}</span>
+            Return to owner<span class="sr-only"> passport {{ entry.passport_number }}</span>
           </button>
         </slot>
       </div>
@@ -219,7 +219,7 @@ const actionClass =
                   :data-return-action="entry.id"
                   @click="$emit('return', entry)"
                 >
-                  Return<span class="sr-only"> passport {{ entry.passport_number }}</span>
+                  Return to owner<span class="sr-only"> passport {{ entry.passport_number }}</span>
                 </button>
               </slot>
             </div>

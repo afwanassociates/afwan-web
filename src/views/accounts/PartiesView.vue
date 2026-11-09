@@ -214,6 +214,39 @@ const inputClass =
   'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus:border-primary-600'
 const actionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap hover:bg-primary-50 focus-visible:bg-primary-50 disabled:opacity-50'
+/** Rows whose details (agency owner, NID / passport, address, …) are open. */
+const detailsId = useId()
+const openDetails = ref(new Set<number>())
+function toggleDetails(id: number) {
+  const next = new Set(openDetails.value)
+  if (!next.delete(id)) next.add(id)
+  openDetails.value = next
+}
+/** ID, name, opening, three totals (or capital + loan), closing, actions. */
+const columnCount = computed(() => (query.value.type === 'client' ? 8 : 7))
+const details = (p: Party) =>
+  p.type === 'client'
+    ? [
+        ...(p.kind === 'agency'
+          ? [
+              { key: 'rl', label: 'RL number', value: p.rl_number },
+              { key: 'agency-owner', label: 'Agency owner', value: p.agency_owner_name },
+              { key: 'nid', label: 'Owner NID / Passport', value: p.nid_passport },
+            ]
+          : [{ key: 'nid', label: 'NID / Passport', value: p.nid_passport }]),
+        { key: 'mobile', label: 'Phone', value: p.mobile },
+        { key: 'tin', label: 'TIN / BIN', value: p.tin_bin },
+        { key: 'address', label: 'Address', value: p.address },
+        { key: 'notes', label: 'Notes', value: p.notes },
+      ]
+    : [
+        { key: 'designation', label: 'Designation', value: p.designation_label },
+        { key: 'nid', label: 'NID / Passport', value: p.nid_passport },
+        { key: 'mobile', label: 'Phone', value: p.mobile },
+        { key: 'tin', label: 'TIN / BIN', value: p.tin_bin },
+        { key: 'address', label: 'Address', value: p.address },
+        { key: 'notes', label: 'Notes', value: p.notes },
+      ]
 const money = (value: number | undefined) => (value ? formatMoney(value) : '—')
 /** What the owner still owes on company loans: lent, less bills shown and money returned. */
 const loanBalance = (p: Party) =>
@@ -325,20 +358,14 @@ const loanBalance = (p: Party) =>
               <thead :class="TABLE_HEAD">
                 <tr>
                   <th scope="col" :class="TABLE_TH">ID</th>
-                  <th v-if="query.type === 'client'" scope="col" :class="TABLE_TH">RL Number</th>
                   <th scope="col" :class="TABLE_TH">
                     {{ query.type === 'client' ? 'Agency / Person' : 'Name' }}
-                  </th>
-                  <th v-if="query.type === 'owner'" scope="col" :class="TABLE_TH">Designation</th>
-                  <th v-if="query.type === 'client'" scope="col" :class="TABLE_TH">Agency owner</th>
-                  <th scope="col" :class="TABLE_TH">
-                    {{ query.type === 'client' ? 'Owner NID / Passport' : 'NID / Passport' }}
                   </th>
                   <th scope="col" :class="[TABLE_TH, 'text-right']">Opening</th>
                   <template v-if="query.type === 'client'">
                     <th scope="col" :class="[TABLE_TH, 'text-right']">Receivable</th>
-                    <th scope="col" :class="[TABLE_TH, 'text-right']">Payment Received</th>
-                    <th scope="col" :class="[TABLE_TH, 'text-right']">Payment Refund</th>
+                    <th scope="col" :class="[TABLE_TH, 'text-right']">Received</th>
+                    <th scope="col" :class="[TABLE_TH, 'text-right']">Refund</th>
                   </template>
                   <template v-else>
                     <th scope="col" :class="[TABLE_TH, 'text-right']">Capital</th>
@@ -346,139 +373,161 @@ const loanBalance = (p: Party) =>
                   <th v-if="query.type === 'owner'" scope="col" :class="[TABLE_TH, 'text-right']">
                     Loan outstanding
                   </th>
-                  <th scope="col" :class="[TABLE_TH, 'text-right']">Closing balance</th>
-                  <th scope="col" :class="TABLE_TH">Status</th>
+                  <th scope="col" :class="[TABLE_TH, 'text-right']">Closing</th>
                   <th scope="col" class="py-3"><span class="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-stroke">
-                <tr v-for="p in list.data" :key="p.id" class="align-top" :data-party="p.id">
-                  <td :class="[TABLE_TD, 'font-mono text-xs whitespace-nowrap']">{{ p.code }}</td>
-                  <td
-                    v-if="query.type === 'client'"
-                    :class="[TABLE_TD, 'whitespace-nowrap']"
-                    data-rl
-                  >
-                    {{ p.rl_number ?? '—' }}
-                  </td>
-                  <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
-                    <RouterLink
-                      :to="{ name: 'accounts-party-ledger', params: { id: p.id } }"
-                      class="text-primary-800 underline-offset-4 hover:underline"
-                    >
-                      {{ p.name }}
-                    </RouterLink>
-                    <span class="block text-xs font-normal text-muted">
-                      {{ [p.kind_label, p.mobile].filter(Boolean).join(' · ') }}
-                    </span>
-                  </th>
-                  <td
-                    v-if="query.type === 'owner'"
-                    :class="[TABLE_TD, 'whitespace-nowrap']"
-                    data-designation
-                  >
-                    {{ p.designation_label ?? '—' }}
-                  </td>
-                  <td v-if="query.type === 'client'" :class="TABLE_TD" data-agency-owner>
-                    {{ p.agency_owner_name ?? '—' }}
-                  </td>
-                  <td :class="TABLE_TD">
-                    {{ p.nid_passport ?? '—' }}
-                    <span v-if="p.tin_bin" class="block text-xs text-muted"
-                      >TIN/BIN {{ p.tin_bin }}</span
-                    >
-                  </td>
-                  <td :class="[TABLE_TD, 'text-right tabular-nums whitespace-nowrap']">
-                    {{
-                      formatBalance(
-                        p.opening_balance_type === 'payable'
-                          ? -p.opening_balance
-                          : p.opening_balance,
-                      )
-                    }}
-                  </td>
-                  <template v-if="query.type === 'client'">
-                    <td :class="[TABLE_TD, 'text-right tabular-nums']">
-                      {{ money(p.totals?.receivable) }}
-                    </td>
-                    <td :class="[TABLE_TD, 'text-right tabular-nums']">
-                      {{ money(p.totals?.payment) }}
-                    </td>
-                    <td :class="[TABLE_TD, 'text-right tabular-nums']">
-                      {{ money(p.totals?.refund) }}
-                    </td>
-                  </template>
-                  <template v-else>
-                    <td :class="[TABLE_TD, 'text-right tabular-nums']">
-                      {{ money(p.totals?.capital) }}
-                    </td>
-                  </template>
-                  <td
-                    v-if="query.type === 'owner'"
-                    :class="[TABLE_TD, 'text-right tabular-nums']"
-                    data-loan
-                  >
-                    {{ money(loanBalance(p)) }}
-                  </td>
-                  <td
-                    class="py-3 pr-4 text-right font-semibold whitespace-nowrap tabular-nums"
-                    :class="balanceClass(p.totals?.closing_balance ?? 0)"
-                    data-closing
-                  >
-                    {{ formatBalance(p.totals?.closing_balance ?? 0) }}
-                  </td>
-                  <td :class="TABLE_TD">
-                    <span
-                      class="rounded-full px-2 py-0.5 text-xs font-semibold ring-1"
-                      :class="
-                        p.is_active
-                          ? 'bg-green-50 text-green-800 ring-green-300'
-                          : 'bg-slate-100 text-slate-700 ring-slate-300'
-                      "
-                    >
-                      {{ p.is_active ? 'Active' : 'Inactive' }}
-                    </span>
-                  </td>
-                  <td class="py-3">
-                    <div class="flex flex-wrap justify-end gap-1">
+                <template v-for="p in list.data" :key="p.id">
+                  <tr class="align-top" :data-party="p.id">
+                    <td :class="[TABLE_TD, 'font-mono text-xs whitespace-nowrap']">{{ p.code }}</td>
+                    <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
                       <RouterLink
                         :to="{ name: 'accounts-party-ledger', params: { id: p.id } }"
-                        :class="[actionClass, 'text-primary-700']"
-                        data-ledger
+                        class="text-primary-800 underline-offset-4 hover:underline"
                       >
-                        Ledger<span class="sr-only"> {{ p.name }}</span>
+                        {{ p.name }}
                       </RouterLink>
-                      <button
-                        type="button"
-                        :class="[actionClass, 'text-primary-700']"
-                        data-edit
-                        @click="openEdit(p)"
+                      <span
+                        v-if="!p.is_active"
+                        class="ml-1.5 rounded-full bg-slate-100 px-2 py-0.5 align-middle text-xs font-semibold text-slate-700 ring-1 ring-slate-300"
+                        data-inactive
+                        >Inactive</span
                       >
-                        Edit<span class="sr-only"> {{ p.name }}</span>
-                      </button>
-                      <button
-                        type="button"
-                        :class="[actionClass, p.is_active ? 'text-amber-800' : 'text-green-800']"
-                        :disabled="busyId === p.id"
-                        :data-toggle-active="p.is_active ? 'deactivate' : 'activate'"
-                        @click="setActive(p, !p.is_active)"
-                      >
-                        {{ p.is_active ? 'Deactivate' : 'Activate'
-                        }}<span class="sr-only"> {{ p.name }}</span>
-                      </button>
-                      <!-- The accounts head, and only for a party with no passports or accounts records. -->
-                      <button
-                        v-if="canDelete && p.can_delete"
-                        type="button"
-                        :class="[actionClass, 'text-red-700 hover:bg-red-50']"
-                        data-delete
-                        @click="askDelete(p)"
-                      >
-                        Delete<span class="sr-only"> {{ p.name }}</span>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                      <span class="block text-xs font-normal text-muted">
+                        <template v-if="query.type === 'client'">
+                          {{ p.kind_label }}
+                          <template v-if="p.rl_number">
+                            · <span data-rl>{{ p.rl_number }}</span>
+                          </template>
+                        </template>
+                        <span v-else-if="p.designation_label" data-designation>{{
+                          p.designation_label
+                        }}</span>
+                        <template v-if="p.mobile">
+                          {{ query.type === 'client' || p.designation_label ? '·' : '' }}
+                          {{ p.mobile }}
+                        </template>
+                      </span>
+                    </th>
+                    <td :class="[TABLE_TD, 'text-right tabular-nums whitespace-nowrap']">
+                      {{
+                        formatBalance(
+                          p.opening_balance_type === 'payable'
+                            ? -p.opening_balance
+                            : p.opening_balance,
+                        )
+                      }}
+                    </td>
+                    <template v-if="query.type === 'client'">
+                      <td :class="[TABLE_TD, 'text-right tabular-nums']">
+                        {{ money(p.totals?.receivable) }}
+                      </td>
+                      <td :class="[TABLE_TD, 'text-right tabular-nums']">
+                        {{ money(p.totals?.payment) }}
+                      </td>
+                      <td :class="[TABLE_TD, 'text-right tabular-nums']">
+                        {{ money(p.totals?.refund) }}
+                      </td>
+                    </template>
+                    <template v-else>
+                      <td :class="[TABLE_TD, 'text-right tabular-nums']">
+                        {{ money(p.totals?.capital) }}
+                      </td>
+                    </template>
+                    <td
+                      v-if="query.type === 'owner'"
+                      :class="[TABLE_TD, 'text-right tabular-nums']"
+                      data-loan
+                    >
+                      {{ money(loanBalance(p)) }}
+                    </td>
+                    <td
+                      class="py-3 pr-4 text-right font-semibold whitespace-nowrap tabular-nums"
+                      :class="balanceClass(p.totals?.closing_balance ?? 0)"
+                      data-closing
+                    >
+                      {{ formatBalance(p.totals?.closing_balance ?? 0) }}
+                    </td>
+                    <td class="py-3">
+                      <div class="flex justify-end gap-1">
+                        <button
+                          type="button"
+                          :class="[actionClass, 'text-primary-700']"
+                          :aria-expanded="openDetails.has(p.id) ? 'true' : 'false'"
+                          :aria-controls="`${detailsId}-${p.id}`"
+                          :title="openDetails.has(p.id) ? 'Hide details' : 'Show details'"
+                          data-details
+                          @click="toggleDetails(p.id)"
+                        >
+                          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="9"
+                              stroke="currentColor"
+                              stroke-width="1.8"
+                            />
+                            <path
+                              d="M12 11v5M12 8h.01"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                            />
+                          </svg>
+                          <span class="sr-only">Details {{ p.name }}</span>
+                        </button>
+                        <button
+                          type="button"
+                          :class="[actionClass, 'text-primary-700']"
+                          data-edit
+                          @click="openEdit(p)"
+                        >
+                          Edit<span class="sr-only"> {{ p.name }}</span>
+                        </button>
+                        <button
+                          type="button"
+                          :class="[actionClass, p.is_active ? 'text-amber-800' : 'text-green-800']"
+                          :disabled="busyId === p.id"
+                          :data-toggle-active="p.is_active ? 'deactivate' : 'activate'"
+                          @click="setActive(p, !p.is_active)"
+                        >
+                          {{ p.is_active ? 'Deactivate' : 'Activate'
+                          }}<span class="sr-only"> {{ p.name }}</span>
+                        </button>
+                        <!-- The accounts head, and only for a party with no passports or accounts records. -->
+                        <button
+                          v-if="canDelete && p.can_delete"
+                          type="button"
+                          :class="[actionClass, 'text-red-700 hover:bg-red-50']"
+                          data-delete
+                          @click="askDelete(p)"
+                        >
+                          Delete<span class="sr-only"> {{ p.name }}</span>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr
+                    v-if="openDetails.has(p.id)"
+                    :id="`${detailsId}-${p.id}`"
+                    class="bg-slate-50"
+                    :data-details-row="p.id"
+                  >
+                    <td :colspan="columnCount" class="px-4 py-3">
+                      <dl class="grid gap-x-8 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                        <div v-for="d in details(p)" :key="d.label" :data-detail="d.key">
+                          <dt class="text-xs font-semibold tracking-wider text-muted uppercase">
+                            {{ d.label }}
+                          </dt>
+                          <dd class="mt-0.5 break-words whitespace-pre-line text-slate-800">
+                            {{ d.value || '—' }}
+                          </dd>
+                        </div>
+                      </dl>
+                    </td>
+                  </tr>
+                </template>
               </tbody>
             </table>
           </div>

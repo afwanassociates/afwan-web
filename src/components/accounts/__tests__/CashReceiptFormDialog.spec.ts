@@ -3,13 +3,20 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import CashReceiptFormDialog from '../CashReceiptFormDialog.vue'
 import {
   createCashReceipt,
+  fetchPartyPassports,
   fetchReceiptOptions,
   getOwnerLoans,
   searchParties,
   updateCashReceipt,
 } from '@/api/accounts'
 import { httpError } from '@/test/helpers'
-import type { CashReceipt, OwnerLoan, Party } from '@/types/accounts'
+import type {
+  CashReceipt,
+  OwnerLoan,
+  Party,
+  PartyPassport,
+  PartyPassportGroups,
+} from '@/types/accounts'
 
 vi.mock('@/api/accounts', () => ({
   searchParties: vi.fn(),
@@ -17,6 +24,7 @@ vi.mock('@/api/accounts', () => ({
   updateCashReceipt: vi.fn(),
   fetchReceiptOptions: vi.fn(),
   getOwnerLoans: vi.fn(),
+  fetchPartyPassports: vi.fn(),
 }))
 
 /** A 50,000 loan the company gave the owner: 30,000 settled by a bill, 5,000 waiting. */
@@ -153,6 +161,10 @@ beforeEach(() => {
   })
   vi.mocked(createCashReceipt).mockResolvedValue(receipt())
   vi.mocked(updateCashReceipt).mockResolvedValue(receipt())
+  vi.mocked(fetchPartyPassports).mockResolvedValue({
+    data: [],
+    meta: { counts: { total: 0, paid: 0, pending: 0, part_paid: 0, unpaid: 0 } },
+  })
 })
 
 afterEach(() => {
@@ -469,6 +481,251 @@ describe('CashReceiptFormDialog', () => {
     expect(updateCashReceipt).toHaveBeenCalledWith(
       3,
       expect.objectContaining({ payment_method: 'cash', bank_name: null, date: '2026-10-05' }),
+    )
+  })
+})
+
+function passport(id: number, overrides: Partial<PartyPassport> = {}): PartyPassport {
+  return {
+    id,
+    entry_no: id,
+    passport_name: `Worker ${id}`,
+    passport_number: `A${id}`,
+    country_code: 'MY',
+    stage: 'Visa',
+    is_deleted: false,
+    status: 'unpaid',
+    receipts: [],
+    on_this_receipt: false,
+    can_tick: true,
+    ...overrides,
+  }
+}
+
+/** Al Noor: 1 paid, 2 unpaid · Gulf Star: 1 unpaid. */
+function passportGroups(onThisReceipt: number[] = []): PartyPassportGroups {
+  const mark = (p: PartyPassport) =>
+    onThisReceipt.includes(p.id)
+      ? {
+          ...p,
+          status: 'pending' as const,
+          receipts: [
+            { id: 3, receipt_no: 'CR-2026-0003', is_full_payment: true, is_approved: false },
+          ],
+          on_this_receipt: true,
+        }
+      : p
+  return {
+    data: [
+      {
+        company: { id: 1, name: 'Al Noor', country_code: 'MY' },
+        counts: { total: 3, paid: 1, pending: 0, part_paid: 0, unpaid: 2 },
+        passports: [
+          passport(11, {
+            status: 'paid',
+            receipts: [
+              { id: 2, receipt_no: 'CR-2026-0002', is_full_payment: true, is_approved: true },
+            ],
+            can_tick: false,
+          }),
+          mark(passport(12)),
+          mark(passport(13)),
+        ],
+      },
+      {
+        company: { id: 2, name: 'Gulf Star', country_code: 'MY' },
+        counts: { total: 1, paid: 0, pending: 0, part_paid: 0, unpaid: 1 },
+        passports: [mark(passport(21))],
+      },
+    ],
+    meta: { counts: { total: 4, paid: 1, pending: 0, part_paid: 0, unpaid: 3 } },
+  }
+}
+
+const tick = (id: number) =>
+  wrapper.get(`[data-passport="${id}"] input[type="checkbox"]`).setValue(true)
+
+describe('CashReceiptFormDialog: passports the money pays for', () => {
+  beforeEach(() => {
+    vi.mocked(fetchPartyPassports).mockResolvedValue(passportGroups())
+  })
+
+  it("lists the party's passports of the country by company, paid ones not tickable", async () => {
+    await mountDialog()
+    expect(wrapper.find('[data-passport-picker]').exists()).toBe(false)
+
+    await choosePayer('Karim Traders')
+    expect(fetchPartyPassports).toHaveBeenLastCalledWith(7, { country_code: 'MY' })
+    const picker = wrapper.get('[data-passport-picker]')
+    expect(picker.get('[data-company="1"] [data-counts]').text()).toContain('2 unpaid')
+    expect(picker.get('[data-passport="11"] [data-status]').text()).toBe('Paid · CR-2026-0002')
+    expect((picker.get('[data-passport="11"] input').element as HTMLInputElement).disabled).toBe(
+      true,
+    )
+    expect(picker.get('[data-passport="12"] [data-status]').text()).toBe('Unpaid')
+
+    // Another country: that country's passports.
+    await wrapper.get('[data-field="country_code"] select').setValue('SA')
+    await flushPromises()
+    expect(fetchPartyPassports).toHaveBeenLastCalledWith(7, { country_code: 'SA' })
+
+    // Other business: no passports.
+    await wrapper.get('[data-business="land"]').trigger('click')
+    expect(wrapper.find('[data-passport-picker]').exists()).toBe(false)
+  })
+
+  it('asks the amount per company and saves the total with the ticked passports', async () => {
+    await mountDialog()
+    await choosePayer('Karim Traders')
+    await wrapper.get('[data-method="cash"]').trigger('click')
+
+    await tick(12)
+    await tick(13)
+    await tick(21)
+    expect(wrapper.get('[data-company="1"] [data-company-amount]').text()).toContain(
+      'Amount for 2 passports',
+    )
+    // The receipt amount is the total of the companies (read only).
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-company="1"] [data-company-error]').text()).toBe('Enter the amount.')
+
+    await wrapper.get('[data-company="1"] [data-company-amount] input').setValue('40,000')
+    await wrapper.get('[data-company="2"] [data-company-amount] input').setValue('20000')
+    // Part payment unless changed: Al Noor is paid off, Gulf Star is half now, half later.
+    expect(
+      (wrapper.get('[data-company="2"] [data-part]').element as HTMLInputElement).checked,
+    ).toBe(true)
+    await wrapper.get('[data-company="1"] [data-full]').setValue(true)
+    expect(
+      (wrapper.get('[data-field="amount"] input[data-lines-total]').element as HTMLInputElement)
+        .value,
+    ).toBe('60,000.00')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(createCashReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 60000,
+        companies: [
+          { company_id: 1, amount: 40000, is_full_payment: true, passport_ids: [12, 13] },
+          { company_id: 2, amount: 20000, is_full_payment: false, passport_ids: [21] },
+        ],
+      }),
+    )
+  })
+
+  it('lets a part-paid passport be ticked again and shows its earlier receipts', async () => {
+    vi.mocked(fetchPartyPassports).mockResolvedValue({
+      data: [
+        {
+          company: { id: 1, name: 'Al Noor', country_code: 'MY' },
+          counts: { total: 1, paid: 0, pending: 0, part_paid: 1, unpaid: 0 },
+          passports: [
+            passport(12, {
+              status: 'part_paid',
+              receipts: [
+                { id: 5, receipt_no: 'CR-2026-0005', is_full_payment: false, is_approved: true },
+              ],
+            }),
+          ],
+        },
+      ],
+      meta: { counts: { total: 1, paid: 0, pending: 0, part_paid: 1, unpaid: 0 } },
+    })
+    await mountDialog()
+    await choosePayer('Karim Traders')
+
+    expect(wrapper.get('[data-company="1"] [data-counts]').text()).toContain('1 part paid')
+    expect(wrapper.get('[data-passport="12"] [data-status]').text()).toBe(
+      'Part paid · CR-2026-0005',
+    )
+    await tick(12)
+    expect(wrapper.find('[data-company="1"] [data-company-amount]').exists()).toBe(true)
+  })
+
+  it('ticks every passport not paid off of a company at once', async () => {
+    await mountDialog()
+    await choosePayer('Karim Traders')
+
+    await wrapper.get('[data-company="1"] [data-tick-all]').setValue(true)
+    expect(wrapper.get('[data-company="1"] [data-company-amount]').text()).toContain(
+      'Amount for 2 passports',
+    )
+    await wrapper.get('[data-company="1"] [data-tick-all]').setValue(false)
+    expect(wrapper.find('[data-company="1"] [data-company-amount]').exists()).toBe(false)
+  })
+
+  it('sends no passports without ticks, and shows API errors under the company', async () => {
+    await mountDialog()
+    await choosePayer('Karim Traders')
+    await wrapper.get('[data-method="cash"]').trigger('click')
+    await wrapper.get('[data-field="amount"] input').setValue('500')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).toHaveBeenLastCalledWith(
+      expect.objectContaining({ amount: 500, companies: [] }),
+    )
+
+    vi.mocked(createCashReceipt).mockRejectedValueOnce(
+      httpError(422, {
+        message: 'x',
+        errors: { 'companies.0.passport_ids': ['Passport #21 is already paid on CR-2026-0009.'] },
+      }),
+    )
+    await tick(21)
+    await wrapper.get('[data-company="2"] [data-company-amount] input').setValue('100')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.get('[data-company="2"] [data-company-error]').text()).toBe(
+      'Passport #21 is already paid on CR-2026-0009.',
+    )
+  })
+
+  it("starts an edited receipt with its own passports ticked and asks for them as that receipt's", async () => {
+    vi.mocked(fetchPartyPassports).mockResolvedValue(passportGroups([12, 21]))
+    await mountDialog({
+      receipt: receipt({
+        amount: 3000,
+        companies: [
+          {
+            company_id: 1,
+            company_name: 'Al Noor',
+            amount: 1000,
+            is_full_payment: true,
+            passports: [
+              { id: 12, entry_no: 12, passport_name: 'Worker 12', passport_number: 'A12' },
+            ],
+          },
+          {
+            company_id: 2,
+            company_name: 'Gulf Star',
+            amount: 2000,
+            is_full_payment: false,
+            passports: [
+              { id: 21, entry_no: 21, passport_name: 'Worker 21', passport_number: 'A21' },
+            ],
+          },
+        ],
+      }),
+    })
+
+    expect(fetchPartyPassports).toHaveBeenLastCalledWith(7, { country_code: 'MY', receipt_id: 3 })
+    const box = wrapper.get('[data-passport="12"] input').element as HTMLInputElement
+    expect(box.checked).toBe(true)
+    expect(box.disabled).toBe(false)
+    expect(wrapper.get('[data-passport="12"] [data-status]').text()).toBe('On this receipt')
+
+    await wrapper.get('[data-passport="21"] input').setValue(false)
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(updateCashReceipt).toHaveBeenCalledWith(
+      3,
+      expect.objectContaining({
+        amount: 1000,
+        companies: [{ company_id: 1, amount: 1000, is_full_payment: true, passport_ids: [12] }],
+      }),
     )
   })
 })

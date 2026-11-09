@@ -142,7 +142,7 @@ describe('References (operations head)', () => {
     })
   })
 
-  it('asks an agency for its RL number, and a person for none', async () => {
+  it('offers an agency an optional RL number, and a person none', async () => {
     vi.mocked(createAdminReference).mockResolvedValue(reference({ id: 2 }))
     await mountView()
 
@@ -152,17 +152,22 @@ describe('References (operations head)', () => {
     await wrapper.get('[data-field="type"] input[value="agency"]').setValue(true)
     await wrapper.get('[data-field="name"] input').setValue('Sea Star')
     await wrapper.get('[data-field="phone"] input').setValue('01811-111111')
+    expect(wrapper.get('[data-field="rl_number"]').text()).toContain('(optional)')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    expect(wrapper.get('[data-field="rl_number"]').text()).toContain(
-      'Enter the RL number of the agency.',
+    expect(createAdminReference).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'agency', rl_number: null }),
     )
-    expect(createAdminReference).not.toHaveBeenCalled()
 
+    await wrapper.get('button[data-create]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-field="type"] input[value="agency"]').setValue(true)
+    await wrapper.get('[data-field="name"] input').setValue('Sea Star')
+    await wrapper.get('[data-field="phone"] input').setValue('01811-111111')
     await wrapper.get('[data-field="rl_number"] input').setValue(' RL 9 ')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
-    expect(createAdminReference).toHaveBeenCalledWith(
+    expect(createAdminReference).toHaveBeenLastCalledWith(
       expect.objectContaining({ type: 'agency', rl_number: 'RL 9' }),
     )
   })

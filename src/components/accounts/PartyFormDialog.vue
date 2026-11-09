@@ -70,9 +70,50 @@ watch(open, (isOpen) => {
   notes.value = p?.notes ?? ''
   openingBalance.value = p && p.opening_balance > 0 ? p.opening_balance.toFixed(2) : ''
   openingBalanceType.value = p?.opening_balance_type ?? 'receivable'
+  drafts = {}
   errors.value = {}
   banner.value = null
 })
+
+/**
+ * A new party: Person, Agency and Owner each keep their own typed details, so a person's name
+ * or NID never turns into an agency's or an owner's by switching; switching back brings them
+ * back, and only the chosen one's details are saved. Editing reclassifies the same party
+ * (only the kind can change), so its details stay.
+ */
+const DRAFT_FIELDS = {
+  rl_number: rlNumber,
+  name,
+  agency_owner_name: agencyOwnerName,
+  mobile,
+  address,
+  nid_passport: nidPassport,
+  tin_bin: tinBin,
+  notes,
+  designation,
+}
+type DraftKey = PartyKind | 'owner'
+let drafts: Partial<Record<DraftKey, Record<string, string>>> = {}
+const draftKey = (t: PartyType, k: PartyKind): DraftKey => (t === 'owner' ? 'owner' : k)
+
+/** Show the form for another type or kind, keeping each one's own draft (new parties only). */
+function switchTo(nextType: PartyType, nextKind: PartyKind) {
+  const from = draftKey(type.value, kind.value)
+  const to = draftKey(nextType, nextKind)
+  if (!isEdit.value && from !== to) {
+    drafts[from] = Object.fromEntries(
+      Object.entries(DRAFT_FIELDS).map(([key, field]) => [key, field.value]),
+    )
+    const saved = drafts[to] ?? {}
+    for (const [key, field] of Object.entries(DRAFT_FIELDS)) {
+      ;(field as { value: string }).value = saved[key] ?? ''
+    }
+    errors.value = {}
+  }
+  type.value = nextType
+  kind.value = nextKind
+}
+const switchKind = (next: PartyKind) => switchTo(type.value, next)
 
 const squish = (value: string) => value.trim().replace(/\s+/g, ' ')
 
@@ -224,7 +265,13 @@ const models = {
             :key="value"
             class="flex items-center gap-2"
           >
-            <input v-model="type" type="radio" :value="value" :name="`${id}-type`" />
+            <input
+              type="radio"
+              :value="value"
+              :checked="type === value"
+              :name="`${id}-type`"
+              @change="switchTo(value, kind)"
+            />
             {{ label }}
           </label>
         </div>
@@ -238,7 +285,11 @@ const models = {
       </p>
 
       <div v-if="isClient" class="sm:col-span-2 lg:col-span-3" data-field="kind">
-        <ReferenceTypeToggle v-model="kind" label="Agency or person" />
+        <ReferenceTypeToggle
+          :model-value="kind"
+          label="Agency or person"
+          @update:model-value="switchKind"
+        />
         <p class="mt-1 text-xs text-muted">
           An agency has an RL number; a person does not. The passport team sees this party as a
           reference.
