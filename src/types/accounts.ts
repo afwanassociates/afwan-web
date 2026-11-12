@@ -1,3 +1,4 @@
+import type { ReferenceSummary } from '@/types/passport'
 /** Types matching the afwan-api accounts contract (/api/accounts/…). */
 
 import type { CountryOption, CountrySummary } from '@/types/country'
@@ -218,6 +219,8 @@ export interface LedgerLine {
   reference: string | null
   cash_receipt_id: number | null
   cash_payment_id: number | null
+  /** A passport's price line (kept by the passport's price; not edited by hand). */
+  passport_entry_id?: number | null
   is_manual: boolean
   debit: number
   credit: number
@@ -334,8 +337,15 @@ export interface PartyPassport {
   receipts: { id: number; receipt_no: string; is_full_payment: boolean; is_approved: boolean }[]
   /** Paid by the receipt being edited (may be unticked). */
   on_this_receipt: boolean
-  /** Not paid off by another receipt: may be ticked. */
+  /** Not paid off by another receipt, and priced: may be ticked. */
   can_tick: boolean
+  /** The locked price (null: no standard or party rate yet; cannot be ticked). */
+  price?: number | null
+  price_source?: PriceSource | null
+  /** Paid toward it on other receipts (approved or waiting). */
+  paid?: number
+  /** price - paid (null without a price). */
+  due?: number | null
 }
 
 /** GET /parties/{id}/passports: the party's passports by company. */
@@ -717,4 +727,140 @@ export interface ExpenseFilters {
   source?: ExpenseSource
   page?: number
   per_page?: number
+}
+
+/* ---------- Payment report (accounts head and super admin) ---------- */
+
+/** One receipt behind a passport: its company line's amount split over the line's passports. */
+export interface PaymentReportReceipt {
+  id: number
+  receipt_no: string
+  date: string
+  status: ApprovalStatus
+  is_full_payment: boolean
+  line_amount: number
+  line_passports: number
+  /** Split by the line's passport prices (else evenly). */
+  split_by_price: boolean
+  /** This passport's share of line_amount. */
+  share: number
+}
+
+/** company: the company's standard rate · reference: the reference's rate · special: this passport only. */
+export type PriceSource = 'company' | 'reference' | 'special'
+
+/** A passport on the payment report, under its reference and company. */
+export interface PaymentReportPassport {
+  id: number
+  entry_no: number
+  passport_name: string
+  passport_number: string
+  stage: string | null
+  status: PassportPaymentStatus
+  /** Returned to its owner: costs nothing. */
+  is_returned: boolean
+  /** Locked price (null: no rate when entered). */
+  price: number | null
+  price_source: PriceSource | null
+  /** Shares on approved receipts. */
+  paid_amount: number
+  /** Shares on receipts waiting for approval or returned. */
+  pending_amount: number
+  /** price - paid - pending (negative: credit); null without a price. */
+  due: number | null
+  /** Marked fully paid for less than its price. */
+  short: boolean
+  receipts: PaymentReportReceipt[]
+}
+
+/** What a reference paid for one company: its receipts' lines for that company. */
+export interface PaymentReportCompany {
+  company: { id: number; name: string | null; country_code: string | null }
+  /** Every passport of the reference for this company (any status). */
+  counts: PassportPaymentCounts
+  /** Approved receipt lines. */
+  paid_amount: number
+  /** Lines waiting for approval or returned. */
+  pending_amount: number
+  receipt_count: number
+  /** The rates now (passports keep the price they were given). */
+  company_rate: number | null
+  reference_rate: number | null
+  price_total: number
+  /** Passports without a price (not counted in price_total). */
+  no_price: number
+  /** The passports' dues added up (null when none has a price). */
+  due: number | null
+  /** The passports listed (the status filter applies). */
+  passports: PaymentReportPassport[]
+}
+
+export interface PaymentReportReference {
+  reference: {
+    id: number
+    code: string | null
+    name: string
+    type_label: string | null
+    mobile: string | null
+  }
+  counts: PassportPaymentCounts
+  paid_amount: number
+  pending_amount: number
+  price_total: number
+  due: number | null
+  no_price: number
+  companies: PaymentReportCompany[]
+}
+
+export interface PaymentReportParams {
+  q?: string
+  reference_id?: number
+  company_id?: number
+  status?: PassportPaymentStatus
+  page?: number
+}
+
+/** GET /api/payment-report, by reference. `summary` covers every filter except status. */
+export interface PaymentReport {
+  data: PaymentReportReference[]
+  summary: PassportPaymentCounts & {
+    paid_amount: number
+    pending_amount: number
+    receipt_count: number
+    price_total: number
+    no_price: number
+    due: number | null
+  }
+  filters: {
+    reference: ReferenceSummary | null
+    company: { id: number; name: string; country_code: string | null } | null
+  }
+  meta: { current_page: number; last_page: number; per_page: number; total: number }
+}
+
+/** GET /api/payment-report/rates. */
+export interface PassportRates {
+  companies: {
+    id: number
+    name: string
+    country_code: string | null
+    is_active: boolean
+    rate: number | null
+    /** Passports with a reference (not deleted), and how many have no price. */
+    passports: number
+    no_price: number
+  }[]
+  references: {
+    reference: { id: number; code: string | null; name: string }
+    company: { id: number; name: string; country_code: string | null }
+    rate: number
+    company_rate: number | null
+  }[]
+}
+
+/** What saving a rate did: priced passports that had none, changed ones, ones that kept theirs. */
+export interface RateSaveResult {
+  filled: number
+  updated: number
+  kept: number
 }

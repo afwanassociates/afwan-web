@@ -3,7 +3,12 @@ import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
-import { ACCOUNTS_ROLES, APPROVALS_ROLES } from '@/lib/accounts'
+import {
+  ACCOUNTS_ROLES,
+  APPROVALS_ROLES,
+  PAYMENT_REPORT_ROLES,
+  PRICE_SETTER_ROLES,
+} from '@/lib/accounts'
 import { REPORT_ROLES, activePassportCount } from '@/lib/companyReport'
 import {
   PASSPORT_MANAGER_ROLES,
@@ -91,6 +96,10 @@ const navItems = computed(() => {
   const role = auth.user?.role
   if (!role) return []
   const items: NavItem[] = [{ name: homeRouteFor(role).name, label: 'Dashboard' }]
+  // Payment report, right after Dashboard: the accounts head and the super admin.
+  if (PAYMENT_REPORT_ROLES.includes(role)) {
+    items.push({ name: 'payment-report', label: 'Payment Report', section: '/payment-report' })
+  }
   // The company-wise and reference-wise reports, right under Dashboard for every role.
   const canSeeReports = (REPORT_ROLES as readonly string[]).includes(role)
   if (canSeeReports) {
@@ -157,6 +166,9 @@ const navItems = computed(() => {
   // returned for correction.
   if (ACCOUNTS_ROLES.includes(role)) {
     items.push({ name: 'accounts-parties', label: 'Party / Owner', section: '/accounts/parties' })
+    // Passport prices (standard and party rates): the accounts head only.
+    if (PRICE_SETTER_ROLES.includes(role))
+      items.push({ name: 'accounts-party-rates', label: 'Party Rates' })
     items.push({ name: 'accounts-cash-book', label: 'Cash Management', section: '/accounts/cash' })
     items.push({ name: 'accounts-owner-loans', label: 'Owner loans' })
   }

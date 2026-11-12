@@ -36,8 +36,8 @@ import type {
  * is outstanding);
  * the money came as cash in hand, into a bank (naming the bank, branch and account), or by
  * mobile banking (bKash, Nagad…). The amount is asked for once "Received via" is chosen.
- * A party's money also names the business it is for (recruitment by default; land, solar,
- * railway) and, for recruitment, the country (starting at the default country); recruitment
+ * A party's money also names the business it is for (recruitment; land, solar and railway are
+ * inactive, kept only on receipts already saved with one) and, for recruitment, the country (starting at the default country); recruitment
  * money may also say which of the party's passports it pays for, per company with a typed
  * amount, and the receipt amount is then their total.
  * `receipt` null records a new one, optionally for `presetParty` (and `presetLoan`: a loan
@@ -77,12 +77,16 @@ const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
 
-const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
-  { value: 'recruitment', label: 'Recruitment' },
-  { value: 'land', label: 'Land' },
-  { value: 'solar', label: 'Solar' },
-  { value: 'railway', label: 'Railway' },
+/** Only recruitment takes new money for now; land, solar and railway are inactive (shown greyed). */
+const BUSINESS_TYPES: { value: BusinessType; label: string; active: boolean }[] = [
+  { value: 'recruitment', label: 'Recruitment', active: true },
+  { value: 'land', label: 'Land', active: false },
+  { value: 'solar', label: 'Solar', active: false },
+  { value: 'railway', label: 'Railway', active: false },
 ]
+/** An inactive business stays selectable only on a receipt already saved with it. */
+const isBusinessSelectable = (option: { value: BusinessType; active: boolean }) =>
+  option.active || props.receipt?.business_type === option.value
 
 /** Active countries and the default country, loaded once the form first opens. */
 const countries = ref<CountryOption[]>([])
@@ -417,8 +421,14 @@ const segment = (active: boolean) =>
               :key="option.value"
               type="button"
               class="rounded-full px-4 py-2 text-sm font-semibold"
-              :class="segment(businessType === option.value)"
+              :class="
+                isBusinessSelectable(option)
+                  ? segment(businessType === option.value)
+                  : 'cursor-not-allowed bg-slate-100 text-slate-400 ring-1 ring-slate-200'
+              "
               :aria-pressed="businessType === option.value"
+              :disabled="!isBusinessSelectable(option)"
+              :title="isBusinessSelectable(option) ? undefined : `${option.label} is inactive`"
               :data-business="option.value"
               @click="businessType = option.value"
             >

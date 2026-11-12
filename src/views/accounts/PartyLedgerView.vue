@@ -9,11 +9,12 @@ import PartyPassportsCard from '@/components/accounts/PartyPassportsCard.vue'
 import { deletePartyTransaction, fetchPartyLedger } from '@/api/accounts'
 import { useApprovalActions } from '@/composables/useApprovalActions'
 import { useToast } from '@/composables/useToast'
-import { balanceClass, formatBalance, formatMoney } from '@/lib/accounts'
+import { PAYMENT_REPORT_ROLES, balanceClass, formatBalance, formatMoney } from '@/lib/accounts'
 import { toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { staffTitle } from '@/lib/pageTitle'
 import { TABLE_HEAD, TABLE_TD, TABLE_TH } from '@/lib/tableClasses'
+import { useAuthStore } from '@/stores/auth'
 import type { LedgerLine, PartyLedger, PendingLedgerLine } from '@/types/accounts'
 
 /**
@@ -183,6 +184,12 @@ const approvalTarget = (line: LedgerLine | PendingLedgerLine) => ({
   id: line.id,
   label: `${line.type_label} of ${toDisplayDate(line.date)}`,
 })
+
+/** A passport's price line opens the payment report (the accounts head only). */
+const auth = useAuthStore()
+const canOpenPaymentReport = computed(
+  () => !!auth.user && PAYMENT_REPORT_ROLES.includes(auth.user.role),
+)
 
 /** Where a receipt's or payment's line is changed. */
 const voucherLink = (line: LedgerLine | PendingLedgerLine) => ({
@@ -378,6 +385,20 @@ const amount = (value: number) => (value ? formatMoney(value) : '')
                   >
                     Return
                   </button>
+                  <RouterLink
+                    v-else-if="line.passport_entry_id && canOpenPaymentReport && party"
+                    :to="{ name: 'payment-report', query: { reference_id: party.id } }"
+                    :class="[actionClass, 'text-primary-700']"
+                    data-passport-price
+                  >
+                    Price
+                  </RouterLink>
+                  <span
+                    v-else-if="line.passport_entry_id"
+                    class="px-2 text-xs text-muted"
+                    data-passport-price
+                    >Passport price</span
+                  >
                   <RouterLink
                     v-else-if="line.reference"
                     :to="voucherLink(line)"

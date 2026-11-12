@@ -56,6 +56,8 @@ const ROUTE_NAMES = [
   'accounts-cash-book',
   'accounts-owner-loans',
   'accounts-approvals',
+  'payment-report',
+  'accounts-party-rates',
 ]
 
 async function mountAs(role: Role, path = '/home') {
@@ -118,6 +120,7 @@ describe('StaffLayout menu', () => {
       'super_admin',
       [
         'Dashboard',
+        'Payment Report',
         'Company Report',
         'Reference Report',
         'All Passports',
@@ -195,11 +198,13 @@ describe('StaffLayout menu', () => {
       'accounts_head',
       [
         'Dashboard',
+        'Payment Report',
         'Company Report',
         'Reference Report',
         'All Passports',
         'Returned Passports',
         'Party / Owner',
+        'Party Rates',
         'Cash Management',
         'Owner loans',
         'Approvals',
@@ -218,11 +223,14 @@ describe('StaffLayout menu', () => {
       await mountAs(role, '/companies')
 
       const links = wrapper.findAll('nav[aria-label="Staff portal"] a')
-      expect(links[1]!.find('[data-label]').text()).toBe('Company Report')
-      expect(links[1]!.attributes('href')).toBe('/companies')
+      // Right after Dashboard (and the Payment Report, for the roles that have it).
+      const first = links.findIndex((a) => a.find('[data-label]').text() === 'Company Report')
+      const expected = links[1]!.find('[data-label]').text() === 'Payment Report' ? 2 : 1
+      expect(first).toBe(expected)
+      expect(links[first]!.attributes('href')).toBe('/companies')
       expect(wrapper.find('nav[aria-label="Reports"]').exists()).toBe(false)
-      expect(links[2]!.find('[data-label]').text()).toBe('Reference Report')
-      expect(links[2]!.attributes('href')).toBe('/reference-report')
+      expect(links[first + 1]!.find('[data-label]').text()).toBe('Reference Report')
+      expect(links[first + 1]!.attributes('href')).toBe('/reference-report')
     },
   )
 

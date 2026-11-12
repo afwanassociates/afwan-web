@@ -244,7 +244,7 @@ describe('CashReceiptFormDialog', () => {
       }),
     )
   })
-  it('starts a party receipt at recruitment for the default country, and drops the country for other businesses', async () => {
+  it('starts a party receipt at recruitment for the default country; land, solar and railway are inactive', async () => {
     await mountDialog()
 
     expect(wrapper.find('[data-business="recruitment"]').attributes('aria-pressed')).toBe('true')
@@ -261,16 +261,33 @@ describe('CashReceiptFormDialog', () => {
       expect.objectContaining({ business_type: 'recruitment', country_code: 'SA' }),
     )
 
+    // A new receipt cannot pick an inactive business.
     await mountDialog()
-    await wrapper.find('[data-business="solar"]').trigger('click')
+    for (const type of ['land', 'solar', 'railway']) {
+      const button = wrapper.get(`[data-business="${type}"]`)
+      expect((button.element as HTMLButtonElement).disabled).toBe(true)
+    }
+    await wrapper.get('[data-business="solar"]').trigger('click')
+    expect(wrapper.get('[data-business="recruitment"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-field="country_code"]').exists()).toBe(true)
+  })
+
+  it('keeps the inactive business of a receipt saved with it, without a country', async () => {
+    await mountDialog({ receipt: receipt({ business_type: 'land', country: null }) })
+
+    const land = wrapper.get('[data-business="land"]')
+    expect((land.element as HTMLButtonElement).disabled).toBe(false)
+    expect(land.attributes('aria-pressed')).toBe('true')
+    expect((wrapper.get('[data-business="solar"]').element as HTMLButtonElement).disabled).toBe(
+      true,
+    )
     expect(wrapper.find('[data-field="country_code"]').exists()).toBe(false)
-    await choosePayer('Karim Traders')
-    await wrapper.find('[data-method="cash"]').trigger('click')
-    await wrapper.find('[data-field="amount"] input').setValue('100')
+
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(createCashReceipt).toHaveBeenLastCalledWith(
-      expect.objectContaining({ business_type: 'solar', country_code: null }),
+    expect(updateCashReceipt).toHaveBeenLastCalledWith(
+      3,
+      expect.objectContaining({ business_type: 'land', country_code: null }),
     )
   })
 
@@ -569,9 +586,9 @@ describe('CashReceiptFormDialog: passports the money pays for', () => {
     await flushPromises()
     expect(fetchPartyPassports).toHaveBeenLastCalledWith(7, { country_code: 'SA' })
 
-    // Other business: no passports.
+    // Other businesses are inactive: the picker stays.
     await wrapper.get('[data-business="land"]').trigger('click')
-    expect(wrapper.find('[data-passport-picker]').exists()).toBe(false)
+    expect(wrapper.find('[data-passport-picker]').exists()).toBe(true)
   })
 
   it('asks the amount per company and saves the total with the ticked passports', async () => {

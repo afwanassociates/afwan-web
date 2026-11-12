@@ -113,6 +113,19 @@ function clearFilters() {
   router.replace({ query: {} })
 }
 
+/* ---------- Passports a receipt pays for (opened per company) ---------- */
+
+const passportsId = useId()
+const openPassports = ref(new Set<string>())
+const isOpen = (receiptId: number, companyId: number) =>
+  openPassports.value.has(`${receiptId}-${companyId}`)
+function togglePassports(receiptId: number, companyId: number) {
+  const key = `${receiptId}-${companyId}`
+  const next = new Set(openPassports.value)
+  if (!next.delete(key)) next.add(key)
+  openPassports.value = next
+}
+
 /* ---------- Loading ---------- */
 
 const list = shallowRef<CashReceiptPage | null>(null)
@@ -447,15 +460,43 @@ const actionClass =
                       {{ r.party.type === 'owner' ? 'Capital' : r.receipt_type_label }}
                     </span>
                     <!-- What a party's recruitment money paid for, per company. -->
+                    <!-- Click "N passports" to list them under the company. -->
                     <ul v-if="r.companies?.length" class="mt-1.5 space-y-0.5 text-xs" data-paid-for>
-                      <li v-for="c in r.companies" :key="c.company_id" class="whitespace-nowrap">
-                        <span class="font-medium text-ink">{{ c.company_name }}</span>
-                        <span class="text-muted">
-                          · {{ c.passports.length }} passport{{
-                            c.passports.length === 1 ? '' : 's'
-                          }}
-                          · {{ formatMoney(c.amount) }}</span
+                      <li v-for="c in r.companies" :key="c.company_id">
+                        <span class="whitespace-nowrap">
+                          <span class="font-medium text-ink">{{ c.company_name }}</span>
+                          <span class="text-muted"> · </span>
+                          <button
+                            v-if="c.passports.length"
+                            type="button"
+                            class="font-medium text-primary-800 underline underline-offset-2 hover:text-primary-900"
+                            :aria-expanded="isOpen(r.id, c.company_id) ? 'true' : 'false'"
+                            :aria-controls="`${passportsId}-${r.id}-${c.company_id}`"
+                            data-toggle-passports
+                            @click="togglePassports(r.id, c.company_id)"
+                          >
+                            {{ c.passports.length }} passport{{
+                              c.passports.length === 1 ? '' : 's'
+                            }}
+                          </button>
+                          <span v-else class="text-muted">0 passports</span>
+                          <span class="text-muted">
+                            · {{ formatMoney(c.amount) }}
+                            <template v-if="!c.is_full_payment">· Part payment</template></span
+                          >
+                        </span>
+                        <ol
+                          v-if="isOpen(r.id, c.company_id)"
+                          :id="`${passportsId}-${r.id}-${c.company_id}`"
+                          class="mt-1 mb-1.5 space-y-0.5 border-l-2 border-primary-200 pl-2"
+                          data-receipt-passports
                         >
+                          <li v-for="p in c.passports" :key="p.id" :data-passport="p.id">
+                            <span class="font-mono text-muted">#{{ p.entry_no }}</span>
+                            <span class="font-medium text-ink"> {{ p.passport_name }}</span>
+                            <span class="text-muted"> · {{ p.passport_number }}</span>
+                          </li>
+                        </ol>
                       </li>
                     </ul>
                   </td>

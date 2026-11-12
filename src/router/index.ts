@@ -8,7 +8,12 @@ import {
   USER_MANAGER_ROLES,
   homeRouteFor,
 } from '@/lib/roles'
-import { ACCOUNTS_ROLES, APPROVALS_ROLES } from '@/lib/accounts'
+import {
+  ACCOUNTS_ROLES,
+  APPROVALS_ROLES,
+  PAYMENT_REPORT_ROLES,
+  PRICE_SETTER_ROLES,
+} from '@/lib/accounts'
 import { REPORT_ROLES } from '@/lib/companyReport'
 import { SETTINGS_PAGES, SETTINGS_SECTION_ROLES } from '@/lib/settingsPages'
 import { useAuthStore } from '@/stores/auth'
@@ -243,6 +248,21 @@ const router = createRouter({
       ],
     },
     {
+      // Payment report: every passport's payment status and receipts, by reference and
+      // company. The accounts head and the super admin only (not admins).
+      path: '/payment-report',
+      name: 'payment-report',
+      component: () => import('@/views/accounts/PaymentReportView.vue'),
+      meta: {
+        requiresAuth: true,
+        layout: 'staff',
+        roles: PAYMENT_REPORT_ROLES,
+        title: staffTitle('Payment report'),
+      },
+    },
+    // Standard rates are on Party Rates now; keep old links working.
+    { path: '/payment-report/rates', redirect: { name: 'accounts-party-rates' } },
+    {
       // Accounts: parties / owners with their ledgers, and cash management, for the accounts
       // team (deleting parties and the opening balance: the accounts head). Admins only open
       // the Approvals page.
@@ -256,6 +276,15 @@ const router = createRouter({
           component: () => import('@/views/accounts/PartiesView.vue'),
           meta: { title: staffTitle('Party / Owner') },
         },
+        {
+          // Passport prices (companies' standard rates and parties' own): the accounts head only.
+          path: 'party-rates',
+          name: 'accounts-party-rates',
+          component: () => import('@/views/accounts/PartyRatesView.vue'),
+          meta: { roles: PRICE_SETTER_ROLES, title: staffTitle('Party rates') },
+        },
+        // Standard rates are on Party Rates now.
+        { path: 'standard-rates', redirect: { name: 'accounts-party-rates' } },
         {
           // The page sets its own title from the party.
           path: 'parties/:id(\\d+)',

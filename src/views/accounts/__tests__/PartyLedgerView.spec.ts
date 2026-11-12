@@ -11,6 +11,7 @@ import {
 } from '@/api/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { httpError, makeUser } from '@/test/helpers'
+import type { Role } from '@/types/auth'
 import type { PartyLedger } from '@/types/accounts'
 
 vi.mock('@/api/accounts', () => ({
@@ -142,10 +143,10 @@ function ledger(overrides: Partial<PartyLedger> = {}): PartyLedger {
 let wrapper: VueWrapper
 let router: Router
 
-async function mountView(path = '/accounts/parties/5') {
+async function mountView(path = '/accounts/parties/5', role: Role = 'accounts') {
   const pinia = createPinia()
   setActivePinia(pinia)
-  useAuthStore().user = makeUser({ role: 'accounts' })
+  useAuthStore().user = makeUser({ role })
   router = createRouter({
     history: createMemoryHistory(),
     routes: [
@@ -161,6 +162,7 @@ async function mountView(path = '/accounts/parties/5') {
         name: 'accounts-cash-payments',
         component: { template: '<div />' },
       },
+      { path: '/payment-report', name: 'payment-report', component: { template: '<div />' } },
     ],
   })
   await router.push(path)
@@ -181,6 +183,39 @@ afterEach(() => {
 })
 
 describe('PartyLedgerView', () => {
+  it("shows a passport's price line, opening the payment report for the accounts head", async () => {
+    const priceLine = {
+      id: 13,
+      date: '2026-11-11',
+      type: 'receivable' as const,
+      type_label: 'Receivable',
+      note: 'Passport #21 RAHIM · Top Glove',
+      reference: 'Passport #21',
+      cash_receipt_id: null,
+      cash_payment_id: null,
+      passport_entry_id: 21,
+      is_manual: false,
+      debit: 45000,
+      credit: 0,
+      balance: 48000,
+      can: { update: false, delete: false, approve: false, send_back: false },
+    }
+    vi.mocked(fetchPartyLedger).mockResolvedValue(ledger({ lines: [...ledger().lines, priceLine] }))
+
+    await mountView()
+    const row = () => wrapper.get('[data-line="13"]')
+    expect(row().text()).toContain('Passport #21')
+    expect(row().get('[data-passport-price]').text()).toBe('Passport price')
+    expect(row().find('a[data-passport-price]').exists()).toBe(false)
+    expect(row().find('[data-voucher]').exists()).toBe(false)
+    wrapper.unmount()
+
+    await mountView('/accounts/parties/5', 'accounts_head')
+    const link = row().get('a[data-passport-price]')
+    expect(link.text()).toBe('Price')
+    expect(link.attributes('href')).toBe('/payment-report?reference_id=5')
+  })
+
   it("shows the party's passports by company, each paid or unpaid", async () => {
     await mountView()
 

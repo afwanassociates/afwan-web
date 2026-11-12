@@ -325,72 +325,59 @@ const passportSummary = computed(() =>
           <component
             :is="step.to ? RouterLink : 'div'"
             v-bind="step.to ? { to: step.to } : {}"
-            class="flex h-full flex-col gap-1 rounded-xl border px-2.5 py-2"
+            class="flex h-full flex-col gap-1.5 rounded-lg border px-3 py-2.5"
             :class="[
               !step.enabled
                 ? 'cursor-not-allowed border-dashed border-slate-300 bg-slate-50 opacity-70'
                 : position(i) === 'current'
-                  ? 'border-primary-900 bg-primary-50 shadow-[inset_0_-3px_0_var(--color-accent-400)]'
-                  : 'border-stroke bg-white hover:border-primary-300',
+                  ? 'border-primary-700 bg-primary-50 ring-1 ring-primary-700'
+                  : 'border-stroke bg-white hover:border-primary-400 hover:bg-slate-50',
             ]"
             :aria-current="position(i) === 'current' ? 'step' : undefined"
             :aria-disabled="step.enabled ? undefined : 'true'"
             :title="step.enabled ? step.label : 'Not available yet'"
           >
-            <span class="flex items-center gap-2">
-              <span
-                class="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1"
-                :class="
-                  !step.enabled
-                    ? toneClass.muted
-                    : position(i) === 'done'
-                      ? toneClass.success
-                      : position(i) === 'current'
-                        ? 'bg-primary-900 text-white ring-primary-900'
-                        : 'bg-white text-primary-900 ring-slate-300'
-                "
-                aria-hidden="true"
-              >
-                <svg
-                  v-if="!step.enabled || position(i) === 'done'"
-                  class="h-3.5 w-3.5"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="3"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                >
-                  <path :d="step.enabled ? CHECK : LOCK" />
-                </svg>
-                <template v-else>{{ step.number }}</template>
-              </span>
-              <span class="min-w-0 text-sm leading-tight font-semibold text-ink">
+            <span class="flex items-center gap-1.5">
+              <span class="min-w-0 truncate text-sm leading-tight font-semibold text-ink">
                 <span class="xl:hidden">{{ step.shortLabel }}</span>
                 <span class="hidden xl:inline">{{ step.label }}</span>
                 <span v-if="position(i) === 'done'" class="sr-only"> (completed)</span>
                 <span v-if="position(i) === 'current'" class="sr-only"> (current step)</span>
               </span>
+              <svg
+                v-if="!step.enabled || position(i) === 'done'"
+                class="h-3.5 w-3.5 shrink-0"
+                :class="step.enabled ? 'text-green-600' : 'text-slate-400'"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="3"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path :d="step.enabled ? CHECK : LOCK" />
+              </svg>
               <span
                 v-if="step.isFinal"
-                class="ml-auto rounded bg-primary-900 px-1 text-[0.6rem] font-bold tracking-wide text-white uppercase"
+                class="ml-auto shrink-0 rounded border border-slate-300 px-1 text-[0.6rem] font-semibold tracking-wide text-slate-600 uppercase"
                 data-final
               >
                 Final
               </span>
             </span>
             <span v-if="!step.enabled" class="text-xs text-muted">Coming soon</span>
-            <span v-else class="text-xs text-muted">
-              <span class="font-semibold text-ink tabular-nums" data-count>{{
+            <span v-else class="flex items-baseline gap-1.5">
+              <span class="text-xl leading-none font-bold text-ink tabular-nums" data-count>{{
                 step.count ?? '–'
               }}</span>
-              {{ i === 0 ? 'in the list' : 'at this step' }}
+              <span class="text-xs text-muted">{{ i === 0 ? 'in the list' : 'at this step' }}</span>
             </span>
-            <span v-if="step.chips.length" class="flex flex-wrap gap-1">
+            <span v-if="step.chips.length" class="mt-auto flex flex-wrap gap-1">
               <span
                 v-for="chip in step.chips"
                 :key="chip.key"
-                class="rounded-full px-1.5 py-px text-[0.68rem] font-semibold whitespace-nowrap tabular-nums"
+                class="rounded px-1.5 py-px text-[0.68rem] font-medium whitespace-nowrap tabular-nums"
                 :class="chipClass[chip.tone]"
                 :data-chip="chip.key"
               >

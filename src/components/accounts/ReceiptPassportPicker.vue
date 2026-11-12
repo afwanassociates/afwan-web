@@ -7,11 +7,14 @@ import type { PartyPassport, PartyPassportGroups } from '@/types/accounts'
 
 /**
  * "What this money pays for" on a party's recruitment cash receipt: the party's passports of
- * the receipt's country, by company. Ticking passports of a company asks for the amount
- * received for that company (typed, no fixed rate) and whether it pays them off (full
- * payment) or is a part payment, after which more receipts may pay them. Passports paid off
- * by another receipt (approved or waiting) show that receipt and cannot be ticked;
- * when editing, the receipt's own passports are ticked and may be unticked.
+ * the receipt's country, by company, each with its price (the party's rate, else the
+ * company's standard rate), what other receipts paid and its due. Ticking passports of a
+ * company asks for the amount received for that company (suggested from the ticked
+ * passports' dues until typed) and whether it pays them off (full payment) or is a part
+ * payment. A passport without a price cannot be ticked: the Accounts & Finance Head sets the
+ * rate first. Passports paid off by another receipt (approved or waiting) show that receipt
+ * and cannot be ticked; when editing, the receipt's own passports are ticked and may be
+ * unticked.
  *
  * v-model: per company id, the ticked passport ids and the typed amount.
  */
@@ -37,6 +40,20 @@ const loadError = ref<string | null>(null)
 const expanded = ref(new Set<number>())
 
 const selectable = (p: PartyPassport) => p.can_tick
+/** Not tickable only for want of a price (not paid off, not deleted). */
+const needsPrice = (p: PartyPassport) =>
+  !p.can_tick && p.price === null && !p.is_deleted && p.status !== 'paid' && p.status !== 'pending'
+
+/** The amount suggested per company (the ticked dues), while the accountant has not typed one. */
+const suggested = ref<Record<number, string>>({})
+
+function dueOf(companyId: number, ids: number[]): number {
+  const passports = groups.value?.find((g) => g.company.id === companyId)?.passports ?? []
+  return passports
+    .filter((p) => ids.includes(p.id))
+    .reduce((sum, p) => sum + Math.max(0, p.due ?? 0), 0)
+}
+const toAmount = (value: number) => (value > 0 ? value.toFixed(2) : '')
 
 let request = 0
 watch(
@@ -87,13 +104,20 @@ function toggleCompany(companyId: number) {
 
 function setPicked(companyId: number, ids: number[]) {
   const next = { ...selection.value }
-  if (ids.length === 0) delete next[companyId]
-  else
+  if (ids.length === 0) {
+    delete next[companyId]
+  } else {
+    // Follow the ticked dues until the accountant types an amount of their own.
+    const current = next[companyId]?.amount ?? ''
+    const following = current === '' || current === suggested.value[companyId]
+    const auto = toAmount(dueOf(companyId, ids))
+    suggested.value = { ...suggested.value, [companyId]: auto }
     next[companyId] = {
       passportIds: ids,
-      amount: next[companyId]?.amount ?? '',
+      amount: following ? auto : current,
       fullPayment: next[companyId]?.fullPayment ?? false,
     }
+  }
   selection.value = next
 }
 
@@ -140,7 +164,22 @@ const tickedTotal = computed(() =>
 const statusBadge = (p: PartyPassport) =>
   p.on_this_receipt && p.status !== 'part_paid'
     ? { text: 'On this receipt', cls: 'bg-primary-50 text-primary-800 ring-primary-200' }
-    : passportPaymentBadge(p)
+    : needsPrice(p)
+      ? { text: 'No price', cls: 'bg-amber-50 text-amber-900 ring-amber-300' }
+      : passportPaymentBadge(p)
+
+const PRICE_SOURCE: Record<string, string> = {
+  company: 'standard rate',
+  reference: 'party rate',
+  special: 'special price',
+}
+
+/** The ticked passports' total due for a company. */
+const companyDue = (companyId: number) =>
+  dueOf(companyId, selection.value[companyId]?.passportIds ?? [])
+/** Companies with passports that cannot be ticked for want of a price. */
+const unpricedCount = (companyId: number) =>
+  groups.value?.find((g) => g.company.id === companyId)?.passports.filter(needsPrice).length ?? 0
 
 const inputClass =
   'block w-full rounded-lg border bg-white px-3 py-2 text-slate-900 shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus:border-primary-600'
@@ -221,6 +260,18 @@ const inputClass =
             />
             Tick all {{ tickable(group.company.id).length }} not paid off
           </label>
+          <p
+            v-if="unpricedCount(group.company.id)"
+            class="border-t border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+            data-no-price
+          >
+            {{ unpricedCount(group.company.id) }} passport{{
+              unpricedCount(group.company.id) === 1 ? ' has' : 's have'
+            }}
+            no price, so cash cannot be received for
+            {{ unpricedCount(group.company.id) === 1 ? 'it' : 'them' }} yet. The Accounts &amp;
+            Finance Head sets this company's standard rate or this party's rate first.
+          </p>
           <ul class="max-h-64 divide-y divide-stroke overflow-y-auto border-t border-stroke">
             <li v-for="p in group.passports" :key="p.id" :data-passport="p.id">
               <label
@@ -247,6 +298,21 @@ const inputClass =
                     {{ p.passport_number }}<template v-if="p.stage"> · {{ p.stage }}</template>
                     <template v-if="p.is_deleted"> · deleted</template>
                   </span>
+                </span>
+                <span class="text-right text-xs whitespace-nowrap tabular-nums" data-price>
+                  <template v-if="p.price !== null && p.price !== undefined">
+                    <span class="font-semibold text-ink">৳ {{ formatMoney(p.price) }}</span>
+                    <span v-if="p.price_source" class="block text-muted">{{
+                      PRICE_SOURCE[p.price_source]
+                    }}</span>
+                    <span
+                      v-if="p.due !== null && p.due !== undefined && (p.paid ?? 0) > 0"
+                      class="block font-medium"
+                      :class="p.due > 0 ? 'text-red-700' : 'text-green-700'"
+                      data-due
+                      >Due {{ formatMoney(Math.max(0, p.due)) }}</span
+                    >
+                  </template>
                 </span>
                 <span
                   class="rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap ring-1"
@@ -283,6 +349,12 @@ const inputClass =
             :aria-invalid="errors[group.company.id] ? 'true' : undefined"
             @input="setAmount(group.company.id, ($event.target as HTMLInputElement).value)"
           />
+          <p class="w-full text-xs text-muted" data-ticked-due>
+            Due for the ticked passports:
+            <span class="font-semibold text-ink tabular-nums"
+              >৳ {{ formatMoney(companyDue(group.company.id)) }}</span
+            >
+          </p>
           <fieldset class="w-full" data-payment-kind>
             <legend class="sr-only">Full or part payment</legend>
             <div class="flex flex-wrap gap-x-5 gap-y-1 text-sm">

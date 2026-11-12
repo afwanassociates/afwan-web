@@ -23,6 +23,11 @@ import type {
   PartyLedger,
   PartyPayload,
   PartyPassportGroups,
+  PassportRates,
+  PaymentReport,
+  PaymentReportParams,
+  PriceSource,
+  RateSaveResult,
   PartyTransaction,
   PartyTransactionPayload,
   PartyType,
@@ -431,4 +436,60 @@ export function downloadExpensesCsv(
   filters: Omit<ExpenseFilters, 'page' | 'per_page'>,
 ): Promise<string> {
   return downloadCsv(`${BASE}/expenses`, filters, 'expenses')
+}
+
+/** The payment report: every passport with its payment status and receipts (accounts head, super admin). */
+export async function fetchPaymentReport(params: PaymentReportParams): Promise<PaymentReport> {
+  const { data } = await api.get<PaymentReport>('/api/payment-report', { params })
+  return data
+}
+
+/** Company rates and reference rates (accounts head and super admin read them). */
+export async function fetchPassportRates(): Promise<PassportRates> {
+  const { data } = await api.get<PassportRates>('/api/payment-report/rates')
+  return data
+}
+
+/** A company's standard rate (null removes it). Accounts head only. */
+export async function saveCompanyRate(
+  companyId: number,
+  rate: number | null,
+  updateExisting: boolean,
+): Promise<RateSaveResult> {
+  const { data } = await api.put<RateSaveResult>(
+    `/api/payment-report/rates/companies/${companyId}`,
+    {
+      rate,
+      update_existing: updateExisting,
+    },
+  )
+  return data
+}
+
+/** A reference's own rate for a company (null removes it). Accounts head only. */
+export async function saveReferenceRate(
+  partyId: number,
+  companyId: number,
+  rate: number | null,
+  updateExisting: boolean,
+): Promise<RateSaveResult> {
+  const { data } = await api.put<RateSaveResult>('/api/payment-report/rates/references', {
+    party_id: partyId,
+    company_id: companyId,
+    rate,
+    update_existing: updateExisting,
+  })
+  return data
+}
+
+/** A special price on one passport (null goes back to the rate). Accounts head only. */
+export async function savePassportPrice(
+  passportId: number,
+  price: number | null,
+): Promise<{ price: number | null; price_source: PriceSource | null }> {
+  const { data } = await api.put<{ price: number | null; price_source: PriceSource | null }>(
+    `/api/payment-report/passports/${passportId}/price`,
+    { price },
+  )
+  return data
 }

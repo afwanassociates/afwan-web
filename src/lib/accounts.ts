@@ -15,6 +15,25 @@ export const ACCOUNTS_ROLES: readonly Role[] = ['accounts', 'accounts_head']
 /** Roles that set the cash opening balance and delete parties. */
 export const ACCOUNTS_MANAGER_ROLES: readonly Role[] = ['accounts_head']
 
+/** Roles that open the Payment Report (not admins). */
+export const PAYMENT_REPORT_ROLES: readonly Role[] = ['accounts_head', 'super_admin']
+
+/** Roles that set passport prices (company rates, reference rates, special prices). */
+export const PRICE_SETTER_ROLES: readonly Role[] = ['accounts_head']
+
+/** Toast text after saving a rate: what it did to the passports. */
+export function rateSaveMessage(r: { filled: number; updated: number; kept: number }): string {
+  const parts = ['Rate saved.']
+  const n = (count: number) => `${count} passport${count === 1 ? '' : 's'}`
+  if (r.filled) parts.push(`Priced ${n(r.filled)} that had no price.`)
+  if (r.updated) parts.push(`Changed ${n(r.updated)}.`)
+  if (r.kept)
+    parts.push(
+      `${n(r.kept)} kept the old price (tick "Also change existing passports" to change them).`,
+    )
+  return parts.join(' ')
+}
+
 /**
  * Roles that see the money summary cards (totals, closing balances): the accounts head on
  * Cash Management and the dashboard, admins on the dashboard only. Not accounts users.
