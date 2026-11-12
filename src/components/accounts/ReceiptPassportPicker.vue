@@ -9,9 +9,9 @@ import type { PartyPassport, PartyPassportGroups } from '@/types/accounts'
  * "What this money pays for" on a party's recruitment cash receipt: the party's passports of
  * the receipt's country, by company, each with its price (the party's rate, else the
  * company's standard rate), what other receipts paid and its due. Ticking passports of a
- * company asks for the amount received for that company (suggested from the ticked
- * passports' dues until typed) and whether it pays them off (full payment) or is a part
- * payment. A passport without a price cannot be ticked: the Accounts & Finance Head sets the
+ * company asks for the amount received for that company and whether it pays them off (full
+ * payment) or is a part payment. A full payment is the ticked passports' due and cannot be
+ * typed over; a part payment starts at that due (until typed) and is typed. A passport without a price cannot be ticked: the Accounts & Finance Head sets the
  * rate first. Passports paid off by another receipt (approved or waiting) show that receipt
  * and cannot be ticked; when editing, the receipt's own passports are ticked and may be
  * unticked.
@@ -77,7 +77,11 @@ watch(
         const picked = selection.value[group.company.id]
         if (picked) {
           const ids = picked.passportIds.filter((pid) => allowed.has(pid))
-          if (ids.length > 0) next[group.company.id] = { ...picked, passportIds: ids }
+          if (ids.length > 0) {
+            next[group.company.id] = picked.fullPayment
+              ? { ...picked, passportIds: ids, amount: toAmount(dueOf(group.company.id, ids)) }
+              : { ...picked, passportIds: ids }
+          }
         }
       }
       selection.value = next
@@ -107,15 +111,17 @@ function setPicked(companyId: number, ids: number[]) {
   if (ids.length === 0) {
     delete next[companyId]
   } else {
-    // Follow the ticked dues until the accountant types an amount of their own.
+    // A full payment is always the ticked dues; a part payment follows them until the
+    // accountant types an amount of their own.
     const current = next[companyId]?.amount ?? ''
-    const following = current === '' || current === suggested.value[companyId]
+    const fullPayment = next[companyId]?.fullPayment ?? false
+    const following = fullPayment || current === '' || current === suggested.value[companyId]
     const auto = toAmount(dueOf(companyId, ids))
     suggested.value = { ...suggested.value, [companyId]: auto }
     next[companyId] = {
       passportIds: ids,
       amount: following ? auto : current,
-      fullPayment: next[companyId]?.fullPayment ?? false,
+      fullPayment,
     }
   }
   selection.value = next
@@ -142,12 +148,15 @@ const allTicked = (companyId: number) => {
 function setFullPayment(companyId: number, fullPayment: boolean) {
   const picked = selection.value[companyId]
   if (!picked) return
-  selection.value = { ...selection.value, [companyId]: { ...picked, fullPayment } }
+  // Full payment: the amount becomes the ticked dues (and is locked).
+  const amount = fullPayment ? toAmount(dueOf(companyId, picked.passportIds)) : picked.amount
+  if (fullPayment) suggested.value = { ...suggested.value, [companyId]: amount }
+  selection.value = { ...selection.value, [companyId]: { ...picked, fullPayment, amount } }
 }
 
 function setAmount(companyId: number, amount: string) {
   const picked = selection.value[companyId]
-  if (!picked) return
+  if (!picked || picked.fullPayment) return
   selection.value = { ...selection.value, [companyId]: { ...picked, amount } }
 }
 
@@ -341,12 +350,22 @@ const inputClass =
             type="text"
             inputmode="decimal"
             placeholder="0.00"
+            :readonly="selection[group.company.id]!.fullPayment"
+            :title="
+              selection[group.company.id]!.fullPayment
+                ? 'Full payment: the due of the ticked passports'
+                : undefined
+            "
             :class="[
               inputClass,
               'w-40 text-right tabular-nums',
+              selection[group.company.id]!.fullPayment
+                ? 'cursor-not-allowed bg-slate-100 text-slate-600'
+                : '',
               errors[group.company.id] ? 'border-red-500' : 'border-slate-300',
             ]"
             :aria-invalid="errors[group.company.id] ? 'true' : undefined"
+            data-company-amount-input
             @input="setAmount(group.company.id, ($event.target as HTMLInputElement).value)"
           />
           <p class="w-full text-xs text-muted" data-ticked-due>

@@ -35,7 +35,7 @@ import type {
  * capital, or the return of a loan the company gave them (choosing the open loan, no more than
  * is outstanding);
  * the money came as cash in hand, into a bank (naming the bank, branch and account), or by
- * mobile banking (bKash, Nagad…). The amount is asked for once "Received via" is chosen.
+ * mobile banking (bKash, Nagad…); a new receipt starts at cash in hand.
  * A party's money also names the business it is for (recruitment; land, solar and railway are
  * inactive, kept only on receipts already saved with one) and, for recruitment, the country (starting at the default country); recruitment
  * money may also say which of the party's passports it pays for, per company with a typed
@@ -132,7 +132,8 @@ watch(open, (isOpen) => {
   countryCode.value = r?.country?.code ?? defaultCountry.value
   amount.value = r ? r.amount.toFixed(2) : ''
   date.value = r?.date ?? businessToday()
-  method.value = r?.payment_method ?? ''
+  // A new receipt starts at cash in hand.
+  method.value = r?.payment_method ?? 'cash'
   bankName.value = r?.bank_name ?? ''
   bankBranch.value = r?.bank_branch ?? ''
   bankAccountName.value = r?.bank_account_name ?? ''

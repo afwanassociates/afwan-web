@@ -375,19 +375,12 @@ describe('CashReceiptFormDialog', () => {
     expect(wrapper.find('input[value="loan_return"]').element).toHaveProperty('checked', true)
     expect(wrapper.find('[data-no-loans]').text()).toContain('Chairman has no open loans')
   })
-  it('requires Received via, and shows Amount below it once a method is chosen', async () => {
+  it('starts Received via at cash in hand, and shows Amount below it', async () => {
     await mountDialog({ presetParty: party() })
 
     expect(wrapper.find('[data-field="payment_method"] legend').text()).toContain('*')
-    expect(wrapper.find('[aria-pressed="true"][data-method]').exists()).toBe(false)
-    expect(wrapper.find('[data-field="amount"]').exists()).toBe(false)
-
-    await wrapper.find('form').trigger('submit')
-    await flushPromises()
-    expect(createCashReceipt).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-field="payment_method"]').text()).toContain(
-      'Choose how the money was received.',
-    )
+    expect(wrapper.get('[data-method="cash"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.find('[data-field="amount"]').exists()).toBe(true)
 
     for (const method of ['cash', 'bank', 'mobile_banking']) {
       await wrapper.find(`[data-method="${method}"]`).trigger('click')
@@ -545,14 +538,14 @@ function passportGroups(onThisReceipt: number[] = []): PartyPassportGroups {
             ],
             can_tick: false,
           }),
-          mark(passport(12)),
-          mark(passport(13)),
+          mark(passport(12, { price: 20000, due: 20000 })),
+          mark(passport(13, { price: 20000, due: 20000 })),
         ],
       },
       {
         company: { id: 2, name: 'Gulf Star', country_code: 'MY' },
         counts: { total: 1, paid: 0, pending: 0, part_paid: 0, unpaid: 1 },
-        passports: [mark(passport(21))],
+        passports: [mark(passport(21, { price: 40000, due: 40000 }))],
       },
     ],
     meta: { counts: { total: 4, paid: 1, pending: 0, part_paid: 0, unpaid: 3 } },
@@ -602,19 +595,31 @@ describe('CashReceiptFormDialog: passports the money pays for', () => {
     expect(wrapper.get('[data-company="1"] [data-company-amount]').text()).toContain(
       'Amount for 2 passports',
     )
-    // The receipt amount is the total of the companies (read only).
-    await wrapper.get('form').trigger('submit')
-    await flushPromises()
-    expect(createCashReceipt).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-company="1"] [data-company-error]').text()).toBe('Enter the amount.')
+    // Each company starts at the ticked passports' due.
+    const amountOf = (company: number) =>
+      wrapper.get(`[data-company="${company}"] [data-company-amount-input]`)
+        .element as HTMLInputElement
+    expect(amountOf(1).value).toBe('40000.00')
+    expect(amountOf(2).value).toBe('40000.00')
 
-    await wrapper.get('[data-company="1"] [data-company-amount] input').setValue('40,000')
-    await wrapper.get('[data-company="2"] [data-company-amount] input').setValue('20000')
-    // Part payment unless changed: Al Noor is paid off, Gulf Star is half now, half later.
+    // Part payment (the default) is typed; an empty one is refused.
     expect(
       (wrapper.get('[data-company="2"] [data-part]').element as HTMLInputElement).checked,
     ).toBe(true)
+    expect(amountOf(2).readOnly).toBe(false)
+    await wrapper.get('[data-company="2"] [data-company-amount-input]').setValue('')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(createCashReceipt).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-company="2"] [data-company-error]').text()).toBe('Enter the amount.')
+    await wrapper.get('[data-company="2"] [data-company-amount-input]').setValue('20000')
+
+    // Full payment replaces a typed amount with the due and locks it. Al Noor is paid off,
+    // Gulf Star is half now, half later.
+    await wrapper.get('[data-company="1"] [data-company-amount-input]').setValue('1000')
     await wrapper.get('[data-company="1"] [data-full]').setValue(true)
+    expect(amountOf(1).readOnly).toBe(true)
+    expect(amountOf(1).value).toBe('40000.00')
     expect(
       (wrapper.get('[data-field="amount"] input[data-lines-total]').element as HTMLInputElement)
         .value,
@@ -740,8 +745,8 @@ describe('CashReceiptFormDialog: passports the money pays for', () => {
     expect(updateCashReceipt).toHaveBeenCalledWith(
       3,
       expect.objectContaining({
-        amount: 1000,
-        companies: [{ company_id: 1, amount: 1000, is_full_payment: true, passport_ids: [12] }],
+        amount: 20000,
+        companies: [{ company_id: 1, amount: 20000, is_full_payment: true, passport_ids: [12] }],
       }),
     )
   })
