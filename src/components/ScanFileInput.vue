@@ -36,6 +36,14 @@ const inputId = useId()
 const input = useTemplateRef<HTMLInputElement>('input')
 defineExpose({ focus: () => input.value?.focus() })
 
+/** Edit with a file already there: picking one replaces it, so the field is optional. */
+const isReplace = computed(() => Boolean(props.currentName) && !props.required)
+const shownLabel = computed(() =>
+  isReplace.value
+    ? `Replace ${props.label.charAt(0).toLowerCase()}${props.label.slice(1)}`
+    : props.label,
+)
+
 const localError = ref<string | null>(null)
 const shownError = computed(() => localError.value ?? props.error ?? null)
 
@@ -84,7 +92,7 @@ const button =
 <template>
   <div data-field="scan">
     <label :for="inputId" class="block text-sm font-medium text-slate-700">
-      {{ label }}<span v-if="required" class="text-red-700" aria-hidden="true"> *</span>
+      {{ shownLabel }}<span v-if="required" class="text-red-700" aria-hidden="true"> *</span>
       <span v-else class="font-normal text-muted"> (optional)</span>
     </label>
     <!-- Visually hidden but focusable, so errors can move focus here. -->
@@ -186,7 +194,11 @@ const button =
       </div>
     </div>
 
-    <p :id="`${inputId}-hint`" class="mt-1 text-xs text-muted">JPG, PNG or PDF, up to 5 MB.</p>
+    <p :id="`${inputId}-hint`" class="mt-1 text-xs text-muted">
+      JPG, PNG or PDF, up to 5 MB.<template v-if="isReplace && !model">
+        Leave it to keep the current file.</template
+      >
+    </p>
     <p v-if="shownError" :id="`${inputId}-error`" class="mt-1 text-sm text-red-700" data-scan-error>
       {{ shownError }}
     </p>

@@ -781,7 +781,12 @@ describe('PassportFormView', () => {
       const current = wrapper.get('[data-scan-current]')
       expect(current.text()).toContain('passport.jpg')
       expect(current.find('button[data-scan-replace]').exists()).toBe(true)
-      expect(wrapper.get('[data-field="scan"] label').text()).toContain('(optional)')
+      expect(wrapper.get('[data-field="scan"] label').text()).toBe(
+        'Replace passport scan copy (optional)',
+      )
+      expect(wrapper.get('[data-field="scan"]').text()).toContain(
+        'Leave it to keep the current file.',
+      )
 
       await wrapper.get('form').trigger('submit')
       await flushPromises()

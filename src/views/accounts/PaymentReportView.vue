@@ -13,11 +13,11 @@ import { toDisplayDate } from '@/lib/dates'
 import { errorMessage } from '@/lib/errors'
 import { useAuthStore } from '@/stores/auth'
 import type {
-  PassportPaymentStatus,
   PaymentReport,
   PaymentReportParams,
   PaymentReportPassport,
   PaymentReportReceipt,
+  PaymentReportStatus,
   PriceSource,
 } from '@/types/accounts'
 import type { CompanySummary, ReferenceSummary } from '@/types/passport'
@@ -30,7 +30,8 @@ import type { CompanySummary, ReferenceSummary } from '@/types/passport'
  * amount is its share of that line (split by price). Prices come from the Passport Rates
  * page; the accounts head sets a reference's rate for a company or one passport's special
  * price here too. Filters live in the URL; the summary covers every filter except status, so
- * the status tabs keep their counts.
+ * the status tabs keep their counts. Returned passports are counted apart (not in the
+ * passport total); money paid for one stays on its receipt as the reference's credit.
  */
 const route = useRoute()
 const router = useRouter()
@@ -43,19 +44,21 @@ const searchId = useId()
 /** Only the accounts team opens party ledgers (the super admin has no accounts pages). */
 const canOpenLedger = computed(() => !!auth.user && ACCOUNTS_ROLES.includes(auth.user.role))
 
-const STATUS_TABS: { value: '' | PassportPaymentStatus; label: string }[] = [
+const STATUS_TABS: { value: '' | PaymentReportStatus; label: string }[] = [
   { value: '', label: 'All' },
   { value: 'unpaid', label: 'Unpaid' },
   { value: 'part_paid', label: 'Part paid' },
   { value: 'pending', label: 'Pending approval' },
   { value: 'paid', label: 'Paid' },
+  { value: 'returned', label: 'Returned' },
 ]
 
-const STATUS_BADGE: Record<PassportPaymentStatus, { text: string; cls: string }> = {
+const STATUS_BADGE: Record<PaymentReportStatus, { text: string; cls: string }> = {
   paid: { text: 'Paid', cls: 'bg-green-50 text-green-800 ring-green-300' },
   pending: { text: 'Pending approval', cls: 'bg-amber-50 text-amber-900 ring-amber-300' },
   part_paid: { text: 'Part paid', cls: 'bg-sky-50 text-sky-900 ring-sky-300' },
   unpaid: { text: 'Unpaid', cls: 'bg-slate-100 text-slate-700 ring-slate-300' },
+  returned: { text: 'Returned', cls: 'bg-violet-50 text-violet-900 ring-violet-300' },
 }
 
 const APPROVAL_TEXT: Record<PaymentReportReceipt['status'], { text: string; cls: string }> = {
@@ -80,7 +83,7 @@ const params = computed<PaymentReportParams>(() => {
     reference_id: idFrom(route.query.reference_id),
     company_id: idFrom(route.query.company_id),
     status: STATUS_TABS.some((t) => t.value && t.value === status)
-      ? (status as PassportPaymentStatus)
+      ? (status as PaymentReportStatus)
       : undefined,
     page: page > 1 ? page : undefined,
   }
@@ -132,7 +135,7 @@ function onCompanySelected(value: CompanySummary | null) {
   setFilter({ company_id: value ? String(value.id) : undefined })
 }
 
-function setStatus(value: '' | PassportPaymentStatus) {
+function setStatus(value: '' | PaymentReportStatus) {
   setFilter({ status: value || undefined })
 }
 
@@ -240,7 +243,7 @@ const showingTo = computed(() =>
   meta.value ? Math.min(meta.value.current_page * meta.value.per_page, meta.value.total) : 0,
 )
 
-function tabCount(value: '' | PassportPaymentStatus): number | null {
+function tabCount(value: '' | PaymentReportStatus): number | null {
   if (!summary.value) return null
   return value ? summary.value[value] : summary.value.total
 }
@@ -339,6 +342,9 @@ async function savePrice(price: number | null) {
           <span class="text-sky-700">{{ summary.part_paid }} part</span> ·
           <span class="text-red-700">{{ summary.unpaid }} unpaid</span>
         </dd>
+        <dd v-if="summary?.returned" class="mt-0.5 text-xs text-violet-700" data-summary-returned>
+          + {{ summary.returned }} returned (not counted)
+        </dd>
       </div>
       <div class="rounded-lg border border-stroke bg-white px-4 py-3">
         <dt class="text-xs font-medium text-muted">Total price</dt>
@@ -363,6 +369,13 @@ async function savePrice(price: number | null) {
           data-summary-due
         >
           {{ summary ? dueText(summary.due) : '–' }}
+        </dd>
+        <dd
+          v-if="summary && summary.returned_credit > 0"
+          class="mt-0.5 text-xs text-sky-700"
+          data-summary-returned-credit
+        >
+          after {{ formatMoney(summary.returned_credit) }} credit for returned passports
         </dd>
       </div>
     </dl>
@@ -527,6 +540,19 @@ async function savePrice(price: number | null) {
                     </template>
                     ·
                     <span class="font-semibold text-red-700">{{ group.counts.unpaid }} unpaid</span>
+                    <template v-if="group.counts.returned">
+                      · <span class="text-violet-700">{{ group.counts.returned }} returned</span>
+                    </template>
+                  </p>
+                  <p
+                    v-if="group.counts.returned_credit > 0"
+                    class="mt-1 text-xs font-semibold text-sky-700"
+                    data-reference-returned-credit
+                  >
+                    {{ formatMoney(group.counts.returned_credit) }} paid for
+                    {{ group.counts.returned_paid }} returned
+                    {{ group.counts.returned_paid === 1 ? 'passport' : 'passports' }}: credit to
+                    refund or use for other passports
                   </p>
                   <!-- Received share of the price (short, inline) -->
                   <div class="mt-2 flex items-center gap-2" data-reference-progress>
@@ -664,6 +690,10 @@ async function savePrice(price: number | null) {
                               · <span class="text-amber-700">{{ c.counts.pending }} pending</span>
                             </template>
                             · <span class="text-red-700">{{ c.counts.unpaid }} unpaid</span>
+                            <template v-if="c.counts.returned">
+                              ·
+                              <span class="text-violet-700">{{ c.counts.returned }} returned</span>
+                            </template>
                           </span>
                         </td>
                         <td :class="[td, 'text-right whitespace-nowrap']" data-company-rate>
@@ -791,9 +821,19 @@ async function savePrice(price: number | null) {
                                     </span>
                                     <span
                                       v-if="p.is_returned"
-                                      class="mt-1 block text-xs text-muted"
+                                      class="mt-1 block text-xs"
+                                      :class="
+                                        p.paid_amount + p.pending_amount > 0.004
+                                          ? 'font-semibold text-sky-700'
+                                          : 'text-muted'
+                                      "
+                                      data-returned-note
                                     >
-                                      Returned: no price due
+                                      <template v-if="p.paid_amount + p.pending_amount > 0.004">
+                                        {{ formatMoney(p.paid_amount + p.pending_amount) }} paid:
+                                        credit to the reference
+                                      </template>
+                                      <template v-else>No price due</template>
                                     </span>
                                   </td>
                                   <td

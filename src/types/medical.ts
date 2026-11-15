@@ -49,6 +49,17 @@ export interface MedicalCenterSummary {
   name: string
 }
 
+/** A medical centre on the management page (the operations head). */
+export interface MedicalCenter extends MedicalCenterSummary {
+  is_active: boolean
+  /** Passports whose medical slip names it (deleted ones not counted). */
+  passports_count: number
+  /** No passport has ever named it (deleted ones included); else deactivate it instead. */
+  can_delete: boolean
+  created_at: string
+  updated_at: string
+}
+
 /** A medical record as embedded in a passport (current_medical). Dates are YYYY-MM-DD. */
 export interface MedicalSummary {
   id: number

@@ -187,11 +187,12 @@ const navItems = computed(() => {
   }
   // Users: for every role that manages another (admins, and the accounts head for accounts users).
   if (USER_MANAGER_ROLES.includes(role)) items.push({ name: 'staff-users', label: 'Users' })
-  // Companies and References management (create / edit / deactivate / delete an unused one):
-  // the operations head only.
+  // Companies, References and Medical Centers management (create / edit / deactivate /
+  // delete an unused one): the operations head only.
   if (PASSPORT_MANAGER_ROLES.includes(role)) {
     items.push({ name: 'admin-companies', label: 'Companies' })
     items.push({ name: 'admin-references', label: 'References' })
+    items.push({ name: 'admin-medical-centers', label: 'Medical Centers' })
   }
   if (settingsPagesFor(role).length > 0) {
     items.push({ name: 'settings', label: 'Settings', section: '/admin/settings' })

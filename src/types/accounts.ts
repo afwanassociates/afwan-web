@@ -731,6 +731,19 @@ export interface ExpenseFilters {
 
 /* ---------- Payment report (accounts head and super admin) ---------- */
 
+/** The payment statuses, plus returned: given back to its owner, costs nothing. */
+export type PaymentReportStatus = PassportPaymentStatus | 'returned'
+
+/**
+ * Status counts on the payment report. `total` leaves returned passports out; they are
+ * counted apart, with how many have money on a receipt and how much (the reference's credit).
+ */
+export interface PaymentReportCounts extends PassportPaymentCounts {
+  returned: number
+  returned_paid: number
+  returned_credit: number
+}
+
 /** One receipt behind a passport: its company line's amount split over the line's passports. */
 export interface PaymentReportReceipt {
   id: number
@@ -756,8 +769,8 @@ export interface PaymentReportPassport {
   passport_name: string
   passport_number: string
   stage: string | null
-  status: PassportPaymentStatus
-  /** Returned to its owner: costs nothing. */
+  status: PaymentReportStatus
+  /** Returned to its owner: costs nothing; what was paid for it is credit. */
   is_returned: boolean
   /** Locked price (null: no rate when entered). */
   price: number | null
@@ -777,7 +790,7 @@ export interface PaymentReportPassport {
 export interface PaymentReportCompany {
   company: { id: number; name: string | null; country_code: string | null }
   /** Every passport of the reference for this company (any status). */
-  counts: PassportPaymentCounts
+  counts: PaymentReportCounts
   /** Approved receipt lines. */
   paid_amount: number
   /** Lines waiting for approval or returned. */
@@ -803,7 +816,7 @@ export interface PaymentReportReference {
     type_label: string | null
     mobile: string | null
   }
-  counts: PassportPaymentCounts
+  counts: PaymentReportCounts
   paid_amount: number
   pending_amount: number
   price_total: number
@@ -816,14 +829,14 @@ export interface PaymentReportParams {
   q?: string
   reference_id?: number
   company_id?: number
-  status?: PassportPaymentStatus
+  status?: PaymentReportStatus
   page?: number
 }
 
 /** GET /api/payment-report, by reference. `summary` covers every filter except status. */
 export interface PaymentReport {
   data: PaymentReportReference[]
-  summary: PassportPaymentCounts & {
+  summary: PaymentReportCounts & {
     paid_amount: number
     pending_amount: number
     receipt_count: number

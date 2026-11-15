@@ -8,7 +8,7 @@ import { createMedicalCenter, searchMedicalCenters } from '@/api/medicalCenters'
 import { useToast } from '@/composables/useToast'
 import { toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
-import { isMedicalAdmin } from '@/lib/medical'
+import { PASSPORT_ROLES } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { MedicalCenterSummary } from '@/types/medical'
@@ -56,7 +56,8 @@ watch(center, () => delete errors.value.medical_center_id)
 /* ---------- Medical centre (admins may add a new one) ---------- */
 
 const fetchCenters = (q: string) => searchMedicalCenters(q)
-const canAddCenter = computed(() => isMedicalAdmin(auth.user?.role))
+/** Data entry and the operations head add a centre here; only the head manages the list. */
+const canAddCenter = computed(() => !!auth.user && PASSPORT_ROLES.includes(auth.user.role))
 const centerModalOpen = ref(false)
 const centerQuery = ref('')
 

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import SearchSelect from '@/components/SearchSelect.vue'
 import MedicalView from '../MedicalView.vue'
 import PassportListView from '../PassportListView.vue'
 import { listPassports } from '@/api/passports'
@@ -229,5 +230,19 @@ describe('the Medical page keeps its tabs', () => {
       'Expired',
       'Unfit',
     ])
+  })
+})
+
+describe('"Add new medical center" in the slip modal', () => {
+  it.each(['data_entry', 'operation_head'] as const)('is offered to %s', async (role) => {
+    vi.mocked(listPassports).mockResolvedValue(page([NEW_PASSPORT]))
+    await mountAt('/passports', role)
+    await wrapper.get('[data-slip-action="50"]').trigger('click')
+    await flushPromises()
+
+    const center = wrapper
+      .findAllComponents(SearchSelect)
+      .find((s) => s.attributes('data-field') === 'medical_center')!
+    expect((center.props() as { addLabel?: string }).addLabel).toBe('Add new medical center')
   })
 })

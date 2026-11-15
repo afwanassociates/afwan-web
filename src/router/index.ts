@@ -107,6 +107,13 @@ const router = createRouter({
           meta: { roles: PASSPORT_MANAGER_ROLES, title: staffTitle('References') },
         },
         {
+          // Medical centres, the same way: the operations head only.
+          path: 'admin/medical-centers',
+          name: 'admin-medical-centers',
+          component: () => import('@/views/admin/MedicalCentersAdminView.vue'),
+          meta: { roles: PASSPORT_MANAGER_ROLES, title: staffTitle('Medical Centers') },
+        },
+        {
           path: 'forbidden',
           name: 'forbidden',
           component: () => import('@/views/staff/ForbiddenView.vue'),

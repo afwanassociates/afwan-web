@@ -52,6 +52,7 @@ const ROUTE_NAMES = [
   'reference-report',
   'admin-companies',
   'admin-references',
+  'admin-medical-centers',
   'accounts-parties',
   'accounts-cash-book',
   'accounts-owner-loans',
@@ -178,6 +179,7 @@ describe('StaffLayout menu', () => {
         'Users',
         'Companies',
         'References',
+        'Medical Centers',
       ],
     ],
     [
@@ -241,15 +243,19 @@ describe('StaffLayout menu', () => {
     ['super_admin', false],
     ['data_entry', false],
     ['accounts', false],
-  ] as const)('"Companies" and "References" in the sidebar for %s: %s', async (role, shown) => {
-    await mountAs(role)
+  ] as const)(
+    '"Companies", "References" and "Medical Centers" in the sidebar for %s: %s',
+    async (role, shown) => {
+      await mountAs(role)
 
-    const hrefs = wrapper
-      .findAll('nav[aria-label="Staff portal"] a')
-      .map((a) => a.attributes('href'))
-    expect(hrefs.includes('/admin-companies')).toBe(shown)
-    expect(hrefs.includes('/admin-references')).toBe(shown)
-  })
+      const hrefs = wrapper
+        .findAll('nav[aria-label="Staff portal"] a')
+        .map((a) => a.attributes('href'))
+      expect(hrefs.includes('/admin-companies')).toBe(shown)
+      expect(hrefs.includes('/admin-references')).toBe(shown)
+      expect(hrefs.includes('/admin-medical-centers')).toBe(shown)
+    },
+  )
 
   it('shows the four steps as top-level items right after Medical, with no "Process" heading', async () => {
     await mountAs('data_entry')
