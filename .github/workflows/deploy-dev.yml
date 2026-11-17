@@ -39,6 +39,10 @@ jobs:
             echo "::error::Repository variable VITE_API_URL_DEV is not set."
             exit 1
           fi
+          case "${{ vars.VITE_API_URL_DEV }}" in
+            https://*|http://*) ;;
+            *) echo "::error::VITE_API_URL_DEV must start with https:// (got: ${{ vars.VITE_API_URL_DEV }})."; exit 1 ;;
+          esac
 
       # Type check + Vite build with the dev API address.
       - run: npm run build
