@@ -1,0 +1,53 @@
+# Build the Vue app on every push to development and put the finished files
+# (dist) in the "deploy-dev" branch. Hostinger deploys that branch for the
+# development site (hPanel → Advanced → Git), same as "deploy" for production.
+name: Build and deploy (development)
+
+on:
+  push:
+    branches: [development]
+  # Also lets you run it by hand from the Actions tab.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# A newer push cancels a build still running. Separate group from production.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The development build must talk to the development API, never the
+      # production one. Set the VITE_API_URL_DEV repository variable
+      # (Settings → Secrets and variables → Actions → Variables).
+      - name: Check dev API address
+        run: |
+          if [ -z "${{ vars.VITE_API_URL_DEV }}" ]; then
+            echo "::error::Repository variable VITE_API_URL_DEV is not set."
+            exit 1
+          fi
+
+      # Type check + Vite build with the dev API address.
+      - run: npm run build
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL_DEV }}
+
+      - uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: deploy-dev
+          publish_dir: ./dist
+          force_orphan: true
