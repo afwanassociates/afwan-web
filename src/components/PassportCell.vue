@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StageBadge from '@/components/StageBadge.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
+import AgentStatusBadge from '@/components/agents/AgentStatusBadge.vue'
 import { daysLeft, toDisplayDate } from '@/lib/dates'
 import { useDateRules } from '@/lib/dateRules'
 import type { PassportColumn } from '@/lib/passportColumns'
@@ -144,6 +145,21 @@ const enteredBy = computed(() => {
     >
       <span class="h-1.5 w-1.5 rounded-full bg-current" aria-hidden="true" />
       Passport entered
+    </span>
+  </template>
+
+  <template v-else-if="column === 'mygram_agent'">
+    <span class="inline-flex flex-col items-start gap-1" data-agent-cell>
+      <span v-if="entry.mygram_agent" class="font-medium text-ink">{{
+        entry.mygram_agent.name
+      }}</span>
+      <span v-else-if="entry.agent_pending" class="text-slate-700">{{
+        entry.agent_pending.agent.name
+      }}</span>
+      <AgentStatusBadge
+        v-if="entry.agent_status && entry.agent_status !== 'approved'"
+        :status="entry.agent_status"
+      />
     </span>
   </template>
 

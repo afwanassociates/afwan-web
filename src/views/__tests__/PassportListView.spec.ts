@@ -6,12 +6,34 @@ import PassportListView from '../PassportListView.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import { listPassports } from '@/api/passports'
 import { searchReferences } from '@/api/references'
+import { fetchAgentTabCounts } from '@/api/agents'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser, notStartedPassport } from '@/test/helpers'
 import { WORKFLOW_CONFIG } from '@/test/workflowFixtures'
 import type { PassportEntry, PassportFilters } from '@/types/passport'
+import type { Role } from '@/types/auth'
 
 vi.mock('@/api/passports', () => ({ listPassports: vi.fn(), returnPassport: vi.fn() }))
+vi.mock('@/api/agents', () => ({
+  assignAgent: vi.fn(),
+  bulkAssignAgent: vi.fn(),
+  searchAgents: vi.fn(async () => []),
+  fetchAgentTabCounts: vi.fn(async () => ({
+    none: 4,
+    approved: 3,
+    agents: [
+      {
+        id: 5,
+        code: 'AG-005',
+        name: 'Karim Overseas',
+        rl_number: 'RL-1',
+        is_active: true,
+        count: 0,
+      },
+      { id: 6, code: 'AG-006', name: 'Uttara Link', rl_number: 'RL-2', is_active: true, count: 3 },
+    ],
+  })),
+}))
 vi.mock('@/api/references', () => ({ searchReferences: vi.fn(async () => []) }))
 vi.mock('@/api/medical', () => ({ updateMedicalSlip: vi.fn() }))
 vi.mock('@/api/medicalCenters', () => ({
@@ -52,10 +74,10 @@ const ENTERED = makePassport({
 let wrapper: VueWrapper
 let router: Router
 
-async function mountList(path = '/passports') {
+async function mountList(path = '/passports', role: Role = 'admin') {
   const pinia = createPinia()
   setActivePinia(pinia)
-  useAuthStore().user = makeUser({ role: 'admin' })
+  useAuthStore().user = makeUser({ role })
   const Empty = { template: '<div />' }
   router = createRouter({
     history: createMemoryHistory(),
@@ -202,6 +224,7 @@ describe('Passport List ("Passport entered" only)', () => {
         'Reference',
         'Company',
         'Received',
+        'MYGRAM agent',
         'Entered by',
         'Actions',
       ])
@@ -241,5 +264,112 @@ describe('Passport List ("Passport entered" only)', () => {
 
     expect(wrapper.find('a[href="/passports/new"]').text()).toContain('Add passport')
     expect(wrapper.find('nav[aria-label="Workflow steps"]').exists()).toBe(false)
+  })
+
+  describe('MYGRAM agent', () => {
+    const withAgent = (status: 'none' | 'pending' | 'returned' | 'approved') =>
+      makePassport({
+        ...ENTERED,
+        agent_status: status,
+        mygram_agent:
+          status === 'approved'
+            ? {
+                id: 5,
+                code: 'AG-005',
+                name: 'Karim Overseas',
+                rl_number: 'RL-1',
+                assigned_date: '2026-04-01',
+              }
+            : null,
+        agent_pending:
+          status === 'pending'
+            ? {
+                id: 8,
+                agent: { id: 5, code: 'AG-005', name: 'Karim Overseas', rl_number: 'RL-1' },
+                assigned_date: '2026-04-01',
+                remark: null,
+              }
+            : null,
+        can: { ...ENTERED.can, assign_agent: true },
+      })
+
+    it('offers "Assign agent" instead of the medical slip until the agent is approved', async () => {
+      vi.mocked(listPassports).mockResolvedValue(page([withAgent('none')]))
+      await mountList('/passports', 'data_entry')
+
+      expect(wrapper.find('[data-slip-action="50"]').exists()).toBe(false)
+      expect(wrapper.get('[data-agent-action="50"]').text()).toContain('Assign agent')
+      expect(wrapper.find('[data-bulk-agent]').exists()).toBe(true)
+    })
+
+    it('shows the waiting agent and no action while it waits for approval', async () => {
+      vi.mocked(listPassports).mockResolvedValue(page([withAgent('pending')]))
+      await mountList('/passports', 'data_entry')
+
+      expect(wrapper.find('[data-slip-action="50"]').exists()).toBe(false)
+      expect(wrapper.find('[data-agent-action="50"]').exists()).toBe(false)
+      expect(wrapper.get('[data-agent-cell]').text()).toContain('Waiting for approval')
+    })
+
+    it('offers the medical slip once the agent is approved', async () => {
+      vi.mocked(listPassports).mockResolvedValue(page([withAgent('approved')]))
+      await mountList('/passports?tab=approved&agent=5', 'data_entry')
+
+      expect(wrapper.get('[data-slip-action="50"]').text()).toContain('Add medical slip')
+      expect(wrapper.find('[data-agent-action="50"]').exists()).toBe(false)
+      // The agent is the tab: no agent column there.
+      expect(wrapper.find('[data-agent-cell]').exists()).toBe(false)
+    })
+
+    it('hides the bulk assign button from the operations head', async () => {
+      await mountList('/passports', 'operation_head')
+
+      expect(wrapper.find('[data-bulk-agent]').exists()).toBe(false)
+    })
+  })
+
+  describe('tabs: Waiting for Agent / Ready for Medical', () => {
+    it('opens on Waiting for Agent with both counts, listing passports without an approved agent', async () => {
+      await mountList('/passports', 'data_entry')
+
+      expect(fetchAgentTabCounts).toHaveBeenCalledWith('passport')
+      expect(wrapper.get('[data-tab="none"]').attributes('aria-selected')).toBe('true')
+      expect(wrapper.get('[data-tab="none"] [data-tab-count]').text()).toBe('(4)')
+      expect(wrapper.get('[data-tab="approved"] [data-tab-count]').text()).toBe('(3)')
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ stage: 'passport', mygram_agent_id: 'none' }),
+      )
+      expect(wrapper.find('[data-agent-picker]').exists()).toBe(false)
+    })
+
+    it('opens Ready for Medical on the first agent with passports, one agent at a time', async () => {
+      await mountList('/passports', 'data_entry')
+      await wrapper.get('[data-tab="approved"]').trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.query).toEqual({ tab: 'approved', agent: '6' })
+      expect(lastFilters()).toEqual(
+        expect.objectContaining({ stage: 'passport', mygram_agent_id: 6 }),
+      )
+      expect(wrapper.get('[data-agent="6"]').attributes('aria-pressed')).toBe('true')
+      expect(wrapper.get('[data-agent="6"]').text()).toMatch(/Uttara Link\s*\(3\)/)
+      // Bulk assigning is for the Waiting for Agent tab.
+      expect(wrapper.find('[data-bulk-agent]').exists()).toBe(false)
+
+      await wrapper.get('[data-agent="5"]').trigger('click')
+      await flushPromises()
+      expect(lastFilters()).toEqual(expect.objectContaining({ mygram_agent_id: 5 }))
+    })
+
+    it('keeps the tab and agent when the searches are cleared', async () => {
+      await mountList('/passports?tab=approved&agent=6&q=karim', 'data_entry')
+      await wrapper
+        .findAll('button')
+        .find((b) => b.text() === 'Clear searches')!
+        .trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.query).toEqual({ tab: 'approved', agent: '6' })
+    })
   })
 })

@@ -9,6 +9,7 @@ import type {
   PassportWorkflow,
 } from '@/types/medical'
 import type { WorkflowWarning } from '@/types/workflow'
+import type { AgentStatus, AgentSummary } from '@/types/agents'
 
 export type ReferenceType = 'person' | 'agency'
 
@@ -112,6 +113,25 @@ export interface PassportEntry {
   scan_uploaded_at?: string | null
   /** Where the medical is done (same as medical_slip.medical_center). */
   medical_center?: MedicalCenterSummary | null
+  /** The approved MYGRAM agent (null until the operations head approves one). */
+  mygram_agent?: (AgentSummary & { assigned_date: string }) | null
+  /** none, pending (waiting for approval), returned (for correction) or approved. */
+  agent_status?: AgentStatus
+  /** The assignment (or change) waiting for the operations head. */
+  agent_pending?: {
+    id: number
+    agent: AgentSummary
+    assigned_date: string
+    remark: string | null
+  } | null
+  /** The newest assignment, when it was returned for correction. */
+  agent_return?: {
+    id: number
+    mygram_agent_id: number
+    assigned_date: string
+    remark: string | null
+    reason: string | null
+  } | null
   medical_status: MedicalStatus
   medical_status_label: string
   current_medical: MedicalSummary | null
@@ -138,6 +158,8 @@ export interface PassportEntry {
     return?: boolean
     /** Undo the return (the operations head, while it is returned). */
     undo_return?: boolean
+    /** Assign or change the MYGRAM agent (data entry). */
+    assign_agent?: boolean
   }
 }
 
@@ -222,6 +244,10 @@ export interface PassportFilters {
   reference_id?: number
   reference_type?: ReferenceType
   company_id?: number
+  /** The MYGRAM agent's current passports, or 'none' (no approved agent). */
+  mygram_agent_id?: number | 'none'
+  /** none (no agent and none waiting), pending or approved. */
+  agent_status?: 'none' | 'pending' | 'approved'
   /** Country of the company (2-letter code). */
   company_country_code?: string
   received_from?: string

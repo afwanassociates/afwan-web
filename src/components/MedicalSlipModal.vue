@@ -41,6 +41,18 @@ const isSaving = ref(false)
 const isEdit = computed(() => Boolean(props.passport?.medical_slip?.date))
 const title = computed(() => (isEdit.value ? 'Edit medical slip' : 'Add medical slip'))
 
+/**
+ * A new slip needs the passport's MYGRAM agent approved by the Operations Head (the API
+ * refuses it too). Editing an existing slip is not blocked.
+ */
+const agentBlock = computed(() => {
+  const status = props.passport?.agent_status
+  if (isEdit.value || !status || status === 'approved') return null
+  return status === 'pending'
+    ? 'MYGRAM agent not approved yet. The Operations Head must approve it before the medical slip.'
+    : 'Assign a MYGRAM agent first. The Operations Head must approve it before the medical slip.'
+})
+
 watch(open, (isOpen) => {
   if (!isOpen) return
   const slip = props.passport?.medical_slip
@@ -139,6 +151,15 @@ const inputClass =
       {{ banner }}
     </p>
 
+    <p
+      v-if="agentBlock"
+      role="alert"
+      class="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-medium text-amber-900"
+      data-agent-block
+    >
+      {{ agentBlock }}
+    </p>
+
     <form class="mt-5 space-y-5" novalidate @submit.prevent="save">
       <div data-field="medical_slip_date">
         <label :for="dateId" class="block text-sm font-medium text-slate-700">
@@ -188,7 +209,12 @@ const inputClass =
         >
           Cancel
         </button>
-        <button type="submit" class="btn btn-accent" :disabled="isSaving" data-action="save">
+        <button
+          type="submit"
+          class="btn btn-accent"
+          :disabled="isSaving || Boolean(agentBlock)"
+          data-action="save"
+        >
           {{ isSaving ? 'Saving…' : 'Save slip' }}
         </button>
       </div>

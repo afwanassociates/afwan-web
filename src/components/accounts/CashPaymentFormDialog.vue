@@ -3,6 +3,7 @@ import { computed, inject, ref, useId, watch } from 'vue'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import { createCashPayment, searchParties, updateCashPayment } from '@/api/accounts'
+import { searchAgents } from '@/api/agents'
 import MobileBankingFields from '@/components/accounts/MobileBankingFields.vue'
 import {
   CASH_CONTEXT,
@@ -22,6 +23,7 @@ import type {
   PayeeType,
   PaymentMethod,
 } from '@/types/accounts'
+import type { AgentSummary } from '@/types/agents'
 
 /**
  * Cash payment form. "Paid to" is a party (refund only), an owner (an owner loan: the company
@@ -41,6 +43,8 @@ const props = defineProps<{
   presetParty?: Payee | null
   /** Start on this payee type (e.g. "owner" from the Owner loans page). */
   presetPayeeType?: PayeeType
+  /** The MYGRAM agent to pay (from the agent ledger). */
+  presetAgent?: AgentSummary | null
 }>()
 const emit = defineEmits<{ saved: [payment: CashPayment, created: boolean] }>()
 
@@ -51,6 +55,7 @@ const PAYEES = [
   { value: 'client', label: 'Party / Client' },
   { value: 'owner', label: 'Company owner' },
   { value: 'other', label: 'Other' },
+  { value: 'agent', label: 'MYGRAM agent' },
 ] as const
 
 const TYPES: Record<PayeeType, { value: CashPaymentType; label: string; hint: string }[]> = {
@@ -64,10 +69,19 @@ const TYPES: Record<PayeeType, { value: CashPaymentType; label: string; hint: st
     },
   ],
   other: [{ value: 'expense', label: 'Expense', hint: 'Any other payment, e.g. office rent.' }],
+  // Agents have no rate: always a part payment of any amount. Agents never pay the company.
+  agent: [
+    {
+      value: 'agent_payment',
+      label: 'Agent payment',
+      hint: 'A part payment to the MYGRAM agent (any amount). It shows on the Agent Payments page.',
+    },
+  ],
 }
 
 const payeeType = ref<PayeeType>('client')
 const party = ref<Payee | null>(null)
+const agent = ref<AgentSummary | null>(null)
 const payeeName = ref('')
 const paymentType = ref<CashPaymentType>('refund')
 const purpose = ref('')
@@ -101,6 +115,7 @@ watch(open, (isOpen) => {
   const preset = p?.party ?? props.presetParty ?? null
   payeeType.value = p?.payee_type ?? preset?.type ?? props.presetPayeeType ?? 'client'
   party.value = preset
+  agent.value = p?.agent ?? props.presetAgent ?? null
   payeeName.value = p && !p.party ? p.payee_name : ''
   paymentType.value = p?.payment_type ?? TYPES[payeeType.value][0]!.value
   purpose.value = p?.purpose ?? ''
@@ -124,12 +139,14 @@ function setPayeeType(type: PayeeType) {
   if (payeeType.value === type) return
   payeeType.value = type
   party.value = null
+  agent.value = null
   paymentType.value = TYPES[type][0]!.value
 }
 
 const fetchPayees = (q: string): Promise<Payee[]> =>
   searchParties(payeeType.value === 'owner' ? 'owner' : 'client', q)
 const payeeSubtitle = (p: Payee) => `${p.code} · ${p.mobile}`
+const agentSubtitle = (a: AgentSummary) => `${a.code} · RL ${a.rl_number}`
 
 const squish = (value: string) => value.trim().replace(/\s+/g, ' ')
 
@@ -137,11 +154,14 @@ async function save() {
   if (isSaving.value) return
   banner.value = null
   const isOther = payeeType.value === 'other'
+  const isAgent = payeeType.value === 'agent'
   const e: Record<string, string> = {}
   if (isOther) {
     if (!squish(payeeName.value)) e.payee_name = 'Enter the name of who you paid.'
     if (!expenseCategory.value) e.expense_category = 'Choose what the money was spent on.'
     if (!squish(purpose.value)) e.purpose = 'Enter the purpose (e.g. October rent).'
+  } else if (isAgent) {
+    if (!agent.value) e.mygram_agent_id = 'Choose the MYGRAM agent.'
   } else if (!party.value) {
     e.party_id = `Choose the ${payeeType.value === 'owner' ? 'owner' : 'party'}.`
   }
@@ -169,7 +189,8 @@ async function save() {
   const payload = {
     date: date.value,
     payee_type: payeeType.value,
-    party_id: isOther ? null : party.value!.id,
+    party_id: isOther || isAgent ? null : party.value!.id,
+    mygram_agent_id: isAgent ? agent.value!.id : null,
     payee_name: isOther ? squish(payeeName.value) : null,
     payment_type: paymentType.value,
     expense_category: isOther ? (expenseCategory.value as ExpenseCategory) : null,
@@ -313,6 +334,19 @@ const segment = (active: boolean) =>
             />
             <p v-if="errors.bill_no" class="mt-1 text-sm text-red-700">{{ errors.bill_no }}</p>
           </div>
+        </div>
+      </template>
+      <template v-else-if="payeeType === 'agent'">
+        <div data-field="mygram_agent_id">
+          <SearchSelect
+            v-model="agent"
+            :fetch="searchAgents"
+            label="MYGRAM agent"
+            placeholder="Search name, ID or RL number"
+            :subtitle-of="agentSubtitle"
+            :error="errors.mygram_agent_id"
+            required
+          />
         </div>
       </template>
       <template v-else>

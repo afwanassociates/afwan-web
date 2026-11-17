@@ -5,6 +5,10 @@ import ArrowIcon from '@/components/ArrowIcon.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import PassportTable from '@/components/PassportTable.vue'
 import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
+import AssignAgentDialog from '@/components/agents/AssignAgentDialog.vue'
+import BulkAssignAgentDialog from '@/components/agents/BulkAssignAgentDialog.vue'
+import { AGENT_ASSIGNER_ROLES } from '@/lib/agents'
+import { fetchAgentTabCounts, type AgentTabCounts } from '@/api/agents'
 import SearchSelect from '@/components/SearchSelect.vue'
 import { searchCompanies } from '@/api/companies'
 import { listPassports } from '@/api/passports'
@@ -57,8 +61,14 @@ interface Filters {
   received_from: string
   /** YYYY-MM-DD: received date range end */
   received_to: string
+  /** none: passports without an approved MYGRAM agent · approved: one agent's passports */
+  tab: AgentTab
+  /** The agent shown on the Ready for Medical tab. */
+  agent: number | null
   page: number
 }
+
+type AgentTab = 'none' | 'approved'
 
 const text = (value: unknown) => (typeof value === 'string' ? value : '')
 const positiveInt = (value: unknown) => {
@@ -72,16 +82,18 @@ const filters = computed<Filters>(() => ({
   company_id: positiveInt(route.query.company_id),
   received_from: text(route.query.received_from).trim(),
   received_to: text(route.query.received_to).trim(),
+  tab: route.query.tab === 'approved' ? 'approved' : 'none',
+  agent: route.query.tab === 'approved' ? positiveInt(route.query.agent) : null,
   page: positiveInt(route.query.page) ?? 1,
 }))
 
 const hasFilters = computed(() =>
   Boolean(
     filters.value.q ||
-      filters.value.reference_id ||
-      filters.value.company_id ||
-      filters.value.received_from ||
-      filters.value.received_to,
+    filters.value.reference_id ||
+    filters.value.company_id ||
+    filters.value.received_from ||
+    filters.value.received_to,
   ),
 )
 
@@ -94,6 +106,10 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   if (next.company_id) query.company_id = String(next.company_id)
   if (next.received_from) query.received_from = next.received_from
   if (next.received_to) query.received_to = next.received_to
+  if (next.tab === 'approved') {
+    query.tab = 'approved'
+    if (next.agent) query.agent = String(next.agent)
+  }
   if (next.page > 1) query.page = String(next.page)
   return query
 }
@@ -151,8 +167,51 @@ function clearFilters() {
   receivedFrom.value = ''
   receivedTo.value = ''
   debouncedSearch.cancel()
-  router.push({ query: {} })
+  // The tab and the agent stay: only the searches are cleared.
+  const { tab, agent } = filters.value
+  router.push({
+    query: queryWith({
+      q: '',
+      reference_id: null,
+      company_id: null,
+      received_from: '',
+      received_to: '',
+      tab,
+      agent,
+    }),
+  })
 }
+
+/* ---------- Tabs: Waiting for Agent / Ready for Medical (one agent at a time) ---------- */
+
+const counts = ref<AgentTabCounts | null>(null)
+let countsRequest = 0
+
+async function loadCounts(): Promise<AgentTabCounts | null> {
+  const id = ++countsRequest
+  try {
+    const result = await fetchAgentTabCounts(STAGE)
+    if (id === countsRequest) counts.value = result
+    return result
+  } catch {
+    // The counts just stay as they were (the list still loads).
+    return null
+  }
+}
+
+function setTab(tab: AgentTab) {
+  if (filters.value.tab === tab) return
+  router.push({ query: queryWith({ tab, agent: null }) })
+}
+
+function setAgent(agent: number) {
+  router.push({ query: queryWith({ tab: 'approved', agent }) })
+}
+
+/** The agent shown on the Ready for Medical tab (from the counts, with its name). */
+const currentAgent = computed(
+  () => counts.value?.agents.find((a) => a.id === filters.value.agent) ?? null,
+)
 
 onMounted(() => {
   if (OLD_KEYS.some((key) => key in route.query)) router.replace({ query: queryWith({}) })
@@ -185,6 +244,24 @@ async function load() {
   const f = filters.value
   isLoading.value = true
   loadError.value = null
+  const countsLoaded = loadCounts()
+  // Ready for Medical tab with no agent chosen: open the first agent that has passports.
+  if (f.tab === 'approved' && !f.agent) {
+    const c = await countsLoaded
+    if (id !== requestId) return
+    const first = c?.agents.find((a) => a.count > 0) ?? c?.agents[0]
+    if (first) {
+      router.replace({ query: queryWith({ ...f, agent: first.id }) })
+      return
+    }
+    list.value = {
+      data: [],
+      links: { first: null, last: null, prev: null, next: null },
+      meta: { current_page: 1, last_page: 1, per_page: PER_PAGE, total: 0, from: null, to: null },
+    }
+    isLoading.value = false
+    return
+  }
   try {
     const result = await listPassports({
       q: f.q || undefined,
@@ -193,6 +270,7 @@ async function load() {
       received_from: f.received_from || undefined,
       received_to: f.received_to || undefined,
       stage: STAGE,
+      mygram_agent_id: f.tab === 'approved' ? (f.agent ?? undefined) : 'none',
       page: f.page,
       per_page: PER_PAGE,
     })
@@ -243,9 +321,34 @@ function afterSlip() {
   workflow.refresh()
 }
 
-// Everything here is "Passport entered", so the action is always "Add medical slip".
+// Everything here is "Passport entered": "Add medical slip" once the MYGRAM agent is approved
+// (older API versions send no agent_status: no check then).
 const slipAction = (entry: PassportEntry) =>
-  entry.medical_status === 'not_started' ? 'Add medical slip' : null
+  entry.medical_status === 'not_started' &&
+  (!entry.agent_status || entry.agent_status === 'approved')
+    ? 'Add medical slip'
+    : null
+
+/* ---------- MYGRAM agent (data entry assigns, the Operations Head approves) ---------- */
+
+const canAssignAgents = computed(() =>
+  Boolean(auth.user && AGENT_ASSIGNER_ROLES.includes(auth.user.role)),
+)
+const agentAction = (entry: PassportEntry) =>
+  entry.can.assign_agent && (entry.agent_status === 'none' || entry.agent_status === 'returned')
+    ? entry.agent_status === 'returned'
+      ? 'Correct agent'
+      : 'Assign agent'
+    : null
+
+const agentOpen = ref(false)
+const agentPassport = ref<PassportEntry | null>(null)
+const bulkAgentOpen = ref(false)
+
+function openAgent(entry: PassportEntry) {
+  agentPassport.value = entry
+  agentOpen.value = true
+}
 
 const rowActionClass =
   'rounded-md px-2 py-1.5 text-sm font-semibold whitespace-nowrap hover:bg-primary-50 focus-visible:bg-primary-50'
@@ -264,6 +367,15 @@ function afterReturn() {
   load()
   workflow.refresh()
 }
+
+const TABS: { key: AgentTab; label: string }[] = [
+  { key: 'none', label: 'Waiting for Agent' },
+  { key: 'approved', label: 'Ready for Medical' },
+]
+const tabClass = (active: boolean) =>
+  active
+    ? 'bg-primary-900 text-white'
+    : 'bg-white text-primary-800 ring-1 ring-slate-300 hover:bg-primary-50'
 
 const inputClass =
   'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 shadow-[inset_0_1px_2px_rgb(0_0_0/0.06)] focus:border-primary-600'
@@ -285,13 +397,74 @@ const inputClass =
           </RouterLink>
         </p>
       </div>
-      <RouterLink :to="{ name: 'passport-new' }" class="btn btn-accent btn-icon">
-        Add passport <ArrowIcon />
-      </RouterLink>
+      <div class="flex flex-wrap gap-2">
+        <button
+          v-if="canAssignAgents && filters.tab === 'none'"
+          type="button"
+          class="btn btn-white"
+          data-bulk-agent
+          @click="bulkAgentOpen = true"
+        >
+          Assign agent to many
+        </button>
+        <RouterLink :to="{ name: 'passport-new' }" class="btn btn-accent btn-icon">
+          Add passport <ArrowIcon />
+        </RouterLink>
+      </div>
     </div>
 
     <section class="glass-card mt-6 p-4 sm:p-6" aria-labelledby="passport-list-heading">
       <h2 id="passport-list-heading" class="sr-only">Passport entries</h2>
+
+      <!-- Tabs: passports without an approved agent, and agent by agent -->
+      <div class="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="MYGRAM agent">
+        <button
+          v-for="t in TABS"
+          :key="t.key"
+          type="button"
+          role="tab"
+          class="rounded-full px-4 py-2 text-sm font-semibold"
+          :class="tabClass(filters.tab === t.key)"
+          :aria-selected="filters.tab === t.key"
+          :data-tab="t.key"
+          @click="setTab(t.key)"
+        >
+          {{ t.label }}
+          <span v-if="counts" class="ml-1 tabular-nums" data-tab-count>({{ counts[t.key] }})</span>
+        </button>
+      </div>
+
+      <!-- Ready for Medical: one agent at a time -->
+      <div
+        v-if="filters.tab === 'approved' && counts?.agents.length"
+        class="mb-5 flex flex-wrap gap-2 rounded-xl bg-surface p-3"
+        role="group"
+        aria-label="Choose the agent"
+        data-agent-picker
+      >
+        <button
+          v-for="a in counts.agents"
+          :key="a.id"
+          type="button"
+          class="rounded-lg px-3 py-2 text-left text-sm"
+          :class="
+            filters.agent === a.id
+              ? 'bg-primary-900 text-white'
+              : 'bg-white text-primary-900 ring-1 ring-slate-300 hover:bg-primary-50'
+          "
+          :aria-pressed="filters.agent === a.id"
+          :data-agent="a.id"
+          @click="setAgent(a.id)"
+        >
+          <span class="font-semibold">{{ a.name }}</span>
+          <span class="ml-1 tabular-nums">({{ a.count }})</span>
+          <span
+            class="block text-xs"
+            :class="filters.agent === a.id ? 'text-white/80' : 'text-muted'"
+            >{{ a.code }} · RL {{ a.rl_number }}</span
+          >
+        </button>
+      </div>
 
       <!-- Search and filters -->
       <div role="search" class="space-y-4">
@@ -399,14 +572,20 @@ const inputClass =
             {{
               hasFilters
                 ? 'No passports match these searches.'
-                : 'No passports are waiting for a medical slip.'
+                : filters.tab === 'none'
+                  ? 'Every passport here has an approved agent.'
+                  : currentAgent
+                    ? `No passports of ${currentAgent.name} are waiting for a medical slip.`
+                    : 'No passport has an approved MYGRAM agent yet.'
             }}
           </p>
           <p class="mt-1 text-sm text-muted">
             {{
               hasFilters
                 ? 'Check the name or passport number, reference, company and received date searches, or clear them.'
-                : 'New passports appear here until their medical slip is added.'
+                : filters.tab === 'none'
+                  ? 'New passports appear here until the Operations Head approves their MYGRAM agent.'
+                  : 'Passports appear here once their agent is approved, until their medical slip is added.'
             }}
           </p>
           <p
@@ -438,12 +617,26 @@ const inputClass =
           <PassportTable
             :entries="list.data"
             :current-user-id="auth.user?.id ?? null"
-            :columns="['reference', 'company', 'received', 'entered_by']"
+            :columns="
+              filters.tab === 'none'
+                ? ['reference', 'company', 'received', 'mygram_agent', 'entered_by']
+                : ['reference', 'company', 'received', 'entered_by']
+            "
             split-name-number
             show-entry-no
             @return="askReturn"
           >
             <template #extra-actions="{ entry }">
+              <button
+                v-if="agentAction(entry)"
+                type="button"
+                :class="[rowActionClass, 'bg-accent-100 text-primary-900 hover:bg-accent-200']"
+                :data-agent-action="entry.id"
+                @click="openAgent(entry)"
+              >
+                {{ agentAction(entry)
+                }}<span class="sr-only"> for passport {{ entry.passport_number }}</span>
+              </button>
               <button
                 v-if="slipAction(entry)"
                 type="button"
@@ -499,6 +692,9 @@ const inputClass =
       success-message="Moved to Medical Pending"
       @saved="afterSlip"
     />
+
+    <AssignAgentDialog v-model:open="agentOpen" :passport="agentPassport" @saved="load" />
+    <BulkAssignAgentDialog v-model:open="bulkAgentOpen" @saved="load" />
 
     <ReturnPassportDialog
       v-model:open="returnOpen"

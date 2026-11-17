@@ -11,6 +11,7 @@ import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
+import PassportAgentCard from '@/components/agents/PassportAgentCard.vue'
 import { updateMedicalSlip } from '@/api/medical'
 import { clearFlightBooking, listStepRecords, undoFlightConfirm, undoStepAction } from '@/api/steps'
 import {
@@ -610,6 +611,11 @@ const dd = 'font-medium text-ink'
             <dd :class="[dd, 'font-normal break-words']">{{ medical.remarks || '—' }}</dd>
           </dl>
         </section>
+      </div>
+
+      <!-- MYGRAM agent: assigned by data entry, approved by the Operations Head -->
+      <div class="mt-6">
+        <PassportAgentCard :passport="passport" @changed="afterChange" />
       </div>
 
       <!-- Passport scan copy (shared card; loads the file through the API) -->

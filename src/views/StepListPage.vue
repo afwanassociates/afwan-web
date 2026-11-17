@@ -506,10 +506,12 @@ function openStart(row: StepListRow, event: Event, mode: PopoverMode, next = fal
 
 /**
  * Saved in one update (calling): no "in process" tab and one outcome, so every Pending row
- * gets "Update calling" (the permit dates). Not flight, which has its booking and confirm.
+ * gets "Update calling" (the permit dates). Not flight, which has its booking and confirm,
+ * nor BMET, which has its "Mark done" actions (an update there would have no fields).
  */
 const singleUpdate = computed(
-  () => startedInPending.value && singleOutcome.value && !isBookingStep.value,
+  () =>
+    startedInPending.value && singleOutcome.value && !isBookingStep.value && !isMilestoneStep.value,
 )
 const updateLabel = computed(() => {
   const short = step.value?.short_label ?? ''
@@ -1551,7 +1553,7 @@ function afterReturn() {
                       >
                         {{ toDisplayDate(row.visa_valid_until) || '-' }}
                       </td>
-                      <!-- BMET Pending: each action done (date, pencil) or "Mark done" -->
+                      <!-- BMET Pending: each action done (date, pencil), "Mark done" or "BMET clear" -->
                       <template v-if="isMilestoneStep && isPendingTab">
                         <td
                           v-for="a in actions"
@@ -1622,9 +1624,17 @@ function afterReturn() {
                               :data-action="a.key"
                               @click="markAction(row, a)"
                             >
-                              Mark done<span class="sr-only">{{
-                                ` ${actionName(a).toLowerCase()} ${row.passport_number}`
-                              }}</span>
+                              <!-- The last action finishes the step: "BMET clear", the others "Mark done" -->
+                              <template v-if="isComplete(a)"
+                                >BMET clear<span class="sr-only">{{
+                                  ` ${row.passport_number}`
+                                }}</span></template
+                              >
+                              <template v-else
+                                >Mark done<span class="sr-only">{{
+                                  ` ${actionName(a).toLowerCase()} ${row.passport_number}`
+                                }}</span></template
+                              >
                             </button>
                           </span>
                           <span v-else class="font-medium text-amber-700" data-action-pending>
@@ -1804,8 +1814,8 @@ function afterReturn() {
                             Enter {{ nextStartLabel
                             }}<span class="sr-only">{{ ` for ${row.passport_number}` }}</span>
                           </button>
-                          <!-- Visa Pending (submitted): the results -->
-                          <template v-else-if="isPendingTab && isStarted(row)">
+                          <!-- Visa Pending (submitted): the results (not BMET: its "BMET clear" button) -->
+                          <template v-else-if="isPendingTab && isStarted(row) && !isMilestoneStep">
                             <button
                               v-for="final in finalStatuses(step)"
                               :key="final.value"

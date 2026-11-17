@@ -1144,6 +1144,37 @@ describe('Step pages (one per step)', () => {
       expect(undoStepAction).not.toHaveBeenCalled()
     })
 
+    it('the operations head gets no empty "Update BMET" button in Pending', async () => {
+      await mountStep('/bmet', 'operation_head')
+
+      // Rows have actions (Return to owner), but no update: BMET uses "Mark done" / "BMET clear".
+      expect(wrapper.find('[data-actions]').exists()).toBe(true)
+      expect(wrapper.find('button[data-step-update]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Update BMET')
+    })
+
+    it('an in-progress BMET row gets no second "BMET cleared" button ("BMET clear" does it)', async () => {
+      bmetPendingRows = [
+        bmetRow(62, { training: '2026-10-05', finger: '2026-10-06' }),
+        bmetRow(61, { training: '2026-10-05' }),
+      ].map((r) => ({ ...r, record: { ...IN_PROCESS.record!, status_label: 'In progress' } }))
+      await mountStep('/bmet', 'operation_head')
+
+      expect(wrapper.find('button[data-step-result]').exists()).toBe(false)
+      const clear = wrapper.get('tr[data-row="62"] button[data-action="clearance"]')
+      expect(clear.text()).toBe('BMET clear BM0000062')
+      expect(wrapper.get('tr[data-row="61"] button[data-action="finger"]').text()).toContain(
+        'Mark done',
+      )
+    })
+
+    it('the operations head gets no hand-over button in BMET cleared', async () => {
+      await mountStep('/bmet?tab=cleared', 'operation_head')
+
+      expect(wrapper.find('button[data-step-next]').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Enter flight')
+    })
+
     it('accounts see no checkboxes or bar', async () => {
       await mountStep('/bmet', 'accounts')
 

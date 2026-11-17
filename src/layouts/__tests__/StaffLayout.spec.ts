@@ -11,6 +11,10 @@ import type { Role } from '@/types/auth'
 vi.mock('@/api/accounts', () => ({
   fetchApprovalSummary: vi.fn(async () => ({ pending: 2, returned_mine: 1, is_approver: true })),
 }))
+vi.mock('@/api/agents', () => ({
+  fetchAgentApprovalCount: vi.fn(async () => 3),
+  fetchAgentChangeCount: vi.fn(async () => 1),
+}))
 vi.mock('@/api/reports', () => ({
   fetchReportSummary: vi.fn(async () => ({ total: 25, returned: 4 })),
 }))
@@ -59,6 +63,11 @@ const ROUTE_NAMES = [
   'accounts-approvals',
   'payment-report',
   'accounts-party-rates',
+  'accounts-agent-payments',
+  'mygram-agents',
+  'agent-approvals',
+  'agent-report',
+  'agent-changes',
 ]
 
 async function mountAs(role: Role, path = '/home') {
@@ -167,6 +176,7 @@ describe('StaffLayout menu', () => {
         'Dashboard',
         'Company Report',
         'Reference Report',
+        'Agent Report',
         'All Passports',
         'Returned Passports',
         'Add Passport',
@@ -176,10 +186,12 @@ describe('StaffLayout menu', () => {
         'Visa',
         'BMET Clearance',
         'Flight',
-        'Users',
+        'MYGRAM Agents',
+        'Agent Approvals',
         'Companies',
         'References',
         'Medical Centers',
+        'Users',
       ],
     ],
     [
@@ -193,6 +205,7 @@ describe('StaffLayout menu', () => {
         'Party / Owner',
         'Cash Management',
         'Owner loans',
+        'Agent Payments',
         'My entries',
       ],
     ],
@@ -203,14 +216,17 @@ describe('StaffLayout menu', () => {
         'Payment Report',
         'Company Report',
         'Reference Report',
+        'Agent Report',
         'All Passports',
         'Returned Passports',
         'Party / Owner',
         'Party Rates',
         'Cash Management',
         'Owner loans',
+        'Agent Payments',
         'Approvals',
         'Users',
+        'Agent Changes',
       ],
     ],
   ] as const)('shows %s one "Dashboard" and its own screens', async (role, labels) => {
@@ -337,5 +353,29 @@ describe('StaffLayout menu', () => {
       '12 waiting for a medical slip',
     )
     expect(navLabels()).not.toContain('Unfit Passports')
+  })
+  it('puts Companies, References and Medical Centers in a Master Data dropdown for the operations head', async () => {
+    await mountAs('operation_head')
+
+    const toggle = wrapper.get('[data-nav-group="master-data"]')
+    const group = wrapper.get('#nav-group-master-data')
+    expect(toggle.text()).toBe('Master Data')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(group.attributes('style')).toContain('display: none')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(group.attributes('style') ?? '').not.toContain('display: none')
+    expect(group.findAll('[data-label]').map((l) => l.text())).toEqual([
+      'Companies',
+      'References',
+      'Medical Centers',
+    ])
+  })
+
+  it('keeps the Master Data dropdown open on one of its pages', async () => {
+    await mountAs('operation_head', '/admin-companies')
+
+    expect(wrapper.get('[data-nav-group="master-data"]').attributes('aria-expanded')).toBe('true')
   })
 })

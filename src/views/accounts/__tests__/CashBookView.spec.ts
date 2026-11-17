@@ -137,6 +137,7 @@ describe('Cash section', () => {
       'Expenses ৳ 3,800.00',
       'Refunds ৳ 0.00',
       'Owner loans ৳ 5,000.00',
+      'Agent payments ৳ 0.00',
     ])
     expect(wrapper.find('[data-closing="expenses"]').text()).toMatch(/Total Expenses\s*৳ 6,800.00/)
     expect(wrapper.find('[data-closing="cash"]').text()).toMatch(

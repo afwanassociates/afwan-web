@@ -18,6 +18,13 @@ import {
   homeRouteFor,
 } from '@/lib/roles'
 import { useApprovalBadge } from '@/composables/useApprovalBadge'
+import { useAgentBadges } from '@/composables/useAgentBadges'
+import {
+  AGENT_DECIDER_ROLES,
+  AGENT_MANAGER_ROLES,
+  AGENT_PAYMENT_ROLES,
+  AGENT_REPORT_ROLES,
+} from '@/lib/agents'
 import { fetchReportSummary } from '@/api/reports'
 import { settingsPagesFor } from '@/lib/settingsPages'
 import { isRecordStep, stepPendingCount } from '@/lib/workflow'
@@ -44,6 +51,8 @@ interface NavItem {
   badge?: { count: number; label: string }
   /** Route params (e.g. the step of a step page: { step: 'visa' }). */
   params?: Record<string, string>
+  /** A dropdown group: the label opens and closes these links (`name` is only its key). */
+  children?: NavItem[]
 }
 
 const workflow = useWorkflowStore()
@@ -64,6 +73,17 @@ watch(
   () => [auth.user?.role, route.fullPath] as const,
   ([role]) => {
     if (role && APPROVALS_ROLES.includes(role)) approvals.refresh()
+  },
+  { immediate: true },
+)
+
+// The MYGRAM agent badges: waiting for the Operations Head / the Accounts Head.
+const agentBadges = useAgentBadges()
+watch(
+  () => [auth.user?.role, route.fullPath] as const,
+  ([role]) => {
+    if (role && (AGENT_MANAGER_ROLES.includes(role) || AGENT_DECIDER_ROLES.includes(role)))
+      agentBadges.refresh()
   },
   { immediate: true },
 )
@@ -110,6 +130,8 @@ const navItems = computed(() => {
       section: '/reports/references',
     })
   }
+  // The MYGRAM agent report (passport counts), right after the reference report: both heads.
+  if (AGENT_REPORT_ROLES.includes(role)) items.push({ name: 'agent-report', label: 'Agent Report' })
   // All Passports is read-only, so accounts see it too (without the data-entry screens).
   if (canSeeReports) {
     items.push({
@@ -171,6 +193,12 @@ const navItems = computed(() => {
       items.push({ name: 'accounts-party-rates', label: 'Party Rates' })
     items.push({ name: 'accounts-cash-book', label: 'Cash Management', section: '/accounts/cash' })
     items.push({ name: 'accounts-owner-loans', label: 'Owner loans' })
+    if (AGENT_PAYMENT_ROLES.includes(role))
+      items.push({
+        name: 'accounts-agent-payments',
+        label: 'Agent Payments',
+        section: '/accounts/agents',
+      })
   }
   if (APPROVALS_ROLES.includes(role)) {
     items.push({
@@ -185,14 +213,45 @@ const navItems = computed(() => {
             },
     })
   }
+  // MYGRAM agents: the list and Agent Approvals (the operations head), right above Users.
+  if (AGENT_MANAGER_ROLES.includes(role)) {
+    items.push({ name: 'mygram-agents', label: 'MYGRAM Agents' })
+    items.push({
+      name: 'agent-approvals',
+      label: 'Agent Approvals',
+      badge:
+        agentBadges.approvals.value === null
+          ? undefined
+          : { count: agentBadges.approvals.value, label: 'waiting for approval' },
+    })
+  }
   // Users: for every role that manages another (admins, and the accounts head for accounts users).
-  if (USER_MANAGER_ROLES.includes(role)) items.push({ name: 'staff-users', label: 'Users' })
-  // Companies, References and Medical Centers management (create / edit / deactivate /
-  // delete an unused one): the operations head only.
+  // The operations head has it last, under the Master Data dropdown.
+  const canManageUsers = USER_MANAGER_ROLES.includes(role)
+  if (canManageUsers && !PASSPORT_MANAGER_ROLES.includes(role))
+    items.push({ name: 'staff-users', label: 'Users' })
+  // Agent Changes (the accounts head). Companies, References and Medical Centers management
+  // (create / edit / deactivate / delete an unused one): the operations head only.
+  if (AGENT_DECIDER_ROLES.includes(role))
+    items.push({
+      name: 'agent-changes',
+      label: 'Agent Changes',
+      badge:
+        agentBadges.changes.value === null
+          ? undefined
+          : { count: agentBadges.changes.value, label: 'waiting for you' },
+    })
   if (PASSPORT_MANAGER_ROLES.includes(role)) {
-    items.push({ name: 'admin-companies', label: 'Companies' })
-    items.push({ name: 'admin-references', label: 'References' })
-    items.push({ name: 'admin-medical-centers', label: 'Medical Centers' })
+    items.push({
+      name: 'master-data',
+      label: 'Master Data',
+      children: [
+        { name: 'admin-companies', label: 'Companies' },
+        { name: 'admin-references', label: 'References' },
+        { name: 'admin-medical-centers', label: 'Medical Centers' },
+      ],
+    })
+    if (canManageUsers) items.push({ name: 'staff-users', label: 'Users' })
   }
   if (settingsPagesFor(role).length > 0) {
     items.push({ name: 'settings', label: 'Settings', section: '/admin/settings' })
@@ -200,7 +259,22 @@ const navItems = computed(() => {
   return items
 })
 
-function isActive(item: NavItem) {
+/** Dropdown groups opened by hand (a group with the current page is always open). */
+const openGroups = ref<Set<string>>(new Set())
+const groupIsOpen = (item: NavItem) =>
+  openGroups.value.has(item.name) || Boolean(item.children?.some(isActive))
+
+function toggleGroup(item: NavItem) {
+  const next = new Set(openGroups.value)
+  if (groupIsOpen(item)) {
+    next.delete(item.name)
+  } else {
+    next.add(item.name)
+  }
+  openGroups.value = next
+}
+
+function isActive(item: NavItem): boolean {
   if (item.params)
     return (
       route.name === item.name &&
@@ -261,7 +335,53 @@ async function logout() {
       <nav aria-label="Staff portal" class="flex-1 overflow-y-auto p-3">
         <ul class="space-y-1">
           <li v-for="item in navItems" :key="`${item.name}-${item.params?.step ?? ''}`">
+            <!-- A dropdown group: the label opens and closes its links. -->
+            <template v-if="item.children">
+              <button
+                type="button"
+                class="flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-medium hover:bg-white/10 hover:text-white"
+                :aria-expanded="groupIsOpen(item)"
+                :aria-controls="`nav-group-${item.name}`"
+                :data-nav-group="item.name"
+                @click="toggleGroup(item)"
+              >
+                <span>{{ item.label }}</span>
+                <svg
+                  class="size-4 shrink-0 transition-transform"
+                  :class="{ 'rotate-180': groupIsOpen(item) }"
+                  viewBox="0 0 20 20"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.25 4.5a.75.75 0 0 1-1.08 0l-4.25-4.5a.75.75 0 0 1 .02-1.06Z"
+                    clip-rule="evenodd"
+                  />
+                </svg>
+              </button>
+              <ul
+                v-show="groupIsOpen(item)"
+                :id="`nav-group-${item.name}`"
+                class="mt-1 space-y-1 border-l border-white/15 pl-3"
+              >
+                <li v-for="child in item.children" :key="child.name">
+                  <RouterLink
+                    :to="{ name: child.name, params: child.params }"
+                    class="block rounded-lg px-3 py-2 text-sm font-medium hover:bg-white/10 hover:text-white"
+                    :class="{
+                      'bg-white/15 text-white shadow-[inset_3px_0_0_var(--color-accent-400)]':
+                        isActive(child),
+                    }"
+                    :aria-current="isActive(child) ? 'page' : undefined"
+                  >
+                    <span data-label>{{ child.label }}</span>
+                  </RouterLink>
+                </li>
+              </ul>
+            </template>
             <RouterLink
+              v-else
               :to="{ name: item.name, params: item.params }"
               class="block rounded-lg px-3 py-2.5 text-sm font-medium hover:bg-white/10 hover:text-white"
               :class="{

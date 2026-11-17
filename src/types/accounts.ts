@@ -1,4 +1,5 @@
 import type { ReferenceSummary } from '@/types/passport'
+import type { AgentSummary } from '@/types/agents'
 /** Types matching the afwan-api accounts contract (/api/accounts/…). */
 
 import type { CountryOption, CountrySummary } from '@/types/country'
@@ -398,10 +399,10 @@ export interface CashReceiptTotals {
 /* ---------- Cash payments ---------- */
 
 /** Who a cash payment goes to: a party, an owner, or any other payee typed by name. */
-export type PayeeType = 'client' | 'owner' | 'other'
+export type PayeeType = 'client' | 'owner' | 'other' | 'agent'
 
 /** Party: refund · owner: owner_loan (the company lends the owner money) · other: expense. */
-export type CashPaymentType = 'refund' | 'owner_loan' | 'expense'
+export type CashPaymentType = 'refund' | 'owner_loan' | 'expense' | 'agent_payment'
 
 export interface CashPayment extends ApprovalFields {
   id: number
@@ -411,6 +412,8 @@ export interface CashPayment extends ApprovalFields {
   payee_type_label: string
   /** The party or owner paid; null for another payee. */
   party: Pick<Party, 'id' | 'code' | 'type' | 'name' | 'mobile' | 'address'> | null
+  /** The MYGRAM agent paid (payee_type agent). */
+  agent?: AgentSummary | null
   /** The party's name, or the typed payee name. */
   payee_name: string
   payment_type: CashPaymentType
@@ -439,6 +442,8 @@ export interface CashPaymentPayload {
   date: string
   payee_type: PayeeType
   party_id: number | null
+  /** The MYGRAM agent (payee_type agent). */
+  mygram_agent_id?: number | null
   payee_name: string | null
   payment_type: CashPaymentType
   expense_category: ExpenseCategory | null
@@ -574,7 +579,13 @@ export interface FinanceSummary {
   total_received: number
   total_paid: number
   /** What total_paid was for (they add up to it): a loan to an owner is not spending. */
-  paid_breakdown: { expenses: number; refunds: number; owner_loans: number }
+  paid_breakdown: {
+    expenses: number
+    refunds: number
+    owner_loans: number
+    /** Part payments to MYGRAM agents (older API versions do not send it). */
+    agent_payments?: number
+  }
   /** What the company spent: expense payments plus approved owner loan bills. */
   total_expenses: number
   cash_in_hand: number
