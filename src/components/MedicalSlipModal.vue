@@ -42,15 +42,15 @@ const isEdit = computed(() => Boolean(props.passport?.medical_slip?.date))
 const title = computed(() => (isEdit.value ? 'Edit medical slip' : 'Add medical slip'))
 
 /**
- * A new slip needs the passport's MYGRAM agent approved by the Operations Head (the API
+ * A new slip needs the passport's recruitment agent approved by the Operations Head (the API
  * refuses it too). Editing an existing slip is not blocked.
  */
 const agentBlock = computed(() => {
   const status = props.passport?.agent_status
   if (isEdit.value || !status || status === 'approved') return null
   return status === 'pending'
-    ? 'MYGRAM agent not approved yet. The Operations Head must approve it before the medical slip.'
-    : 'Assign a MYGRAM agent first. The Operations Head must approve it before the medical slip.'
+    ? 'Recruitment agent not approved yet. The Operations Head must approve it before the medical slip.'
+    : 'Assign a recruitment agent first. The Operations Head must approve it before the medical slip.'
 })
 
 watch(open, (isOpen) => {

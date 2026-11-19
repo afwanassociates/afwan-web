@@ -25,6 +25,9 @@ import type {
 } from '@/types/accounts'
 import type { AgentSummary } from '@/types/agents'
 
+/** Partner agents only: the company never pays its Own agent. */
+const searchPartnerAgents = (q?: string) => searchAgents(q, true)
+
 /**
  * Cash payment form. "Paid to" is a party (refund only), an owner (an owner loan: the company
  * lends the owner money, settled later on the Owner loans page with bills or returned money)
@@ -43,7 +46,7 @@ const props = defineProps<{
   presetParty?: Payee | null
   /** Start on this payee type (e.g. "owner" from the Owner loans page). */
   presetPayeeType?: PayeeType
-  /** The MYGRAM agent to pay (from the agent ledger). */
+  /** The recruitment agent to pay (from the agent ledger). */
   presetAgent?: AgentSummary | null
 }>()
 const emit = defineEmits<{ saved: [payment: CashPayment, created: boolean] }>()
@@ -55,7 +58,7 @@ const PAYEES = [
   { value: 'client', label: 'Party / Client' },
   { value: 'owner', label: 'Company owner' },
   { value: 'other', label: 'Other' },
-  { value: 'agent', label: 'MYGRAM agent' },
+  { value: 'agent', label: 'Recruitment Agent' },
 ] as const
 
 const TYPES: Record<PayeeType, { value: CashPaymentType; label: string; hint: string }[]> = {
@@ -73,8 +76,8 @@ const TYPES: Record<PayeeType, { value: CashPaymentType; label: string; hint: st
   agent: [
     {
       value: 'agent_payment',
-      label: 'Agent payment',
-      hint: 'A part payment to the MYGRAM agent (any amount). It shows on the Agent Payments page.',
+      label: 'Recruitment Agent payment',
+      hint: 'A part payment to the recruitment agent (any amount). It shows on the Recruitment Agent Payments page.',
     },
   ],
 }
@@ -161,7 +164,7 @@ async function save() {
     if (!expenseCategory.value) e.expense_category = 'Choose what the money was spent on.'
     if (!squish(purpose.value)) e.purpose = 'Enter the purpose (e.g. October rent).'
   } else if (isAgent) {
-    if (!agent.value) e.mygram_agent_id = 'Choose the MYGRAM agent.'
+    if (!agent.value) e.recruitment_agent_id = 'Choose the recruitment agent.'
   } else if (!party.value) {
     e.party_id = `Choose the ${payeeType.value === 'owner' ? 'owner' : 'party'}.`
   }
@@ -190,7 +193,7 @@ async function save() {
     date: date.value,
     payee_type: payeeType.value,
     party_id: isOther || isAgent ? null : party.value!.id,
-    mygram_agent_id: isAgent ? agent.value!.id : null,
+    recruitment_agent_id: isAgent ? agent.value!.id : null,
     payee_name: isOther ? squish(payeeName.value) : null,
     payment_type: paymentType.value,
     expense_category: isOther ? (expenseCategory.value as ExpenseCategory) : null,
@@ -337,14 +340,14 @@ const segment = (active: boolean) =>
         </div>
       </template>
       <template v-else-if="payeeType === 'agent'">
-        <div data-field="mygram_agent_id">
+        <div data-field="recruitment_agent_id">
           <SearchSelect
             v-model="agent"
-            :fetch="searchAgents"
-            label="MYGRAM agent"
+            :fetch="searchPartnerAgents"
+            label="Recruitment Agent"
             placeholder="Search name, ID or RL number"
             :subtitle-of="agentSubtitle"
-            :error="errors.mygram_agent_id"
+            :error="errors.recruitment_agent_id"
             required
           />
         </div>

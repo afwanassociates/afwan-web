@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
+import PerPageSelect from '@/components/PerPageSelect.vue'
 import { computed, ref, shallowRef, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import CompanyFormDialog from '@/components/CompanyFormDialog.vue'
@@ -10,12 +12,14 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import type { Paginated } from '@/types/auth'
 import type { Company } from '@/types/passport'
 
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
+
 /**
  * Companies (the operations head): every company with search and an active
  * filter, plus create, edit, (de)activate and delete. Delete shows only for a company with no
  * passports (deleted ones included); any other one is deactivated instead.
  */
-const PER_PAGE = 15
 
 const route = useRoute()
 const router = useRouter()
@@ -81,7 +85,7 @@ async function load() {
       q: q.q || undefined,
       is_active: q.status === 'active' ? 1 : q.status === 'inactive' ? 0 : undefined,
       page: q.page,
-      per_page: PER_PAGE,
+      per_page: perPage.value,
     })
     if (id === requestId) list.value = result
   } catch (error) {
@@ -346,9 +350,12 @@ const actionClass =
             aria-label="Pagination"
             class="mt-4 flex flex-col items-center justify-between gap-3 border-t border-stroke pt-4 sm:flex-row"
           >
-            <p class="text-sm text-muted">
-              Showing {{ list.meta.from ?? 0 }}–{{ list.meta.to ?? 0 }} of {{ list.meta.total }}
-            </p>
+            <div class="flex flex-wrap items-center justify-center gap-4">
+              <p class="text-sm text-muted">
+                Showing {{ list.meta.from ?? 0 }}–{{ list.meta.to ?? 0 }} of {{ list.meta.total }}
+              </p>
+              <PerPageSelect />
+            </div>
             <div v-if="list.meta.last_page > 1" class="flex items-center gap-2">
               <RouterLink
                 v-if="list.meta.current_page > 1"

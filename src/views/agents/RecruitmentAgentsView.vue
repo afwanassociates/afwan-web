@@ -5,17 +5,17 @@ import AgentFormDialog from '@/components/agents/AgentFormDialog.vue'
 import { listAgents, updateAgent } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus } from '@/lib/errors'
-import type { MygramAgent } from '@/types/agents'
+import type { RecruitmentAgent } from '@/types/agents'
 
 /**
- * MYGRAM agents (the Operations Head): the partner agents passports go to for the MYGRAM /
- * medical slip. Add, edit, (de)activate; never deleted. Shows each agent's current passports
- * and the passports that count for it.
+ * Recruitment Agents (the Operations Head): the partner agents that process passports (medical,
+ * calling, visa, BMET) and our own company as the "Own" agent. Add, edit, (de)activate (the Own
+ * agent too); never deleted. Shows each agent's current passports and the ones that count.
  */
 const toast = useToast()
 const searchId = useId()
 
-const agents = shallowRef<MygramAgent[] | null>(null)
+const agents = shallowRef<RecruitmentAgent[] | null>(null)
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
 const search = ref('')
@@ -42,16 +42,18 @@ const shown = computed(() => {
   )
 })
 
-const formOpen = ref(false)
-const editing = ref<MygramAgent | null>(null)
+const ownExists = computed(() => (agents.value ?? []).some((a) => a.is_own))
 
-async function openForm(agent: MygramAgent | null) {
+const formOpen = ref(false)
+const editing = ref<RecruitmentAgent | null>(null)
+
+async function openForm(agent: RecruitmentAgent | null) {
   editing.value = agent
   await nextTick()
   formOpen.value = true
 }
 
-function onSaved(agent: MygramAgent, created: boolean) {
+function onSaved(agent: RecruitmentAgent, created: boolean) {
   toast.success(
     created ? `Agent “${agent.name}” (${agent.code}) added.` : `Agent “${agent.name}” saved.`,
   )
@@ -59,7 +61,7 @@ function onSaved(agent: MygramAgent, created: boolean) {
 }
 
 const busyId = ref<number | null>(null)
-async function setActive(agent: MygramAgent, active: boolean) {
+async function setActive(agent: RecruitmentAgent, active: boolean) {
   busyId.value = agent.id
   try {
     await updateAgent(agent.id, { is_active: active })
@@ -84,13 +86,14 @@ const actionClass =
   <div class="mx-auto max-w-7xl">
     <div class="flex flex-wrap items-end justify-between gap-4">
       <div>
-        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">MYGRAM Agents</h1>
+        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Recruitment Agents</h1>
         <p class="mt-1 text-sm text-muted">
-          Partner agents with their RL number. Data entry assigns passports to them; you approve.
+          Partner agents and our Own agent, each with its RL number. Data entry assigns passports to
+          them; you approve.
           <RouterLink
             :to="{ name: 'agent-report' }"
             class="font-semibold text-primary-700 underline underline-offset-2"
-            >Agent report</RouterLink
+            >Recruitment Agent report</RouterLink
           >
         </p>
       </div>
@@ -99,7 +102,7 @@ const actionClass =
       </button>
     </div>
 
-    <section class="glass-card mt-6 p-4 sm:p-6" aria-label="MYGRAM agents">
+    <section class="glass-card mt-6 p-4 sm:p-6" aria-label="Recruitment agents">
       <div class="w-full sm:w-72" role="search">
         <label :for="searchId" class="block text-sm font-medium text-slate-700">Search</label>
         <input
@@ -120,7 +123,7 @@ const actionClass =
         <p v-else-if="!agents" class="py-8 text-center text-muted">Loading agents…</p>
         <div v-else-if="shown.length === 0" class="py-12 text-center" data-empty>
           <p class="font-semibold text-ink">
-            {{ agents.length ? 'No agents match this search.' : 'No MYGRAM agents yet.' }}
+            {{ agents.length ? 'No agents match this search.' : 'No recruitment agents yet.' }}
           </p>
           <button
             v-if="!agents.length"
@@ -150,6 +153,12 @@ const actionClass =
                 <td class="py-3 pr-4 font-mono">{{ a.code }}</td>
                 <th scope="row" class="py-3 pr-4 text-left font-semibold text-ink">
                   {{ a.name }}
+                  <span
+                    v-if="a.is_own"
+                    class="ml-1 rounded-full bg-primary-50 px-2 py-0.5 text-xs font-semibold text-primary-800 ring-1 ring-primary-200"
+                    data-own
+                    >Own</span
+                  >
                   <span v-if="a.address" class="block text-xs font-normal text-muted">{{
                     a.address
                   }}</span>
@@ -203,6 +212,11 @@ const actionClass =
       </div>
     </section>
 
-    <AgentFormDialog v-model:open="formOpen" :agent="editing" @saved="onSaved" />
+    <AgentFormDialog
+      v-model:open="formOpen"
+      :agent="editing"
+      :own-exists="ownExists"
+      @saved="onSaved"
+    />
   </div>
 </template>

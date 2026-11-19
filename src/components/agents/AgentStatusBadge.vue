@@ -2,7 +2,7 @@
 import { AGENT_STATUS_CLASSES, AGENT_STATUS_LABELS } from '@/lib/agents'
 import type { AgentStatus } from '@/types/agents'
 
-/** A passport's MYGRAM agent status as a small pill. */
+/** A passport's recruitment agent status as a small pill. */
 defineProps<{ status: AgentStatus }>()
 </script>
 

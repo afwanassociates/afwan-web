@@ -12,7 +12,7 @@ import type { AgentSummary, BulkAgentResult } from '@/types/agents'
 import type { PassportEntry } from '@/types/passport'
 
 /**
- * Data entry: one MYGRAM agent and date for many passports at once (e.g. the passports that
+ * Data entry: one recruitment agent and date for many passports at once (e.g. the passports that
  * went to agents before this feature). Lists passports with no agent and none waiting, at any
  * stage. Each goes to the Operations Head for approval; passports that cannot be assigned are
  * listed with the reason.
@@ -104,7 +104,7 @@ async function save() {
   banner.value = null
   const e: Record<string, string> = {}
   if (!selected.value.size) e.passport_ids = 'Tick at least one passport.'
-  if (!agent.value) e.mygram_agent_id = 'Choose the MYGRAM agent.'
+  if (!agent.value) e.recruitment_agent_id = 'Choose the recruitment agent.'
   if (!date.value) e.assigned_date = 'Enter the date the passports went to the agent.'
   else if (date.value > today) e.assigned_date = 'The date cannot be in the future.'
   errors.value = e
@@ -113,7 +113,7 @@ async function save() {
   isSaving.value = true
   try {
     const done = await bulkAssignAgent([...selected.value], {
-      mygram_agent_id: agent.value!.id,
+      recruitment_agent_id: agent.value!.id,
       assigned_date: date.value,
       remark: remark.value.trim().replace(/\s+/g, ' ') || null,
     })
@@ -129,7 +129,7 @@ async function save() {
       errors.value = fieldErrors(error)
       if (Object.keys(errors.value).length === 0) banner.value = errorMessage(error)
     } else if (status === 403) {
-      banner.value = 'Only the data entry team assigns MYGRAM agents.'
+      banner.value = 'Only the data entry team assigns recruitment agents.'
     } else if (status !== 401) {
       banner.value = errorMessage(error, 'Could not assign the agent. Please try again.')
     }
@@ -144,7 +144,11 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
 </script>
 
 <template>
-  <BaseDialog v-model:open="open" title="Assign MYGRAM agent to many passports" :busy="isSaving">
+  <BaseDialog
+    v-model:open="open"
+    title="Assign recruitment agent to many passports"
+    :busy="isSaving"
+  >
     <p
       v-if="banner"
       role="alert"
@@ -171,14 +175,14 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
 
     <form class="space-y-4" novalidate @submit.prevent="save">
       <div class="grid gap-4 sm:grid-cols-2">
-        <div data-field="mygram_agent_id">
+        <div data-field="recruitment_agent_id">
           <SearchSelect
             v-model="agent"
             :fetch="searchAgents"
             :subtitle-of="subtitle"
-            label="MYGRAM agent"
+            label="Recruitment Agent"
             placeholder="Search name, ID or RL number"
-            :error="errors.mygram_agent_id"
+            :error="errors.recruitment_agent_id"
             required
           />
         </div>

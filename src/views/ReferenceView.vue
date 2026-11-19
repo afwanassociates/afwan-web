@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
 import { computed, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import LatestStatusText from '@/components/LatestStatusText.vue'
@@ -15,6 +16,9 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import type { Paginated } from '@/types/auth'
 import type { CompanyCounts, CompanyPassport, ReferenceReportRow } from '@/types/report'
 
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
+
 /**
  * One reference of the References report: a header card with the reference and its counts,
  * then its passports (newest first) with an Export CSV of all of them. Read-only, like the
@@ -22,8 +26,6 @@ import type { CompanyCounts, CompanyPassport, ReferenceReportRow } from '@/types
  */
 const route = useRoute()
 const toast = useToast()
-
-const PER_PAGE = 15
 
 const referenceId = computed(() => Number(route.params.id))
 const page = computed(() => {
@@ -82,7 +84,7 @@ async function load() {
   loadError.value = null
   notFound.value = false
   try {
-    const result = await fetchReferencePassports(id, { page: page.value, per_page: PER_PAGE })
+    const result = await fetchReferencePassports(id, { page: page.value, per_page: perPage.value })
     if (request !== requestId) return
     list.value = result
     // Once per reference (not per page).

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
+import { pageHeading } from '@/composables/usePageHeading'
 import StepListPage from '../StepListPage.vue'
 import {
   listStepPassports,
@@ -1944,19 +1945,19 @@ describe('Step pages (one per step)', () => {
             : el.tagName,
     )
     expect(order.slice(0, 3)).toEqual(['step bar', 'header', 'card'])
-    // The header: title and subtitle on the left, Export CSV on the right (outside the card).
+    // The title and description show in the header bar (StaffLayout); the page keeps a
+    // screen-reader heading and Export CSV on the right (outside the card).
     const header = wrapper.get('[data-page-header]')
     expect(header.classes()).toContain('mt-6')
-    expect(header.find('h1').exists()).toBe(true)
-    expect(header.find('p').exists()).toBe(true)
     expect(header.find('button[data-export]').exists()).toBe(true)
     expect(wrapper.get('section.glass-card').find('[data-export]').exists()).toBe(false)
     const title = wrapper.get('h1')
     expect(title.text()).toBe('Visa')
-    // Same classes as the Medical page's title and card.
-    expect(title.classes()).toEqual(
-      expect.arrayContaining(['text-2xl', 'font-bold', 'text-primary-900', 'sm:text-3xl']),
-    )
+    expect(title.classes()).toContain('sr-only')
+    expect(pageHeading.value).toEqual({
+      title: 'Visa',
+      subtitle: expect.stringMatching(/^Step \d+: start the step, then record its result\.$/),
+    })
     const card = wrapper.get('section.glass-card')
     const inCard = [
       ...card.element.querySelectorAll('[role="tablist"], [role="search"], [aria-busy]'),
@@ -1973,5 +1974,84 @@ describe('Step pages (one per step)', () => {
     const components = import.meta.glob('../../components/*.vue')
     expect(Object.keys(views).some((p) => p.includes('ProcessView'))).toBe(false)
     expect(Object.keys(components).some((p) => p.includes('ProcessTable'))).toBe(false)
+  })
+
+  describe('Recruitment agents', () => {
+    const AGENT_COUNTS = {
+      none: 1,
+      approved: 2,
+      agents: [
+        {
+          id: 1,
+          code: 'AG-001',
+          name: 'Afwan',
+          rl_number: 'RL-1',
+          is_own: true,
+          is_active: true,
+          count: 1,
+        },
+        {
+          id: 2,
+          code: 'AG-002',
+          name: 'Karim',
+          rl_number: 'RL-2',
+          is_own: false,
+          is_active: true,
+          count: 1,
+        },
+      ],
+    }
+
+    it('has the agent dropdown and lists one agent at a time', async () => {
+      vi.mocked(listStepPassports).mockResolvedValue({
+        ...page([bmetRow(60)], 'bmet'),
+        agent_counts: AGENT_COUNTS,
+      })
+      await mountStep('/bmet')
+
+      const select = wrapper.get('[data-filter-bar] select[data-agent-filter]')
+      expect(select.findAll('option').map((o) => o.attributes('value'))).toEqual([
+        '',
+        '1',
+        '2',
+        'none',
+      ])
+      expect(lastListCall()[1].recruitment_agent_id).toBeUndefined()
+
+      await select.setValue('2')
+      await flushPromises()
+      expect(router.currentRoute.value.query.agent).toBe('2')
+      expect(lastListCall()[1].recruitment_agent_id).toBe(2)
+    })
+
+    it('"Rows per page" asks the API for that many rows', async () => {
+      const { setPerPage } = await import('@/composables/usePerPage')
+      await mountStep('/visa')
+      expect(lastListCall()[1].per_page).toBe(15)
+
+      const select = wrapper.get('[data-per-page-select]')
+      expect(select.findAll('option').map((o) => o.text())).toEqual([
+        '15',
+        '50',
+        '100',
+        '200',
+        '300',
+      ])
+      await select.setValue('100')
+      await flushPromises()
+      expect(lastListCall()[1].per_page).toBe(100)
+      setPerPage(15)
+      await flushPromises()
+    })
+
+    it('shows the search fields only after "Search filter" is clicked', async () => {
+      await mountStep('/visa')
+
+      const toggle = wrapper.get('[data-filters-toggle]')
+      expect(toggle.text()).toContain('Search filter')
+      expect(wrapper.get('#step-filters').attributes('style')).toContain('display: none')
+      await toggle.trigger('click')
+      expect(wrapper.get('#step-filters').attributes('style') ?? '').not.toContain('display: none')
+    })
   })
 })

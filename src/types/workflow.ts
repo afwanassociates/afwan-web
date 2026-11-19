@@ -1,5 +1,6 @@
 /** Steps 3–6 (calling, visa, BMET, flight) and the config-driven workflow. */
 
+import type { AgentSummary, AgentTabCounts } from '@/types/agents'
 import type { Paginated } from '@/types/auth'
 
 /** A step key from the API's config ('passport', 'medical', 'calling', …). */
@@ -170,11 +171,15 @@ export interface StepListRow {
   can_confirm?: boolean
   /** Flight rows: what the confirm still needs. */
   missing?: ('bmet' | 'booking_date')[]
+  /** The approved recruitment agent (null: none yet). */
+  recruitment_agent?: AgentSummary | null
 }
 
 /** GET /steps/{step}/passports: a page of rows plus every tab's count (same searches). */
 export type StepListResponse = Paginated<StepListRow> & {
   tab_counts?: Record<StepListTab, number>
+  /** The agent-wise tabs of the current tab (Own first). */
+  agent_counts?: AgentTabCounts
 }
 
 /** Filters of a step page. */
@@ -186,6 +191,8 @@ export interface StepListParams {
   reference?: string
   /** Filter by reference (the dropdown). */
   reference_id?: number
+  /** The agent-wise tab: an agent id, or 'none' (no approved recruitment agent). */
+  recruitment_agent_id?: number | 'none'
   receive_date_from?: string
   receive_date_to?: string
   booking_date_from?: string

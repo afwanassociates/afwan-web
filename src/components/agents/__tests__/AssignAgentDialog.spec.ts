@@ -39,20 +39,20 @@ afterEach(() => {
 describe('AssignAgentDialog', () => {
   it('needs an agent, then sends the assignment for approval with today as the date', async () => {
     vi.mocked(assignAgent).mockResolvedValue({} as never)
-    await mountDialog(makePassport({ id: 9, mygram_agent: null, agent_status: 'none' }))
+    await mountDialog(makePassport({ id: 9, recruitment_agent: null, agent_status: 'none' }))
 
-    expect(wrapper.text()).toContain('Assign MYGRAM agent')
+    expect(wrapper.text()).toContain('Assign recruitment agent')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(assignAgent).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-error]').text()).toContain('Choose the MYGRAM agent')
+    expect(wrapper.get('[data-error]').text()).toContain('Choose the recruitment agent')
 
     await wrapper.get('[data-pick]').trigger('click')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
 
     expect(assignAgent).toHaveBeenCalledWith(9, {
-      mygram_agent_id: 5,
+      recruitment_agent_id: 5,
       assigned_date: businessToday(),
       remark: null,
     })
@@ -62,12 +62,12 @@ describe('AssignAgentDialog', () => {
   it('asks for a reason when changing the agent', async () => {
     await mountDialog(
       makePassport({
-        mygram_agent: { ...AGENT, id: 1, name: 'Old Agent', assigned_date: '2026-01-01' },
+        recruitment_agent: { ...AGENT, id: 1, name: 'Old Agent', assigned_date: '2026-01-01' },
         agent_status: 'approved',
       }),
     )
 
-    expect(wrapper.text()).toContain('Change MYGRAM agent')
+    expect(wrapper.text()).toContain('Change recruitment agent')
     expect(wrapper.text()).toContain('Old Agent')
     await wrapper.get('[data-pick]').trigger('click')
     await wrapper.get('form').trigger('submit')
@@ -83,7 +83,7 @@ describe('AssignAgentDialog', () => {
         agent_status: 'returned',
         agent_return: {
           id: 3,
-          mygram_agent_id: 5,
+          recruitment_agent_id: 5,
           assigned_date: '2026-04-01',
           remark: 'first try',
           reason: 'Wrong date',

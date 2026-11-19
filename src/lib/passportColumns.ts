@@ -17,7 +17,7 @@ export type PassportColumn =
   | 'entered_by'
   | 'stage'
   | 'passport_entered'
-  | 'mygram_agent'
+  | 'recruitment_agent'
 
 export const COLUMN_LABELS: Record<PassportColumn, string> = {
   reference: 'Reference',
@@ -37,5 +37,5 @@ export const COLUMN_LABELS: Record<PassportColumn, string> = {
   entered_by: 'Entered by',
   stage: 'Stage',
   passport_entered: 'Stage',
-  mygram_agent: 'MYGRAM agent',
+  recruitment_agent: 'Recruitment Agent',
 }

@@ -125,9 +125,9 @@ describe('a new passport', () => {
     )
     expect(wrapper.text()).not.toContain('NW5000001')
     expect(wrapper.find('[data-empty]').exists()).toBe(true)
-    // The tab counts Pending only; not-started passports get a grey hint instead.
+    // The tab counts Pending only; not-started passports are not mentioned on this page.
     expect(wrapper.get('#medical-tab-pending [data-tab-count]').text()).toBe('1')
-    expect(wrapper.get('[data-not-started-hint]').text()).toContain('1 not started')
+    expect(wrapper.find('[data-not-started-hint]').exists()).toBe(false)
   })
 
   it('lists slip-entered passports in Medical → Pending with the date and Fit / Unfit actions', async () => {

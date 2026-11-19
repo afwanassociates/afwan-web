@@ -172,6 +172,15 @@ export async function markStepAction(
   return data
 }
 
+/**
+ * Undoes Calling or Visa (the operations head): Calling is cancelled (back to Calling Pending);
+ * an issued / rejected visa goes back to Visa submitted, a submitted one is cancelled. Refused
+ * (422 later_step_exists) once a later step has records.
+ */
+export async function undoStep(passportId: number, stepKey: 'calling' | 'visa'): Promise<void> {
+  await api.post(`${BASE}/passports/${passportId}/undo-step/${stepKey}`)
+}
+
 /** Undoes a milestone action (data is null once the last one is undone). */
 export async function undoStepAction(
   passportId: number,

@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import AgentSelect from '@/components/agents/AgentSelect.vue'
+import { usePerPage } from '@/composables/usePerPage'
+import PerPageSelect from '@/components/PerPageSelect.vue'
 import { computed, onMounted, ref, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import ArrowIcon from '@/components/ArrowIcon.vue'
@@ -19,13 +22,20 @@ import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { Paginated } from '@/types/auth'
 import type { CompanySummary, PassportEntry, ReferenceSummary } from '@/types/passport'
+import { usePageHeading } from '@/composables/usePageHeading'
 
-const PER_PAGE = 15
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const workflow = useWorkflowStore()
+
+usePageHeading(() => ({
+  title: 'Passport Entry List',
+  subtitle: 'Passports entered, waiting for their medical slip.',
+}))
 workflow.load()
 
 const searchId = useId()
@@ -61,7 +71,7 @@ interface Filters {
   received_from: string
   /** YYYY-MM-DD: received date range end */
   received_to: string
-  /** none: passports without an approved MYGRAM agent · approved: one agent's passports */
+  /** none: passports without an approved recruitment agent · approved: one agent's passports */
   tab: AgentTab
   /** The agent shown on the Ready for Medical tab. */
   agent: number | null
@@ -204,9 +214,18 @@ function setTab(tab: AgentTab) {
   router.push({ query: queryWith({ tab, agent: null }) })
 }
 
-function setAgent(agent: number) {
-  router.push({ query: queryWith({ tab: 'approved', agent }) })
-}
+/** The Ready for Medical tab's agent dropdown: null (all agents) or an agent id. */
+const agentFilter = computed({
+  get: () => filters.value.agent,
+  set: (agent: number | 'none' | null) => {
+    router.replace({
+      query: queryWith({ tab: 'approved', agent: typeof agent === 'number' ? agent : null }),
+    })
+  },
+})
+
+/** The dropdown's counts: approved passports only (no "No agent" on this tab). */
+const approvedCounts = computed(() => (counts.value ? { ...counts.value, none: 0 } : null))
 
 /** The agent shown on the Ready for Medical tab (from the counts, with its name). */
 const currentAgent = computed(
@@ -244,24 +263,7 @@ async function load() {
   const f = filters.value
   isLoading.value = true
   loadError.value = null
-  const countsLoaded = loadCounts()
-  // Ready for Medical tab with no agent chosen: open the first agent that has passports.
-  if (f.tab === 'approved' && !f.agent) {
-    const c = await countsLoaded
-    if (id !== requestId) return
-    const first = c?.agents.find((a) => a.count > 0) ?? c?.agents[0]
-    if (first) {
-      router.replace({ query: queryWith({ ...f, agent: first.id }) })
-      return
-    }
-    list.value = {
-      data: [],
-      links: { first: null, last: null, prev: null, next: null },
-      meta: { current_page: 1, last_page: 1, per_page: PER_PAGE, total: 0, from: null, to: null },
-    }
-    isLoading.value = false
-    return
-  }
+  loadCounts()
   try {
     const result = await listPassports({
       q: f.q || undefined,
@@ -270,9 +272,14 @@ async function load() {
       received_from: f.received_from || undefined,
       received_to: f.received_to || undefined,
       stage: STAGE,
-      mygram_agent_id: f.tab === 'approved' ? (f.agent ?? undefined) : 'none',
+      // Ready for Medical: every approved passport, or one agent's; Waiting for Agent: none.
+      ...(f.tab === 'approved'
+        ? f.agent
+          ? { recruitment_agent_id: f.agent }
+          : { agent_status: 'approved' as const }
+        : { recruitment_agent_id: 'none' as const }),
       page: f.page,
-      per_page: PER_PAGE,
+      per_page: perPage.value,
     })
     if (id !== requestId) return
     const { current_page, last_page } = result.meta
@@ -321,7 +328,7 @@ function afterSlip() {
   workflow.refresh()
 }
 
-// Everything here is "Passport entered": "Add medical slip" once the MYGRAM agent is approved
+// Everything here is "Passport entered": "Add medical slip" once the recruitment agent is approved
 // (older API versions send no agent_status: no check then).
 const slipAction = (entry: PassportEntry) =>
   entry.medical_status === 'not_started' &&
@@ -329,7 +336,7 @@ const slipAction = (entry: PassportEntry) =>
     ? 'Add medical slip'
     : null
 
-/* ---------- MYGRAM agent (data entry assigns, the Operations Head approves) ---------- */
+/* ---------- recruitment agent (data entry assigns, the Operations Head approves) ---------- */
 
 const canAssignAgents = computed(() =>
   Boolean(auth.user && AGENT_ASSIGNER_ROLES.includes(auth.user.role)),
@@ -383,20 +390,16 @@ const inputClass =
 
 <template>
   <div class="mx-auto max-w-7xl">
-    <div class="flex flex-wrap items-end justify-between gap-4">
-      <div>
-        <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Passport Entry List</h1>
-        <p class="mt-1 text-sm text-muted">
-          Passports entered, waiting for their medical slip.
-          <RouterLink
-            :to="{ name: 'all-passports' }"
-            class="font-semibold text-primary-700 underline underline-offset-2"
-            data-all-link
-          >
-            View all passports ({{ workflow.summary?.step1.total_all ?? '–' }})
-          </RouterLink>
-        </p>
-      </div>
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <!-- The title and description show in the header bar; this heading is for screen readers. -->
+      <h1 class="sr-only">Passport Entry List</h1>
+      <RouterLink
+        :to="{ name: 'all-passports' }"
+        class="text-sm font-semibold text-primary-700 underline underline-offset-2"
+        data-all-link
+      >
+        View all passports ({{ workflow.summary?.step1.total_all ?? '–' }})
+      </RouterLink>
       <div class="flex flex-wrap gap-2">
         <button
           v-if="canAssignAgents && filters.tab === 'none'"
@@ -417,7 +420,7 @@ const inputClass =
       <h2 id="passport-list-heading" class="sr-only">Passport entries</h2>
 
       <!-- Tabs: passports without an approved agent, and agent by agent -->
-      <div class="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="MYGRAM agent">
+      <div class="mb-5 flex flex-wrap gap-2" role="tablist" aria-label="Recruitment agent">
         <button
           v-for="t in TABS"
           :key="t.key"
@@ -434,37 +437,13 @@ const inputClass =
         </button>
       </div>
 
-      <!-- Ready for Medical: one agent at a time -->
-      <div
-        v-if="filters.tab === 'approved' && counts?.agents.length"
-        class="mb-5 flex flex-wrap gap-2 rounded-xl bg-surface p-3"
-        role="group"
-        aria-label="Choose the agent"
-        data-agent-picker
-      >
-        <button
-          v-for="a in counts.agents"
-          :key="a.id"
-          type="button"
-          class="rounded-lg px-3 py-2 text-left text-sm"
-          :class="
-            filters.agent === a.id
-              ? 'bg-primary-900 text-white'
-              : 'bg-white text-primary-900 ring-1 ring-slate-300 hover:bg-primary-50'
-          "
-          :aria-pressed="filters.agent === a.id"
-          :data-agent="a.id"
-          @click="setAgent(a.id)"
-        >
-          <span class="font-semibold">{{ a.name }}</span>
-          <span class="ml-1 tabular-nums">({{ a.count }})</span>
-          <span
-            class="block text-xs"
-            :class="filters.agent === a.id ? 'text-white/80' : 'text-muted'"
-            >{{ a.code }} · RL {{ a.rl_number }}</span
-          >
-        </button>
-      </div>
+      <!-- Ready for Medical: the agent dropdown (all agents, or one) -->
+      <AgentSelect
+        v-if="filters.tab === 'approved'"
+        v-model="agentFilter"
+        :counts="approvedCounts"
+        class="mb-5 w-full sm:w-72"
+      />
 
       <!-- Search and filters -->
       <div role="search" class="space-y-4">
@@ -576,7 +555,7 @@ const inputClass =
                   ? 'Every passport here has an approved agent.'
                   : currentAgent
                     ? `No passports of ${currentAgent.name} are waiting for a medical slip.`
-                    : 'No passport has an approved MYGRAM agent yet.'
+                    : 'No passport has an approved recruitment agent yet.'
             }}
           </p>
           <p class="mt-1 text-sm text-muted">
@@ -584,7 +563,7 @@ const inputClass =
               hasFilters
                 ? 'Check the name or passport number, reference, company and received date searches, or clear them.'
                 : filters.tab === 'none'
-                  ? 'New passports appear here until the Operations Head approves their MYGRAM agent.'
+                  ? 'New passports appear here until the Operations Head approves their recruitment agent.'
                   : 'Passports appear here once their agent is approved, until their medical slip is added.'
             }}
           </p>
@@ -619,7 +598,7 @@ const inputClass =
             :current-user-id="auth.user?.id ?? null"
             :columns="
               filters.tab === 'none'
-                ? ['reference', 'company', 'received', 'mygram_agent', 'entered_by']
+                ? ['reference', 'company', 'received', 'recruitment_agent', 'entered_by']
                 : ['reference', 'company', 'received', 'entered_by']
             "
             split-name-number
@@ -659,9 +638,12 @@ const inputClass =
             aria-label="Pagination"
             class="mt-4 flex flex-col items-center justify-between gap-3 border-t border-stroke pt-4 sm:flex-row"
           >
-            <p class="text-sm text-muted">
-              Showing {{ list.meta.from ?? 0 }}–{{ list.meta.to ?? 0 }} of {{ list.meta.total }}
-            </p>
+            <div class="flex flex-wrap items-center justify-center gap-4">
+              <p class="text-sm text-muted">
+                Showing {{ list.meta.from ?? 0 }}–{{ list.meta.to ?? 0 }} of {{ list.meta.total }}
+              </p>
+              <PerPageSelect />
+            </div>
             <div class="flex items-center gap-2">
               <RouterLink
                 v-if="list.meta.current_page > 1"

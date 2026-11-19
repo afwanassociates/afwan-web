@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
 import { computed, onMounted, ref, shallowRef, useId, watch } from 'vue'
 import { useRoute, useRouter, type LocationQuery } from 'vue-router'
 import PassportListBody from '@/components/PassportListBody.vue'
@@ -20,6 +21,9 @@ import { useWorkflowStore } from '@/stores/workflow'
 import type { Paginated } from '@/types/auth'
 import type { CompanySummary, PassportOverview, ReferenceSummary } from '@/types/passport'
 
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
+
 /**
  * All Passports: a read-only overview of every passport in every status (unfit included),
  * each with one coloured "Latest status". No create, edit or delete controls, no sorting
@@ -28,7 +32,6 @@ import type { CompanySummary, PassportOverview, ReferenceSummary } from '@/types
  * passport number), ?reference_id= and ?company_id= (lookups), ?stage= and the date of the
  * current step's status (?date=, or ?date_from= / ?date_to= for a custom range).
  */
-const PER_PAGE = 15
 
 /** Query keys of older versions of this page; ignored and dropped from the URL. */
 const OLD_KEYS = [
@@ -276,7 +279,7 @@ async function load() {
       status_date_from: statusDates.value.from,
       status_date_to: statusDates.value.to,
       page: f.page,
-      per_page: PER_PAGE,
+      per_page: perPage.value,
     })
     if (id !== requestId) return
     const { current_page, last_page } = result.meta

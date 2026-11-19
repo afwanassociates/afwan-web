@@ -148,10 +148,10 @@ const enteredBy = computed(() => {
     </span>
   </template>
 
-  <template v-else-if="column === 'mygram_agent'">
+  <template v-else-if="column === 'recruitment_agent'">
     <span class="inline-flex flex-col items-start gap-1" data-agent-cell>
-      <span v-if="entry.mygram_agent" class="font-medium text-ink">{{
-        entry.mygram_agent.name
+      <span v-if="entry.recruitment_agent" class="font-medium text-ink">{{
+        entry.recruitment_agent.name
       }}</span>
       <span v-else-if="entry.agent_pending" class="text-slate-700">{{
         entry.agent_pending.agent.name

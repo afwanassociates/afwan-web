@@ -412,7 +412,7 @@ export interface CashPayment extends ApprovalFields {
   payee_type_label: string
   /** The party or owner paid; null for another payee. */
   party: Pick<Party, 'id' | 'code' | 'type' | 'name' | 'mobile' | 'address'> | null
-  /** The MYGRAM agent paid (payee_type agent). */
+  /** The recruitment agent paid (payee_type agent). */
   agent?: AgentSummary | null
   /** The party's name, or the typed payee name. */
   payee_name: string
@@ -442,8 +442,8 @@ export interface CashPaymentPayload {
   date: string
   payee_type: PayeeType
   party_id: number | null
-  /** The MYGRAM agent (payee_type agent). */
-  mygram_agent_id?: number | null
+  /** The recruitment agent (payee_type agent). */
+  recruitment_agent_id?: number | null
   payee_name: string | null
   payment_type: CashPaymentType
   expense_category: ExpenseCategory | null
@@ -583,7 +583,7 @@ export interface FinanceSummary {
     expenses: number
     refunds: number
     owner_loans: number
-    /** Part payments to MYGRAM agents (older API versions do not send it). */
+    /** Part payments to recruitment agents (older API versions do not send it). */
     agent_payments?: number
   }
   /** What the company spent: expense payments plus approved owner loan bills. */

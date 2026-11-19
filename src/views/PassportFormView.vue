@@ -9,6 +9,10 @@ import { SCAN_TOO_LARGE_FOR_SERVER } from '@/api/passportScan'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
 import { createReference, searchReferences } from '@/api/references'
 import { createCompany, searchCompanies } from '@/api/companies'
+import { searchAgents } from '@/api/agents'
+import { AGENT_ASSIGNER_ROLES } from '@/lib/agents'
+import { useAuthStore } from '@/stores/auth'
+import type { AgentSummary } from '@/types/agents'
 import { useToast } from '@/composables/useToast'
 import { errorMessage, errorStatus, fieldErrors, firstFieldError } from '@/lib/errors'
 import { addDays, addMonthsNoOverflow, toApiDate, toDisplayDate, todayApiDate } from '@/lib/dates'
@@ -65,6 +69,18 @@ const expiryId = useId()
 
 const entryId = computed(() => (route.name === 'passport-edit' ? Number(route.params.id) : null))
 const isEdit = computed(() => entryId.value !== null)
+
+/**
+ * The recruitment agent (adding only, data entry): saved with the passport and sent to the
+ * Operations Head for approval. Kept for the next passport of a batch.
+ */
+const auth = useAuthStore()
+const agent = ref<AgentSummary | null>(null)
+const canChooseAgent = computed(
+  () => !isEdit.value && Boolean(auth.user && AGENT_ASSIGNER_ROLES.includes(auth.user.role)),
+)
+const agentSubtitle = (a: AgentSummary) =>
+  a.is_own ? `Own · RL ${a.rl_number}` : `${a.code} · RL ${a.rl_number}`
 
 /* ---------- Form state ---------- */
 
@@ -407,6 +423,7 @@ async function save(action: SaveAction) {
     company_id: values.company_id as number,
     passport_received_date: toApiDate(values.passport_received_date),
     passport_expiry_date: toApiDate(values.passport_expiry_date),
+    ...(canChooseAgent.value && agent.value ? { recruitment_agent_id: agent.value.id } : {}),
   }
 
   isSaving.value = true
@@ -654,6 +671,20 @@ const inputClass =
                 required
                 @add="openReferenceModal"
               />
+            </div>
+            <!-- 5b. Recruitment agent (adding, data entry): waits for the Operations Head -->
+            <div v-if="canChooseAgent" class="sm:col-span-2" data-field="recruitment_agent">
+              <SearchSelect
+                v-model="agent"
+                :fetch="searchAgents"
+                :subtitle-of="agentSubtitle"
+                label="Recruitment Agent"
+                placeholder="Search agent (Own or a partner)…"
+              />
+              <p class="mt-1 text-sm text-muted">
+                The Operations Head approves it. The passport can't move to the next step without an
+                approved agent.
+              </p>
             </div>
             <!-- 6. Passport received date -->
             <div data-field="passport_received_date">

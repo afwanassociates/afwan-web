@@ -29,6 +29,7 @@ import { fetchReportSummary } from '@/api/reports'
 import { settingsPagesFor } from '@/lib/settingsPages'
 import { isRecordStep, stepPendingCount } from '@/lib/workflow'
 import { useWorkflowStore } from '@/stores/workflow'
+import { pageHeading } from '@/composables/usePageHeading'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -77,7 +78,7 @@ watch(
   { immediate: true },
 )
 
-// The MYGRAM agent badges: waiting for the Operations Head / the Accounts Head.
+// The recruitment agent badges: waiting for the Operations Head / the Accounts Head.
 const agentBadges = useAgentBadges()
 watch(
   () => [auth.user?.role, route.fullPath] as const,
@@ -130,8 +131,9 @@ const navItems = computed(() => {
       section: '/reports/references',
     })
   }
-  // The MYGRAM agent report (passport counts), right after the reference report: both heads.
-  if (AGENT_REPORT_ROLES.includes(role)) items.push({ name: 'agent-report', label: 'Agent Report' })
+  // The recruitment agent report (passport counts), right after the reference report: both heads.
+  if (AGENT_REPORT_ROLES.includes(role))
+    items.push({ name: 'agent-report', label: 'Recruitment Agent Report' })
   // All Passports is read-only, so accounts see it too (without the data-entry screens).
   if (canSeeReports) {
     items.push({
@@ -196,7 +198,7 @@ const navItems = computed(() => {
     if (AGENT_PAYMENT_ROLES.includes(role))
       items.push({
         name: 'accounts-agent-payments',
-        label: 'Agent Payments',
+        label: 'Recruitment Agent Payments',
         section: '/accounts/agents',
       })
   }
@@ -213,12 +215,12 @@ const navItems = computed(() => {
             },
     })
   }
-  // MYGRAM agents: the list and Agent Approvals (the operations head), right above Users.
+  // recruitment agents: the list and Agent Approvals (the operations head), right above Users.
   if (AGENT_MANAGER_ROLES.includes(role)) {
-    items.push({ name: 'mygram-agents', label: 'MYGRAM Agents' })
+    items.push({ name: 'recruitment-agents', label: 'Recruitment Agents' })
     items.push({
       name: 'agent-approvals',
-      label: 'Agent Approvals',
+      label: 'Recruitment Agent Approvals',
       badge:
         agentBadges.approvals.value === null
           ? undefined
@@ -235,7 +237,7 @@ const navItems = computed(() => {
   if (AGENT_DECIDER_ROLES.includes(role))
     items.push({
       name: 'agent-changes',
-      label: 'Agent Changes',
+      label: 'Recruitment Agent Changes',
       badge:
         agentBadges.changes.value === null
           ? undefined
@@ -428,7 +430,17 @@ async function logout() {
           </svg>
         </button>
 
-        <div v-if="auth.user" class="ml-auto min-w-0 text-right">
+        <!-- The page title and description (passport flow pages) -->
+        <div v-if="pageHeading" class="min-w-0" aria-hidden="true" data-header-title>
+          <p class="truncate text-lg font-bold text-primary-900 sm:text-xl">
+            {{ pageHeading.title }}
+          </p>
+          <p v-if="pageHeading.subtitle" class="hidden truncate text-xs text-muted md:block">
+            {{ pageHeading.subtitle }}
+          </p>
+        </div>
+
+        <div v-if="auth.user" class="ml-auto min-w-0 shrink-0 text-right">
           <p class="truncate text-sm font-semibold text-primary-900">{{ auth.user.name }}</p>
           <p class="truncate text-xs text-slate-600">{{ auth.user.role_label }}</p>
         </div>

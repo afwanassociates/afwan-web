@@ -28,7 +28,7 @@ const props = defineProps<{
   role: Role | undefined
   userId: number | null
   /** The operations head, before any step record: the Online mark to undo. */
-  earlyUndo?: { kind: 'mark' | 'slip'; label: string } | null
+  earlyUndo?: { kind: 'mark' | 'slip' | 'result'; label: string } | null
   /**
    * Buttons under a step's latest record (Calling onwards), by step key: "edit" (correct the
    * record) and the undos (BMET actions, flight booking and confirmation). The page decides
@@ -297,9 +297,9 @@ const smallButton =
         </button>
       </div>
 
-      <!-- The operations head: back to Passport Entry (on Medical) or undo the Online mark -->
+      <!-- The operations head: back to Passport Entry or undo the result (on Medical), or undo the Online mark -->
       <div
-        v-if="earlyUndo && step.key === (earlyUndo.kind === 'slip' ? 'medical' : firstRecordStep)"
+        v-if="earlyUndo && step.key === (earlyUndo.kind === 'mark' ? firstRecordStep : 'medical')"
         class="mt-2 -ml-2 flex flex-wrap gap-1"
       >
         <button

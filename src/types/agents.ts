@@ -1,4 +1,4 @@
-/** MYGRAM agents (afwan-api App\Models\MygramAgent and PassportAgentAssignment). */
+/** recruitment agents (afwan-api App\Models\RecruitmentAgent and PassportAgentAssignment). */
 
 /** The short shape embedded in passports, assignments and payments. */
 export interface AgentSummary {
@@ -7,10 +7,12 @@ export interface AgentSummary {
   code: string
   name: string
   rl_number: string
+  /** Our own company as an agent: same steps, never paid. */
+  is_own?: boolean
 }
 
-/** An agent on the MYGRAM Agents page (the operations head). */
-export interface MygramAgent extends AgentSummary {
+/** An agent on the Recruitment Agents page (the operations head). */
+export interface RecruitmentAgent extends AgentSummary {
   phone: string | null
   address: string | null
   notes: string | null
@@ -23,12 +25,14 @@ export interface MygramAgent extends AgentSummary {
   updated_at: string
 }
 
-export interface MygramAgentPayload {
+export interface RecruitmentAgentPayload {
   name: string
   rl_number: string
   phone: string | null
   address: string | null
   notes: string | null
+  /** Only when adding: this agent is our own company (only one). */
+  is_own?: boolean
 }
 
 /** none: no agent · pending: waiting for the operations head · returned: sent back for correction · approved */
@@ -97,7 +101,7 @@ export interface AgentAssignment {
 }
 
 export interface AssignAgentPayload {
-  mygram_agent_id: number
+  recruitment_agent_id: number
   /** YYYY-MM-DD */
   assigned_date: string
   remark: string | null
@@ -164,3 +168,10 @@ export interface AgentMoneyCards {
 }
 
 export type AgentPaymentsRow = AgentSummary & AgentMoneyCards & { is_active: boolean }
+
+/** The agent-wise tabs of a passport list: "No agent", then each agent (Own first). */
+export interface AgentTabCounts {
+  none: number
+  approved: number
+  agents: (AgentSummary & { is_active: boolean; count: number })[]
+}

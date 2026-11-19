@@ -31,6 +31,7 @@ vi.mock('@/api/countries', () => ({
 }))
 vi.mock('@/api/medical', () => ({
   recordMedicalResult: vi.fn(),
+  cancelMedicalResult: vi.fn(),
   updateMedicalDate: vi.fn(),
   updateMedicalSlip: vi.fn(),
 }))
@@ -116,6 +117,20 @@ beforeEach(() => {
   vi.mocked(listPassports).mockResolvedValue(page([PENDING, NO_CENTER]))
 })
 afterEach(() => wrapper.unmount())
+
+/** Opens a row's "⋯" menu (teleported to <body>) and returns its item labels. */
+async function rowMenuItems(row: {
+  get: (s: string) => { trigger: (e: string) => Promise<void> }
+}) {
+  await row.get('[data-row-menu]').trigger('click')
+  await flushPromises()
+  const items = [...document.body.querySelectorAll('[data-row-menu-items] [role="menuitem"]')].map(
+    (el) => el.textContent?.trim() ?? '',
+  )
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+  await flushPromises()
+  return items
+}
 
 describe('Medical page', () => {
   it('shows no scan copy UI (lists only ever get has_scan)', async () => {
@@ -465,10 +480,11 @@ describe('Medical page', () => {
       expect(wrapper.findAll('tr[data-row]')).toHaveLength(1)
     })
 
-    it('keeps "Edit slip" on pending rows', async () => {
+    it('keeps "Edit slip" on pending rows, in the row\'s "⋯" menu', async () => {
       await mountMedical()
 
-      expect(wrapper.get('tr[data-row] button[data-edit-slip]').text()).toContain('Edit slip')
+      expect(wrapper.find('tr[data-row] button[data-edit-slip]').exists()).toBe(false)
+      expect(await rowMenuItems(wrapper.get('tr[data-row]'))).toContain('Edit slip')
     })
 
     describe('Unfit and Expired tabs', () => {
@@ -495,8 +511,7 @@ describe('Medical page', () => {
           await mountMedical(`/medical?tab=${tabKey}`, 'operation_head')
 
           const row = wrapper.get('tr[data-row]')
-          expect(row.findAll('button[data-return-action]')).toHaveLength(1)
-          expect(row.get('button[data-return-action]').text()).toContain('Return to owner')
+          expect(await rowMenuItems(row)).toEqual(['Return to owner'])
           expect(row.get('button[data-retest]').text()).toContain('Re-test')
           expect(row.find('a[href$="/edit"]').exists()).toBe(true)
         })
@@ -514,7 +529,7 @@ describe('Medical page', () => {
         )
         await mountMedical('/medical?tab=unfit', 'operation_head')
 
-        expect(wrapper.get('tr[data-row]').findAll('button[data-return-action]')).toHaveLength(1)
+        expect(await rowMenuItems(wrapper.get('tr[data-row]'))).toEqual(['Return to owner'])
       })
 
       it('Re-test opens the re-test form for that passport', async () => {
@@ -536,7 +551,8 @@ describe('Medical page', () => {
 
         const row = wrapper.get('tr[data-row]')
         expect(row.find('button[data-retest]').exists()).toBe(false)
-        expect(row.find('button[data-return-action]').exists()).toBe(false)
+        // No Return to owner: no "⋯" menu at all on this tab.
+        expect(row.find('[data-row-menu]').exists()).toBe(false)
       })
     })
 
@@ -687,6 +703,7 @@ describe('Medical page', () => {
           'Passport number',
           'Reference',
           'Company',
+          'Recruitment Agent',
           'Medical center',
           'Issue date',
           'Days left',
@@ -827,6 +844,79 @@ describe('Medical page', () => {
       await flushPromises()
 
       expect(wrapper.findAll('tbody button, tbody a[href$="/edit"]')).toHaveLength(0)
+    })
+  })
+
+  it('has the agent dropdown and a Search filter button on one line; it shows the search fields', async () => {
+    await mountMedical('/medical')
+
+    const bar = wrapper.get('[data-filter-bar]')
+    expect(bar.find('select[data-agent-filter]').exists()).toBe(true)
+    const toggle = bar.get('[data-filters-toggle]')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.get('#medical-filters').attributes('style')).toContain('display: none')
+
+    await toggle.trigger('click')
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('#medical-filters').attributes('style') ?? '').not.toContain('display: none')
+  })
+
+  it('opens the search fields when a search is already in use', async () => {
+    await mountMedical('/medical?q=karim')
+
+    expect(wrapper.get('#medical-filters').attributes('style') ?? '').not.toContain('display: none')
+    expect(wrapper.get('[data-filters-count]').text()).toBe('1')
+  })
+
+  describe('Undo / cancel a result (the operations head)', () => {
+    async function markUnfit(role: Role) {
+      const { recordMedicalResult } = await import('@/api/medical')
+      vi.mocked(listPassports).mockResolvedValue(page([{ ...PENDING, medical_date: '2026-10-05' }]))
+      vi.mocked(recordMedicalResult).mockResolvedValue({} as never)
+      useToast().toasts.value = []
+      await mountMedical('/medical', role)
+      await wrapper.get('tr[data-row] button[data-result="unfit"]').trigger('click')
+      await wrapper
+        .findComponent(ConfirmDialog)
+        .findAll('button')
+        .find((b) => b.text() === 'Confirm')!
+        .trigger('click')
+      await flushPromises()
+      return useToast().toasts.value.find((t) => t.message.includes('marked UNFIT'))!
+    }
+
+    it('gives the operations head an Undo that cancels the result', async () => {
+      const { cancelMedicalResult } = await import('@/api/medical')
+      vi.mocked(cancelMedicalResult).mockResolvedValue()
+      const toast = await markUnfit('operation_head')
+
+      expect(toast.action?.label).toBe('Undo')
+      await toast.action!.run()
+      await flushPromises()
+      expect(cancelMedicalResult).toHaveBeenCalledWith(60)
+    })
+
+    it('gives data entry no Undo', async () => {
+      const toast = await markUnfit('data_entry')
+      expect(toast.action).toBeUndefined()
+    })
+
+    it('has "Cancel result" in the row menu when the API allows it', async () => {
+      vi.mocked(listPassports).mockResolvedValue(
+        page([
+          makePassport({
+            id: 71,
+            passport_number: 'FT0000071',
+            medical_status: 'unfit',
+            can: { update: true, record_medical: true, cancel_medical_result: true },
+          }),
+        ]),
+      )
+      await mountMedical('/medical?tab=unfit', 'operation_head')
+
+      expect(await rowMenuItems(wrapper.get('tr[data-row]'))).toContain(
+        'Cancel result (back to Pending)',
+      )
     })
   })
 })

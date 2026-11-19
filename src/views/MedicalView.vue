@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
 import { computed, ref, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import PassportListBody from '@/components/PassportListBody.vue'
@@ -11,10 +12,12 @@ import MedicalRetestDialog from '@/components/MedicalRetestDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
+import AgentSelect from '@/components/agents/AgentSelect.vue'
+import RowMenu from '@/components/RowMenu.vue'
 import type { PassportColumn } from '@/lib/passportColumns'
 import { searchCompanies } from '@/api/companies'
 import { searchMedicalCenters } from '@/api/medicalCenters'
-import { recordMedicalResult } from '@/api/medical'
+import { cancelMedicalResult, recordMedicalResult } from '@/api/medical'
 import { listPassports, updateEntryMode } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
 import { useDebounce } from '@/composables/useDebounce'
@@ -24,7 +27,12 @@ import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { MedicalCenterSummary, MedicalResult, MedicalStatus } from '@/types/medical'
 import type { PassportPage } from '@/api/passports'
+import type { AgentTabCounts } from '@/types/agents'
+import { usePageHeading } from '@/composables/usePageHeading'
 import type { CompanySummary, EntryMode, PassportEntry } from '@/types/passport'
+
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
 
 /**
  * Step 2: Medical. One tab per medical status. The tab and the searches (name / passport
@@ -51,6 +59,7 @@ interface Tab {
 const MARK_COLUMNS: PassportColumn[] = [
   'reference',
   'company',
+  'recruitment_agent',
   'medical_center',
   'issue_date',
   'days_left',
@@ -61,6 +70,7 @@ const MARK_TABS: TabKey[] = ['fit', 'expiring_soon']
 const MEDICAL_COLUMNS: PassportColumn[] = [
   'reference',
   'company',
+  'recruitment_agent',
   'medical_center',
   'medical_date',
   'valid_until',
@@ -72,7 +82,15 @@ const TABS: Tab[] = [
     key: 'pending',
     label: 'Pending medical',
     status: 'pending',
-    columns: ['reference', 'company', 'medical_center', 'slip_date', 'medical_date', 'received'],
+    columns: [
+      'reference',
+      'company',
+      'recruitment_agent',
+      'medical_center',
+      'slip_date',
+      'medical_date',
+      'received',
+    ],
     emptyTitle: 'No passports are waiting for a medical result.',
   },
   {
@@ -110,11 +128,12 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 const workflow = useWorkflowStore()
+
+const SUBTITLE = 'Step 2: record fit or unfit results and follow up expiries.'
+usePageHeading(() => ({ title: 'Medical', subtitle: SUBTITLE }))
 workflow.load()
 
 const tab = computed<Tab>(() => TABS.find((t) => t.key === route.query.tab) ?? TABS[0]!)
-
-const PER_PAGE = 15
 
 /** Query keys of older versions of this page; ignored and dropped from the URL. */
 // Not company_id: it is the current company filter, and an "old" key here would stop the
@@ -132,7 +151,15 @@ const filters = computed(() => {
   const page = Number(text(route.query.page))
   const companyId = Number(text(route.query.company_id))
   const medicalCenterId = Number(text(route.query.medical_center_id))
+  const agentText = text(route.query.agent)
+  const agentId = Number(agentText)
   return {
+    /** The agent-wise tab: null (all agents), an agent id, or 'none' (no approved agent). */
+    agent: (agentText === 'none'
+      ? 'none'
+      : Number.isInteger(agentId) && agentId > 0
+        ? agentId
+        : null) as number | 'none' | null,
     q: text(route.query.q).trim(),
     company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
     reference: text(route.query.reference).trim(),
@@ -147,13 +174,29 @@ type Filters = typeof filters.value
 
 const hasFilters = computed(() => {
   const f = filters.value
-  const base = Boolean(f.q || f.company_id)
+  const base = Boolean(f.q || f.company_id || f.agent !== null)
   const pendingOnly =
     tab.value.key === 'pending' &&
     Boolean(f.medical_center_id || f.medical_date_from || f.medical_date_to)
   const nonPendingOnly = tab.value.key !== 'pending' && Boolean(f.reference)
   return base || pendingOnly || nonPendingOnly
 })
+
+/** How many search fields are in use (not the agent): shown on the Search filter button. */
+const searchCount = computed(() => {
+  const f = filters.value
+  const pending = tab.value.key === 'pending'
+  return [
+    f.q,
+    f.company_id,
+    pending ? f.medical_center_id : null,
+    pending ? f.medical_date_from || f.medical_date_to : null,
+    pending ? null : f.reference,
+  ].filter(Boolean).length
+})
+
+/** The search fields are shown on demand (Filters button); open while any is in use. */
+const filtersOpen = ref(searchCount.value > 0)
 
 /** The current query (the tab is kept) with `changes`; a search change goes back to page 1. */
 function queryWith(changes: Partial<Filters>): LocationQuery {
@@ -164,6 +207,8 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
     if (!value || value === 1) delete query[key]
     else query[key] = String(value)
   }
+  if (next.agent !== null) query.agent = String(next.agent)
+  else delete query.agent
   set('q', next.q)
   set('company_id', next.company_id)
   if (next.reference) query.reference = next.reference
@@ -252,6 +297,21 @@ const isLoading = ref(false)
 const loadError = ref<string | null>(null)
 let requestId = 0
 
+function clearReference() {
+  reference.value = ''
+  debouncedReference.cancel()
+  router.replace({ query: queryWith({ reference: '' }) })
+}
+
+/** The agent-wise tabs of the current Medical tab (from the same response). */
+const agentCounts = shallowRef<AgentTabCounts | null>(null)
+const agentFilter = computed({
+  get: () => filters.value.agent,
+  set: (agent: number | 'none' | null) => {
+    router.replace({ query: queryWith({ agent }) })
+  },
+})
+
 const showMarks = computed(() => MARK_TABS.includes(tab.value.key))
 
 async function load() {
@@ -265,6 +325,8 @@ async function load() {
       medical_status: tab.value.status,
       q: f.q || undefined,
       company_id: f.company_id ?? undefined,
+      recruitment_agent_id: f.agent ?? undefined,
+      with_agent_counts: 1,
       ...(tab.value.key === 'pending'
         ? {
             medical_center_id: f.medical_center_id ?? undefined,
@@ -275,7 +337,7 @@ async function load() {
             reference: f.reference || undefined,
           }),
       page: f.page,
-      per_page: PER_PAGE,
+      per_page: perPage.value,
     })
     if (id !== requestId) return
     const { current_page, last_page } = result.meta
@@ -284,6 +346,7 @@ async function load() {
       return
     }
     list.value = result
+    agentCounts.value = result.agent_counts ?? null
   } catch (error) {
     if (id !== requestId) return
     if (errorStatus(error) !== 401)
@@ -333,9 +396,6 @@ const shownList = computed(() => {
   if (!value || tab.value.key !== 'pending') return value
   return { ...value, data: value.data.filter((e) => e.medical_status === 'pending') }
 })
-
-/** Passports whose medical has not started (no slip date): shown as a hint, not a tab. */
-const notStarted = computed(() => workflow.summary?.step2.not_started ?? 0)
 
 function countFor(key: TabKey): number | null {
   const step2 = workflow.summary?.step2
@@ -402,9 +462,50 @@ function onFitSaved() {
   const entry = fitPassport.value
   toast.success(
     `${entry?.passport_number ?? 'Passport'}: Moved to Fit - mark Online to send it to Calling`,
+    resultUndo(entry),
   )
   load()
   workflow.refresh()
+}
+
+/* ---------- Undo / cancel a result (the operations head, until Calling starts) ---------- */
+
+/** The toast's Undo for a result just recorded: the operations head only. */
+function resultUndo(entry: PassportEntry | null) {
+  return entry && canUndo.value
+    ? { duration: UNDO_MS, action: { label: 'Undo', run: () => cancelResult(entry) } }
+    : undefined
+}
+
+/** Back to Medical → Pending; the cancelled result stays in the passport history. */
+async function cancelResult(entry: PassportEntry) {
+  try {
+    await cancelMedicalResult(entry.id)
+    toast.success(`${entry.passport_number}: result cancelled, back to Pending.`)
+    load()
+    workflow.refresh()
+  } catch (error) {
+    if (errorStatus(error) !== 401)
+      toast.error(errorMessage(error, 'Could not cancel the result. Please try again.'))
+  }
+}
+
+const cancelOpen = ref(false)
+const cancelTarget = shallowRef<PassportEntry | null>(null)
+const cancelBusy = ref(false)
+
+function askCancel(entry: PassportEntry) {
+  cancelTarget.value = entry
+  cancelOpen.value = true
+}
+
+async function confirmCancel() {
+  const entry = cancelTarget.value
+  if (!entry) return
+  cancelBusy.value = true
+  await cancelResult(entry)
+  cancelBusy.value = false
+  cancelOpen.value = false
 }
 
 function askResult(entry: PassportEntry, result: MedicalResult) {
@@ -428,7 +529,10 @@ async function confirmResult() {
   try {
     await recordMedicalResult(target.entry.id, target.result)
     confirmOpen.value = false
-    toast.success(`${target.entry.passport_number} marked UNFIT. It is now in the Unfit tab.`)
+    toast.success(
+      `${target.entry.passport_number} marked UNFIT. It is now in the Unfit tab.`,
+      resultUndo(target.entry),
+    )
     load()
     workflow.refresh()
   } catch (error) {
@@ -581,10 +685,8 @@ function afterReturn() {
     <!-- Config-driven step bar with counts; nothing after Flight (no "Completed"). -->
     <WorkflowStepper active-step="medical" hide-completed />
 
-    <h1 class="mt-6 text-2xl font-bold text-primary-900 sm:text-3xl">Medical</h1>
-    <p class="mt-1 text-sm text-muted">
-      Step 2: record fit or unfit results and follow up expiries.
-    </p>
+    <!-- The title and description show in the header bar; this heading is for screen readers. -->
+    <h1 class="sr-only">Medical</h1>
 
     <section class="glass-card mt-6 p-4 sm:p-6">
       <div class="-mx-4 overflow-x-auto border-b border-stroke px-4 sm:-mx-6 sm:px-6">
@@ -624,32 +726,60 @@ function afterReturn() {
         </div>
       </div>
 
-      <p
-        v-if="tab.key === 'pending' && notStarted > 0"
-        class="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700"
-        data-not-started-hint
-      >
-        <span class="rounded-full bg-white px-2 py-0.5 text-xs font-semibold ring-1 ring-slate-300">
-          {{ notStarted }} not started
-        </span>
-        Passports without a medical slip date are not listed here.
-        <RouterLink
-          :to="{ name: 'passports' }"
-          class="font-semibold text-primary-700 underline underline-offset-2"
-        >
-          Add their slip from the Passport Entry List
-        </RouterLink>
-      </p>
-
       <div
         :id="`medical-panel-${tab.key}`"
         role="tabpanel"
         :aria-labelledby="`medical-tab-${tab.key}`"
         class="pt-5"
       >
-        <div role="search" class="space-y-4">
-          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <div>
+        <!-- One line: the agent dropdown and the Search filter button (shows the search fields) -->
+        <div class="flex flex-wrap items-center gap-3" data-filter-bar>
+          <AgentSelect v-model="agentFilter" :counts="agentCounts" class="w-full sm:w-72" />
+          <button
+            type="button"
+            class="btn btn-primary text-sm"
+            :aria-expanded="filtersOpen"
+            aria-controls="medical-filters"
+            data-filters-toggle
+            @click="filtersOpen = !filtersOpen"
+          >
+            <svg
+              class="h-4 w-4"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 5h18M6 12h12M10 19h4" />
+            </svg>
+            Search filter
+            <span
+              v-if="searchCount"
+              class="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-primary-900"
+              data-filters-count
+              >{{ searchCount }}</span
+            >
+          </button>
+          <button
+            v-if="hasFilters"
+            type="button"
+            class="text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
+            @click="clearFilters"
+          >
+            Clear searches
+          </button>
+        </div>
+
+        <div v-show="filtersOpen" id="medical-filters" role="search" class="mt-4 space-y-4">
+          <!-- Pending: one row on wide screens (search · company · centre · date range) -->
+          <div
+            class="grid gap-4 sm:grid-cols-2"
+            :class="tab.key === 'pending' ? 'lg:grid-cols-12' : 'lg:grid-cols-3'"
+          >
+            <div :class="tab.key === 'pending' ? 'lg:col-span-3' : ''">
               <label :for="searchId" class="block text-sm font-medium text-slate-700">
                 Search
               </label>
@@ -665,6 +795,7 @@ function afterReturn() {
               />
             </div>
             <SearchSelect
+              :class="tab.key === 'pending' ? 'lg:col-span-3' : ''"
               :model-value="selectedCompany"
               :fetch="searchCompanies"
               label="Filter by company"
@@ -676,6 +807,7 @@ function afterReturn() {
             />
             <template v-if="tab.key === 'pending'">
               <SearchSelect
+                class="lg:col-span-2"
                 :model-value="selectedMedicalCenter"
                 :fetch="searchMedicalCenters"
                 label="Filter by medical centre"
@@ -685,34 +817,33 @@ function afterReturn() {
                 data-medical-center-filter
                 @update:model-value="onMedicalCenterSelected"
               />
-              <div>
-                <label :for="medicalDateFromId" class="block text-sm font-medium text-slate-700">
-                  Medical date from
-                </label>
-                <input
-                  :id="medicalDateFromId"
-                  v-model="medicalDateFrom"
-                  type="date"
-                  :max="medicalDateTo || undefined"
-                  :class="inputClass"
-                  data-medical-date-from
-                  @change="applyDateFilters"
-                />
-              </div>
-              <div>
-                <label :for="medicalDateToId" class="block text-sm font-medium text-slate-700">
-                  Medical date to
-                </label>
-                <input
-                  :id="medicalDateToId"
-                  v-model="medicalDateTo"
-                  type="date"
-                  :min="medicalDateFrom || undefined"
-                  :class="inputClass"
-                  data-medical-date-to
-                  @change="applyDateFilters"
-                />
-              </div>
+              <!-- Medical date range: from – to in one field -->
+              <fieldset class="sm:col-span-2 lg:col-span-4">
+                <legend class="block text-sm font-medium text-slate-700">Medical date</legend>
+                <div class="flex items-center gap-2">
+                  <label :for="medicalDateFromId" class="sr-only">Medical date from</label>
+                  <input
+                    :id="medicalDateFromId"
+                    v-model="medicalDateFrom"
+                    type="date"
+                    :max="medicalDateTo || undefined"
+                    :class="[inputClass, 'min-w-0']"
+                    data-medical-date-from
+                    @change="applyDateFilters"
+                  />
+                  <span class="mt-1 text-slate-500" aria-hidden="true">–</span>
+                  <label :for="medicalDateToId" class="sr-only">Medical date to</label>
+                  <input
+                    :id="medicalDateToId"
+                    v-model="medicalDateTo"
+                    type="date"
+                    :min="medicalDateFrom || undefined"
+                    :class="[inputClass, 'min-w-0']"
+                    data-medical-date-to
+                    @change="applyDateFilters"
+                  />
+                </div>
+              </fieldset>
             </template>
             <template v-else>
               <div class="relative">
@@ -734,7 +865,7 @@ function afterReturn() {
                   type="button"
                   class="absolute bottom-0 right-1.5 mb-2 rounded-full p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800"
                   data-clear-reference
-                  @click="reference = ''; debouncedReference.cancel(); router.replace({ query: queryWith({ reference: '' }) })"
+                  @click="clearReference"
                 >
                   <svg
                     class="h-4 w-4"
@@ -752,17 +883,9 @@ function afterReturn() {
               </div>
             </template>
           </div>
-          <button
-            v-if="hasFilters"
-            type="button"
-            class="text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
-            @click="clearFilters"
-          >
-            Clear searches
-          </button>
         </div>
 
-        <div class="mt-6 border-t border-stroke pt-2">
+        <div class="mt-5 border-t border-stroke pt-2">
           <PassportListBody
             :list="shownList"
             :is-loading="isLoading"
@@ -790,17 +913,6 @@ function afterReturn() {
                   :can-edit="canAct"
                   @saved="onDateSaved"
                 />
-              </template>
-              <template #extra-actions="{ entry }">
-                <button
-                  v-if="entry.can.return"
-                  type="button"
-                  :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
-                  :data-return-action="entry.id"
-                  @click="askReturn(entry)"
-                >
-                  Return to owner<span class="sr-only"> passport {{ entry.passport_number }}</span>
-                </button>
               </template>
               <template #actions="{ entry }">
                 <template v-if="tab.key === 'pending' && canAct">
@@ -832,14 +944,6 @@ function afterReturn() {
                   <span v-if="!entry.medical_date" :id="`needs-date-${entry.id}`" class="sr-only">
                     {{ NEEDS_DATE }}
                   </span>
-                  <button
-                    type="button"
-                    :class="[actionClass, 'text-primary-700 hover:bg-primary-50']"
-                    data-edit-slip
-                    @click="openSlip(entry)"
-                  >
-                    Edit slip<span class="sr-only"> {{ entry.passport_number }}</span>
-                  </button>
                 </template>
                 <!-- Fit / Expiring soon: the only action is the Online mark. -->
                 <template v-else-if="showMarks && canAct">
@@ -876,6 +980,46 @@ function afterReturn() {
                     Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
                   </RouterLink>
                 </template>
+                <!-- More actions: Edit slip (Pending) and Return to owner -->
+                <RowMenu
+                  v-if="
+                    (tab.key === 'pending' && canAct) ||
+                    entry.can.return ||
+                    entry.can.cancel_medical_result
+                  "
+                  :label="`More actions for ${entry.passport_number}`"
+                >
+                  <button
+                    v-if="tab.key === 'pending' && canAct"
+                    type="button"
+                    role="menuitem"
+                    class="block w-full px-4 py-2 text-left text-sm font-semibold hover:bg-slate-50 text-primary-800"
+                    data-edit-slip
+                    @click="openSlip(entry)"
+                  >
+                    Edit slip
+                  </button>
+                  <button
+                    v-if="tab.key !== 'pending' && entry.can.cancel_medical_result"
+                    type="button"
+                    role="menuitem"
+                    class="block w-full px-4 py-2 text-left text-sm font-semibold hover:bg-slate-50 text-red-800"
+                    data-cancel-result
+                    @click="askCancel(entry)"
+                  >
+                    Cancel result (back to Pending)
+                  </button>
+                  <button
+                    v-if="entry.can.return"
+                    type="button"
+                    role="menuitem"
+                    class="block w-full px-4 py-2 text-left text-sm font-semibold hover:bg-slate-50 text-amber-800"
+                    :data-return-action="entry.id"
+                    @click="askReturn(entry)"
+                  >
+                    Return to owner
+                  </button>
+                </RowMenu>
               </template>
             </PassportTable>
           </PassportListBody>
@@ -904,6 +1048,22 @@ function afterReturn() {
       :error="confirmError"
       @confirm="confirmResult"
     />
+
+    <ConfirmDialog
+      v-model:open="cancelOpen"
+      :title="
+        cancelTarget
+          ? `Cancel the ${cancelTarget.current_medical?.result === 'unfit' ? 'UNFIT' : 'FIT'} result of ${cancelTarget.passport_name}?`
+          : ''
+      "
+      confirm-label="Cancel result"
+      danger
+      :busy="cancelBusy"
+      @confirm="confirmCancel"
+    >
+      The passport goes back to Medical → Pending so the right result can be entered. The cancelled
+      result stays in the passport history.
+    </ConfirmDialog>
 
     <MedicalSlipModal v-model:open="slipOpen" :passport="slipPassport" @saved="load" />
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
 import { computed, ref, shallowRef, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
@@ -29,12 +30,14 @@ import type {
   ReturnedPassportFilters,
 } from '@/types/passport'
 
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
+
 /**
  * Returned Passports: every passport handed back to its owner, newest return first. Read-only
  * for every staff role; the operations head may undo a return (the passport goes back to the
  * step it was at). Search, company, reference and return date range live in the URL.
  */
-const PER_PAGE = 15
 
 const route = useRoute()
 const router = useRouter()
@@ -164,7 +167,7 @@ async function load() {
     const result = await listReturnedPassports({
       ...apiFilters.value,
       page: f.page,
-      per_page: PER_PAGE,
+      per_page: perPage.value,
     })
     if (id !== requestId) return
     const { current_page, last_page } = result.meta

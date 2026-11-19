@@ -8,42 +8,46 @@ import type {
   AgentReport,
   AgentReportPassport,
   AgentSummary,
+  AgentTabCounts,
   AssignAgentPayload,
   AssignmentStatus,
   BulkAgentResult,
-  MygramAgent,
-  MygramAgentPayload,
+  RecruitmentAgent,
+  RecruitmentAgentPayload,
 } from '@/types/agents'
 
 /* ---------- The agent list (the operations head) ---------- */
 
-const ADMIN = '/api/admin/mygram-agents'
+const ADMIN = '/api/admin/recruitment-agents'
 
 export async function listAgents(
   params: { q?: string; is_active?: 0 | 1 } = {},
-): Promise<MygramAgent[]> {
-  const { data } = await api.get<{ data: MygramAgent[] }>(ADMIN, { params })
+): Promise<RecruitmentAgent[]> {
+  const { data } = await api.get<{ data: RecruitmentAgent[] }>(ADMIN, { params })
   return data.data
 }
 
 /** 422 with errors.rl_number when another agent has the RL number. */
-export async function createAgent(payload: MygramAgentPayload): Promise<MygramAgent> {
-  const { data } = await api.post<{ data: MygramAgent }>(ADMIN, payload)
+export async function createAgent(payload: RecruitmentAgentPayload): Promise<RecruitmentAgent> {
+  const { data } = await api.post<{ data: RecruitmentAgent }>(ADMIN, payload)
   return data.data
 }
 
 export async function updateAgent(
   id: number,
-  changes: Partial<MygramAgentPayload> & { is_active?: boolean },
-): Promise<MygramAgent> {
-  const { data } = await api.patch<{ data: MygramAgent }>(`${ADMIN}/${id}`, changes)
+  changes: Partial<RecruitmentAgentPayload> & { is_active?: boolean },
+): Promise<RecruitmentAgent> {
+  const { data } = await api.patch<{ data: RecruitmentAgent }>(`${ADMIN}/${id}`, changes)
   return data.data
 }
 
-/** Up to 20 active agents (the passport team and the accounts team). */
-export async function searchAgents(q?: string): Promise<AgentSummary[]> {
-  const { data } = await api.get<{ data: AgentSummary[] }>('/api/mygram-agents/lookup', {
-    params: { q: q || undefined },
+/**
+ * Up to 20 active agents, Own first (the passport team and the accounts team). partners: only
+ * the partner agents (cash payments: the company never pays its Own agent).
+ */
+export async function searchAgents(q?: string, partners = false): Promise<AgentSummary[]> {
+  const { data } = await api.get<{ data: AgentSummary[] }>('/api/recruitment-agents/lookup', {
+    params: { q: q || undefined, partners: partners ? 1 : undefined },
   })
   return data.data
 }
@@ -174,7 +178,7 @@ export async function fetchAgentReportPassports(
 /* ---------- Agent payments (the accounts team) ---------- */
 
 export async function listAgentPayments(): Promise<AgentPaymentsRow[]> {
-  const { data } = await api.get<{ data: AgentPaymentsRow[] }>('/api/accounts/mygram-agents')
+  const { data } = await api.get<{ data: AgentPaymentsRow[] }>('/api/accounts/recruitment-agents')
   return data.data
 }
 
@@ -185,16 +189,12 @@ export interface AgentLedger extends AgentMoneyCards {
 }
 
 export async function fetchAgentLedger(id: number): Promise<AgentLedger> {
-  const { data } = await api.get<{ data: AgentLedger }>(`/api/accounts/mygram-agents/${id}`)
+  const { data } = await api.get<{ data: AgentLedger }>(`/api/accounts/recruitment-agents/${id}`)
   return data.data
 }
 
 /** The Passport Entry List tabs: passports without an approved agent, and per agent. */
-export interface AgentTabCounts {
-  none: number
-  approved: number
-  agents: (AgentSummary & { is_active: boolean; count: number })[]
-}
+export type { AgentTabCounts } from '@/types/agents'
 
 export async function fetchAgentTabCounts(stage?: string): Promise<AgentTabCounts> {
   const { data } = await api.get<{ data: AgentTabCounts }>('/api/data-entry/agent-counts', {

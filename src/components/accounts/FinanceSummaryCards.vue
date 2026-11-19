@@ -63,7 +63,7 @@ const CARDS: Card[] = [
     // A loan to an owner is money paid, not spending: show what the total was for.
     note: (s) =>
       s.paid_breakdown
-        ? `Expenses ৳ ${formatMoney(s.paid_breakdown.expenses)} · Refunds ৳ ${formatMoney(s.paid_breakdown.refunds)} · Owner loans ৳ ${formatMoney(s.paid_breakdown.owner_loans)} · Agent payments ৳ ${formatMoney(s.paid_breakdown.agent_payments ?? 0)}`
+        ? `Expenses ৳ ${formatMoney(s.paid_breakdown.expenses)} · Refunds ৳ ${formatMoney(s.paid_breakdown.refunds)} · Owner loans ৳ ${formatMoney(s.paid_breakdown.owner_loans)} · Recruitment Agent payments ৳ ${formatMoney(s.paid_breakdown.agent_payments ?? 0)}`
         : null,
   },
   {
@@ -256,7 +256,7 @@ const COMPACT_ROWS: Card[] = [...CARDS.slice(0, 3), OPENING, ...CARDS.slice(3)]
             ['Expenses', summary.paid_breakdown.expenses],
             ['Refunds', summary.paid_breakdown.refunds],
             ['Owner loans', summary.paid_breakdown.owner_loans],
-            ['Agent payments', summary.paid_breakdown.agent_payments ?? 0],
+            ['Recruitment Agent payments', summary.paid_breakdown.agent_payments ?? 0],
           ] as const"
           :key="name"
         >

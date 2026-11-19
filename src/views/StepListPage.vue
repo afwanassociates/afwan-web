@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
 import { computed, ref, shallowRef, useId, useTemplateRef, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import BulkActionBar, { type BulkAction } from '@/components/BulkActionBar.vue'
@@ -37,6 +38,8 @@ import { finalStatuses, isRecordStep, statusLabel, stepResultPayload } from '@/l
 import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { CompanySummary, ReferenceSummary } from '@/types/passport'
+import type { AgentTabCounts } from '@/types/agents'
+import AgentSelect from '@/components/agents/AgentSelect.vue'
 import type {
   BulkResult,
   StepAction,
@@ -46,6 +49,10 @@ import type {
   StepListRow,
   StepListTab,
 } from '@/types/workflow'
+import { usePageHeading } from '@/composables/usePageHeading'
+
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
 
 /**
  * One page per workflow step (Calling, Visa, BMET, Flight, …), built like the Medical page
@@ -54,7 +61,6 @@ import type {
  * Rejected; BMET: Pending, BMET cleared; flight: Pending, Flight confirmed). Tab, the three
  * searches and the page live in the URL; the API decides the order and counts of each tab.
  */
-const PER_PAGE = 15
 /** Column titles that read better than the generic one (by step key). */
 const PREVIOUS_EXPIRY_LABEL: Record<string, string> = { visa: 'Calling expiry' }
 
@@ -78,6 +84,15 @@ const step = computed(() => {
   const s = workflow.stepConfig(stepKey.value)
   return s && isRecordStep(s) ? s : null
 })
+
+usePageHeading(() =>
+  step.value
+    ? {
+        title: step.value.label,
+        subtitle: `Step ${step.value.order}: start the step, then record its result.`,
+      }
+    : null,
+)
 /** The config has loaded but has no such step. */
 const unknownStep = computed(() => workflow.config !== null && step.value === null)
 
@@ -131,8 +146,16 @@ const filters = computed(() => {
   const page = Number(text(route.query.page))
   const companyId = Number(text(route.query.company_id))
   const referenceId = Number(text(route.query.reference_id))
+  const agentText = text(route.query.agent)
+  const agentId = Number(agentText)
   return {
     tab: text(route.query.tab),
+    /** The agent-wise tab: null (all agents), an agent id, or 'none' (no approved agent). */
+    agent: (agentText === 'none'
+      ? 'none'
+      : Number.isInteger(agentId) && agentId > 0
+        ? agentId
+        : null) as number | 'none' | null,
     q: text(route.query.q).trim(),
     company_id: Number.isInteger(companyId) && companyId > 0 ? companyId : null,
     reference_id: Number.isInteger(referenceId) && referenceId > 0 ? referenceId : null,
@@ -145,8 +168,16 @@ const filters = computed(() => {
 })
 type Filters = typeof filters.value
 
+/** A date range filter is shown (Calling Permitted, Flight Pending and Flight done). */
+const hasDateRange = computed(
+  () =>
+    (activeTab.value === 'permitted' && stepKey.value === 'calling') ||
+    (stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed')),
+)
+
 const hasFilters = computed(() =>
   Boolean(
+    filters.value.agent !== null ||
     filters.value.q ||
     filters.value.company_id ||
     filters.value.reference_id ||
@@ -158,6 +189,35 @@ const hasFilters = computed(() =>
   ),
 )
 
+/** How many search fields are in use (not the agent): shown on the Search filter button. */
+const searchCount = computed(() => {
+  const f = filters.value
+  const receive = activeTab.value === 'permitted' && stepKey.value === 'calling'
+  const booking =
+    stepKey.value === 'flight' && (isPendingTab.value || activeTab.value === 'confirmed')
+  return [
+    f.q,
+    f.company_id,
+    f.reference_id,
+    receive ? f.receive_date_from || f.receive_date_to : null,
+    booking ? f.booking_date_from || f.booking_date_to : null,
+  ].filter(Boolean).length
+})
+
+/** The search fields are shown on demand (Search filter button); open while any is in use. */
+// (From the address only: the tab is not known yet here.)
+const filtersOpen = ref(
+  Boolean(
+    filters.value.q ||
+    filters.value.company_id ||
+    filters.value.reference_id ||
+    filters.value.receive_date_from ||
+    filters.value.receive_date_to ||
+    filters.value.booking_date_from ||
+    filters.value.booking_date_to,
+  ),
+)
+
 function queryWith(changes: Partial<Filters>): LocationQuery {
   const next = { ...filters.value, page: 1, ...changes }
   const query: LocationQuery = {}
@@ -165,6 +225,7 @@ function queryWith(changes: Partial<Filters>): LocationQuery {
   if (next.q) query.q = next.q
   if (next.company_id) query.company_id = String(next.company_id)
   if (next.reference_id) query.reference_id = String(next.reference_id)
+  if (next.agent !== null) query.agent = String(next.agent)
   if (next.receive_date_from) query.receive_date_from = next.receive_date_from
   else delete query.receive_date_from
   if (next.receive_date_to) query.receive_date_to = next.receive_date_to
@@ -296,12 +357,21 @@ function onTabKeydown(event: KeyboardEvent, index: number) {
 
 const list = shallowRef<StepListResponse | null>(null)
 const counts = ref<Record<StepListTab, number | undefined>>({})
+/** The agent-wise tabs of the current tab (from the same response). */
+const agentCounts = shallowRef<AgentTabCounts | null>(null)
+const agentFilter = computed({
+  get: () => filters.value.agent,
+  set: (agent: number | 'none' | null) => {
+    router.replace({ query: queryWith({ agent }) })
+  },
+})
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
 let requestId = 0
 
 const apiFilters = (f: Filters) => ({
   search: f.q || undefined,
+  recruitment_agent_id: f.agent ?? undefined,
   company_id: f.company_id ?? undefined,
   reference_id: f.reference_id ?? undefined,
   ...(activeTab.value === 'permitted'
@@ -330,7 +400,7 @@ async function load() {
       tab: activeTab.value,
       ...apiFilters(f),
       page: f.page,
-      per_page: PER_PAGE,
+      per_page: perPage.value,
     })
     if (id !== requestId) return
     const { current_page, last_page } = result.meta
@@ -341,6 +411,7 @@ async function load() {
     list.value = result
     // The API counts every tab (with the same searches); nothing is counted here.
     counts.value = result.tab_counts ?? {}
+    agentCounts.value = result.agent_counts ?? null
   } catch (error) {
     if (id !== requestId) return
     if (errorStatus(error) !== 401)
@@ -1161,15 +1232,9 @@ function afterReturn() {
     </div>
 
     <template v-else-if="step">
-      <div class="mt-6 flex flex-wrap items-end justify-between gap-4" data-page-header>
-        <div>
-          <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl" data-step-title>
-            {{ step.label }}
-          </h1>
-          <p class="mt-1 text-sm text-muted">
-            Step {{ step.order }}: start the step, then record its result.
-          </p>
-        </div>
+      <div class="mt-6 flex flex-wrap items-end justify-end gap-4" data-page-header>
+        <!-- The title and description show in the header bar; this heading is for screen readers. -->
+        <h1 class="sr-only" data-step-title>{{ step.label }}</h1>
         <!-- The current tab, with the same searches as the list. -->
         <button
           type="button"
@@ -1239,10 +1304,55 @@ function afterReturn() {
           :aria-labelledby="`step-tab-${activeTab}`"
           class="pt-5"
         >
+          <!-- One line: the agent dropdown and the Search filter button (shows the search fields) -->
+          <div class="flex flex-wrap items-center gap-3" data-filter-bar>
+            <AgentSelect v-model="agentFilter" :counts="agentCounts" class="w-full sm:w-72" />
+            <button
+              type="button"
+              class="btn btn-primary text-sm"
+              :aria-expanded="filtersOpen"
+              aria-controls="step-filters"
+              data-filters-toggle
+              @click="filtersOpen = !filtersOpen"
+            >
+              <svg
+                class="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M3 5h18M6 12h12M10 19h4" />
+              </svg>
+              Search filter
+              <span
+                v-if="searchCount"
+                class="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-primary-900"
+                data-filters-count
+                >{{ searchCount }}</span
+              >
+            </button>
+            <button
+              v-if="hasFilters"
+              type="button"
+              class="text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
+              @click="clearFilters"
+            >
+              Clear searches
+            </button>
+          </div>
+
           <!-- Search: name / passport number, company and reference (combined with the tab) -->
-          <div role="search" class="space-y-4">
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div>
+          <div v-show="filtersOpen" id="step-filters" role="search" class="mt-4 space-y-4">
+            <!-- One row on wide screens; with a date range: search · company · reference · dates -->
+            <div
+              class="grid gap-4 sm:grid-cols-2"
+              :class="hasDateRange ? 'lg:grid-cols-12' : 'lg:grid-cols-3'"
+            >
+              <div :class="hasDateRange ? 'lg:col-span-3' : ''">
                 <label :for="searchId" class="block text-sm font-medium text-slate-700">
                   Search
                 </label>
@@ -1258,6 +1368,7 @@ function afterReturn() {
                 />
               </div>
               <SearchSelect
+                :class="hasDateRange ? 'lg:col-span-3' : ''"
                 :model-value="selectedCompany"
                 :fetch="searchCompanies"
                 label="Filter by company"
@@ -1268,6 +1379,7 @@ function afterReturn() {
                 @update:model-value="onCompanySelected"
               />
               <SearchSelect
+                :class="hasDateRange ? 'lg:col-span-2' : ''"
                 :model-value="selectedReference"
                 :fetch="fetchReferences"
                 :subtitle-of="referenceSubtitle"
@@ -1280,103 +1392,91 @@ function afterReturn() {
               />
               <!-- Permitted tab only: receive date range filter -->
               <template v-if="activeTab === 'permitted' && stepKey === 'calling'">
-                <div>
-                  <label :for="receiveDateFromId" class="block text-sm font-medium text-slate-700"
-                    >Receive date from</label
-                  >
-                  <input
-                    :id="receiveDateFromId"
-                    v-model="receiveDateFrom"
-                    type="date"
-                    :max="receiveDateTo || undefined"
-                    :class="inputClass"
-                    data-receive-date-from
-                    @change="
-                      router.replace({
-                        query: queryWith({
-                          receive_date_from: receiveDateFrom,
-                          receive_date_to: receiveDateTo,
-                        }),
-                      })
-                    "
-                  />
-                </div>
-                <div>
-                  <label :for="receiveDateToId" class="block text-sm font-medium text-slate-700"
-                    >Receive date to</label
-                  >
-                  <input
-                    :id="receiveDateToId"
-                    v-model="receiveDateTo"
-                    type="date"
-                    :min="receiveDateFrom || undefined"
-                    :class="inputClass"
-                    data-receive-date-to
-                    @change="
-                      router.replace({
-                        query: queryWith({
-                          receive_date_from: receiveDateFrom,
-                          receive_date_to: receiveDateTo,
-                        }),
-                      })
-                    "
-                  />
-                </div>
+                <fieldset class="sm:col-span-2 lg:col-span-4">
+                  <legend class="block text-sm font-medium text-slate-700">Receive date</legend>
+                  <div class="flex items-center gap-2">
+                    <label :for="receiveDateFromId" class="sr-only">Receive date from</label>
+                    <input
+                      :id="receiveDateFromId"
+                      v-model="receiveDateFrom"
+                      type="date"
+                      :max="receiveDateTo || undefined"
+                      :class="[inputClass, 'min-w-0']"
+                      data-receive-date-from
+                      @change="
+                        router.replace({
+                          query: queryWith({
+                            receive_date_from: receiveDateFrom,
+                            receive_date_to: receiveDateTo,
+                          }),
+                        })
+                      "
+                    />
+                    <span class="mt-1 text-slate-500" aria-hidden="true">–</span>
+                    <label :for="receiveDateToId" class="sr-only">Receive date to</label>
+                    <input
+                      :id="receiveDateToId"
+                      v-model="receiveDateTo"
+                      type="date"
+                      :min="receiveDateFrom || undefined"
+                      :class="[inputClass, 'min-w-0']"
+                      data-receive-date-to
+                      @change="
+                        router.replace({
+                          query: queryWith({
+                            receive_date_from: receiveDateFrom,
+                            receive_date_to: receiveDateTo,
+                          }),
+                        })
+                      "
+                    />
+                  </div>
+                </fieldset>
               </template>
               <!-- Flight pending + confirmed tabs: booking date range filter -->
               <template v-if="stepKey === 'flight' && (isPendingTab || activeTab === 'confirmed')">
-                <div>
-                  <label :for="bookingDateFromId" class="block text-sm font-medium text-slate-700"
-                    >Flight date from</label
-                  >
-                  <input
-                    :id="bookingDateFromId"
-                    v-model="bookingDateFrom"
-                    type="date"
-                    :max="bookingDateTo || undefined"
-                    :class="inputClass"
-                    data-booking-date-from
-                    @change="
-                      router.replace({
-                        query: queryWith({
-                          booking_date_from: bookingDateFrom,
-                          booking_date_to: bookingDateTo,
-                        }),
-                      })
-                    "
-                  />
-                </div>
-                <div>
-                  <label :for="bookingDateToId" class="block text-sm font-medium text-slate-700"
-                    >Flight date to</label
-                  >
-                  <input
-                    :id="bookingDateToId"
-                    v-model="bookingDateTo"
-                    type="date"
-                    :min="bookingDateFrom || undefined"
-                    :class="inputClass"
-                    data-booking-date-to
-                    @change="
-                      router.replace({
-                        query: queryWith({
-                          booking_date_from: bookingDateFrom,
-                          booking_date_to: bookingDateTo,
-                        }),
-                      })
-                    "
-                  />
-                </div>
+                <fieldset class="sm:col-span-2 lg:col-span-4">
+                  <legend class="block text-sm font-medium text-slate-700">Flight date</legend>
+                  <div class="flex items-center gap-2">
+                    <label :for="bookingDateFromId" class="sr-only">Flight date from</label>
+                    <input
+                      :id="bookingDateFromId"
+                      v-model="bookingDateFrom"
+                      type="date"
+                      :max="bookingDateTo || undefined"
+                      :class="[inputClass, 'min-w-0']"
+                      data-booking-date-from
+                      @change="
+                        router.replace({
+                          query: queryWith({
+                            booking_date_from: bookingDateFrom,
+                            booking_date_to: bookingDateTo,
+                          }),
+                        })
+                      "
+                    />
+                    <span class="mt-1 text-slate-500" aria-hidden="true">–</span>
+                    <label :for="bookingDateToId" class="sr-only">Flight date to</label>
+                    <input
+                      :id="bookingDateToId"
+                      v-model="bookingDateTo"
+                      type="date"
+                      :min="bookingDateFrom || undefined"
+                      :class="[inputClass, 'min-w-0']"
+                      data-booking-date-to
+                      @change="
+                        router.replace({
+                          query: queryWith({
+                            booking_date_from: bookingDateFrom,
+                            booking_date_to: bookingDateTo,
+                          }),
+                        })
+                      "
+                    />
+                  </div>
+                </fieldset>
               </template>
             </div>
-            <button
-              v-if="hasFilters"
-              type="button"
-              class="text-sm font-semibold text-primary-700 underline-offset-4 hover:underline"
-              @click="clearFilters"
-            >
-              Clear searches
-            </button>
           </div>
 
           <!-- Bulk update: the bar once passports are ticked -->
@@ -1526,6 +1626,19 @@ function afterReturn() {
                         >
                           {{ row.passport_name }}
                         </RouterLink>
+                        <!-- The recruitment agent -->
+                        <span
+                          v-if="row.recruitment_agent"
+                          class="block text-xs text-muted"
+                          data-row-agent
+                          >{{ row.recruitment_agent.name
+                          }}{{
+                            row.recruitment_agent.is_own ? '' : ` (${row.recruitment_agent.code})`
+                          }}</span
+                        >
+                        <span v-else class="block text-xs font-medium text-amber-800" data-row-agent
+                          >No agent</span
+                        >
                       </td>
                       <td
                         class="py-3 pr-4 font-mono tracking-wider whitespace-nowrap text-slate-800"

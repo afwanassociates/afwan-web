@@ -8,7 +8,7 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import type { AgentBucket, AgentReport, AgentReportPassport, AgentSummary } from '@/types/agents'
 
 /**
- * Agent report (the Operations Head and the Accounts Head): per MYGRAM agent, the passports
+ * Agent report (the Operations Head and the Accounts Head): per recruitment agent, the passports
  * it has now, those that count for it (are paid: not returned, not unfit; a changed passport
  * only when the Accounts Head said Yes) and where they are in the workflow. A "No agent" row
  * shows the passports without one. Clicking a row or number lists its passports
@@ -116,9 +116,9 @@ const cellLink =
 
 <template>
   <div class="mx-auto max-w-7xl">
-    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Agent Report</h1>
+    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Recruitment Agent Report</h1>
     <p class="mt-1 text-sm text-muted">
-      How many passports each MYGRAM agent has, and how many count for it. Returned and unfit
+      How many passports each recruitment agent has, and how many count for it. Returned and unfit
       passports do not count.
     </p>
 
@@ -239,7 +239,7 @@ const cellLink =
           </tbody>
         </table>
         <p v-if="report.agents.length === 0" class="py-6 text-center text-muted">
-          No MYGRAM agents yet.
+          No recruitment agents yet.
         </p>
       </section>
 

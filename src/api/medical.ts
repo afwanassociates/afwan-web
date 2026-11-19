@@ -50,6 +50,14 @@ export async function recordMedicalResult(
 }
 
 /**
+ * Cancels the passport's current medical result (the operations head, until Calling starts):
+ * back to Medical → Pending. The result stays in the history as cancelled.
+ */
+export async function cancelMedicalResult(passportId: number): Promise<void> {
+  await api.post(`${BASE}/passports/${passportId}/medical-result/cancel`)
+}
+
+/**
  * Saves a passport's medical slip (MYGRAM date, number, centre). Entering the date moves the
  * passport from "not started" into Medical → Pending. Returns the updated passport.
  */

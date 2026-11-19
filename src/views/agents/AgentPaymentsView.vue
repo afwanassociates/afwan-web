@@ -7,7 +7,7 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import type { AgentPaymentsRow } from '@/types/agents'
 
 /**
- * Agent payments (the accounts team): what the company paid each MYGRAM agent. Agents have
+ * Agent payments (the accounts team): what the company paid each recruitment agent. Agents have
  * no rate and are paid in part payments only, so there is no due: the counted passports,
  * the total paid and the average paid per counted passport.
  */
@@ -39,9 +39,9 @@ const totals = computed(() =>
 
 <template>
   <div class="mx-auto max-w-7xl">
-    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Agent Payments</h1>
+    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Recruitment Agent Payments</h1>
     <p class="mt-1 text-sm text-muted">
-      Part payments to MYGRAM agents (recorded in Cash Management → Payment, "Paid to: MYGRAM
+      Part payments to recruitment agents (recorded in Cash Management → Payment, "Paid to: MYGRAM
       agent"). Agents never pay the company.
     </p>
 
@@ -71,7 +71,9 @@ const totals = computed(() =>
       </div>
 
       <section class="glass-card mt-6 overflow-x-auto p-4 sm:p-6" aria-label="Agents">
-        <p v-if="rows.length === 0" class="py-8 text-center text-muted">No MYGRAM agents yet.</p>
+        <p v-if="rows.length === 0" class="py-8 text-center text-muted">
+          No recruitment agents yet.
+        </p>
         <table v-else class="w-full text-left text-sm">
           <thead class="border-b border-stroke text-xs tracking-wider text-muted uppercase">
             <tr>

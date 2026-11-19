@@ -24,6 +24,7 @@ vi.mock('@/api/passports', () => ({
 vi.mock('@/api/medical', () => ({
   listMedicals: vi.fn(async () => []),
   updateMedicalSlip: vi.fn(),
+  cancelMedicalResult: vi.fn(),
 }))
 vi.mock('@/api/steps', () => ({
   listStepRecords: vi.fn(async () => ({})),
@@ -142,11 +143,35 @@ describe('Passport page: undo in the Steps section (operations head only)', () =
     expect(updateEntryMode).toHaveBeenCalledWith(20, null)
   })
 
-  it('offers no "Undo medical result": medical records are never deleted', async () => {
+  it('offers no "Undo medical result" when the API does not allow it', async () => {
     await mountDetail({ current_medical: FIT_MEDICAL, medical_status: 'fit', entry_mode: null })
 
     expect(wrapper.find('button[data-early-undo]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('Undo medical result')
+  })
+
+  it('offers "Undo medical result" on Medical: cancels the result, back to Pending', async () => {
+    const { cancelMedicalResult } = await import('@/api/medical')
+    vi.mocked(cancelMedicalResult).mockResolvedValue()
+    await mountDetail({
+      current_medical: FIT_MEDICAL,
+      medical_status: 'fit',
+      entry_mode: null,
+      can: {
+        update: true,
+        record_medical: true,
+        cancel_medical_result: true,
+      } as PassportEntry['can'],
+    })
+
+    const button = wrapper.get('[data-timeline-step="medical"] button[data-early-undo]')
+    expect(button.text()).toBe('Undo medical result')
+    await button.trigger('click')
+    await flushPromises()
+    await confirmDialog('Undo medical result')
+
+    expect(cancelMedicalResult).toHaveBeenCalledWith(20)
+    expect(updateEntryMode).not.toHaveBeenCalled()
   })
 
   it('offers "Back to Passport Entry" on Medical while it is pending (slip, no result)', async () => {

@@ -264,7 +264,11 @@ describe('All Passports (read-only overview)', () => {
   it('has the search, reference and company lookups, Step and Date, and no Country or Sort-by controls', async () => {
     await mountPage()
 
-    const labels = wrapper.findAll('label').map((l) => l.text().trim())
+    // The filters only (not "Rows per page" by the pagination).
+    const labels = wrapper
+      .findAll('label')
+      .filter((l) => !l.element.closest('[data-per-page]'))
+      .map((l) => l.text().trim())
     expect(labels).toEqual(['Search', 'Filter by reference', 'Filter by company', 'Step', 'Date'])
     expect(wrapper.text()).not.toMatch(/Company country|Sort by|Any company|All countries/)
     expect(wrapper.find('th[aria-sort]').exists()).toBe(false)
@@ -279,7 +283,7 @@ describe('All Passports (read-only overview)', () => {
     expect(wrapper.get('nav[aria-label="Workflow steps"]').text()).not.toContain('Completed')
     // The only selects are the Step and Date filters.
     expect(wrapper.findAll('select[data-stage-filter], select[data-date-filter]')).toHaveLength(2)
-    expect(wrapper.findAll('select')).toHaveLength(2)
+    expect(wrapper.findAll('select:not([data-per-page-select])')).toHaveLength(2)
   })
 
   it('always asks for the overview of every status, with no sort (newest first)', async () => {
@@ -546,7 +550,7 @@ describe('All Passports (read-only overview)', () => {
       await mountPage('admin', '/all-passports?company=desert')
 
       // Only the Step and Date selects.
-      expect(wrapper.findAll('select')).toHaveLength(2)
+      expect(wrapper.findAll('select:not([data-per-page-select])')).toHaveLength(2)
       expect(wrapper.text()).not.toMatch(/Company country|Sort by|Any company|All countries/)
       const headers = wrapper.findAll('thead th').map((th) => th.text().trim())
       expect(headers).not.toContain('Country')

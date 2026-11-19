@@ -12,8 +12,14 @@ import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import PassportAgentCard from '@/components/agents/PassportAgentCard.vue'
-import { updateMedicalSlip } from '@/api/medical'
-import { clearFlightBooking, listStepRecords, undoFlightConfirm, undoStepAction } from '@/api/steps'
+import { cancelMedicalResult, updateMedicalSlip } from '@/api/medical'
+import {
+  clearFlightBooking,
+  listStepRecords,
+  undoFlightConfirm,
+  undoStep,
+  undoStepAction,
+} from '@/api/steps'
 import {
   getPassport,
   getPassportHistory,
@@ -86,11 +92,12 @@ function afterChange() {
 /*
  * ---------- Early undos (the operations head) ----------
  * Pending medical (slip entered, no result yet): back to the Passport Entry list, clearing the
- * slip, medical date and centre. Before Calling starts: clear the Online mark. Records (medical
- * results, steps) are never deleted, so there is no other undo here. The API refuses everyone else.
+ * slip, medical date and centre. Before Calling starts: clear the Online mark, then cancel the
+ * medical result (back to Medical → Pending; the result stays in the history as cancelled).
+ * Step records are never deleted, so there is no other undo here. The API refuses everyone else.
  */
 
-type EarlyUndo = { kind: 'mark' | 'slip'; label: string; text: string }
+type EarlyUndo = { kind: 'mark' | 'slip' | 'result'; label: string; text: string }
 
 const earlyUndo = computed<EarlyUndo | null>(() => {
   const p = passport.value
@@ -107,6 +114,12 @@ const earlyUndo = computed<EarlyUndo | null>(() => {
       kind: 'mark',
       label: 'Undo Online mark',
       text: 'Clear the Online mark? The passport goes back to the Medical Fit tab.',
+    }
+  if (p.can.cancel_medical_result)
+    return {
+      kind: 'result',
+      label: 'Undo medical result',
+      text: `Cancel the ${p.current_medical?.result === 'unfit' ? 'UNFIT' : 'FIT'} result? The passport goes back to Medical → Pending so the right result can be entered. The cancelled result stays in the history.`,
     }
   return null
 })
@@ -129,6 +142,8 @@ async function confirmEarlyUndo() {
   try {
     if (undo.kind === 'slip') {
       await updateMedicalSlip(p.id, { medical_slip_date: null, medical_center_id: null })
+    } else if (undo.kind === 'result') {
+      await cancelMedicalResult(p.id)
     } else {
       await updateEntryMode(p.id, null)
     }
@@ -136,7 +151,9 @@ async function confirmEarlyUndo() {
     toast.success(
       undo.kind === 'slip'
         ? `${p.passport_number}: back on the Passport Entry list.`
-        : `${p.passport_number}: Online mark undone.`,
+        : undo.kind === 'result'
+          ? `${p.passport_number}: medical result cancelled, back to Medical Pending.`
+          : `${p.passport_number}: Online mark undone.`,
     )
     afterChange()
   } catch (error) {
@@ -232,12 +249,15 @@ type StepButton = { key: string; label: string; tone: 'edit' | 'undo' }
 /** The flight's own undo actions (its booking and confirmation have their own endpoints). */
 const FLIGHT_CONFIRM = 'confirm'
 const FLIGHT_BOOKING = 'booking'
+/** Calling and Visa: one undo of their latest action (POST …/undo-step/{step}). */
+const STEP_UNDO = 'undo-step'
 
 /**
  * Per step, the buttons under its latest record. "Edit" when the API allows it (the operations
  * head on any record; data entry on their own, before a later step). The undos are the
  * operations head's: a BMET action (Training / Finger while in progress, the clearance once
- * cleared and the flight not confirmed), the flight confirmation, or the booking date.
+ * cleared and the flight not confirmed), the flight confirmation, or the booking date, and
+ * Calling / Visa (their latest action) while no later step has a record.
  */
 const stepActions = computed<Record<string, StepButton[]>>(() => {
   const p = passport.value
@@ -270,6 +290,24 @@ const stepActions = computed<Record<string, StepButton[]>>(() => {
               label: `Undo ${actionName(action.label)}`,
               tone: 'undo',
             })
+    }
+    if (isHead && (key === 'calling' || key === 'visa')) {
+      const laterRecords = Object.entries(stepHistory.value).some(
+        ([other, list]) => other !== key && isAfter(other, key) && list.length > 0,
+      )
+      if (!laterRecords)
+        buttons.push({
+          key: STEP_UNDO,
+          label:
+            key === 'calling'
+              ? 'Undo calling'
+              : latest.status === 'completed'
+                ? 'Undo visa issued'
+                : latest.status === 'rejected'
+                  ? 'Undo visa rejected'
+                  : 'Undo visa submitted',
+          tone: 'undo',
+        })
     }
     if (isHead && key === 'flight') {
       if (latest.status === 'completed')
@@ -320,6 +358,12 @@ const stepUndoText = computed(() => {
   if (u.stepKey === 'flight' && u.button.key === FLIGHT_CONFIRM)
     return 'The flight goes back to Flight Pending; its booking date is kept.'
   if (u.stepKey === 'flight') return 'The flight booking date is cleared.'
+  if (u.button.key === STEP_UNDO)
+    return u.stepKey === 'calling'
+      ? 'The calling permit is cancelled; the passport goes back to Calling Pending. It stays in the history as cancelled.'
+      : u.button.label === 'Undo visa submitted'
+        ? 'The visa submission is cancelled; the passport goes back to waiting for the visa. It stays in the history as cancelled.'
+        : 'The visa result is cleared; the visa goes back to Submitted.'
   return `${u.button.label.replace(/^Undo /, '')} is cleared; the step goes back to in progress (or pending when nothing is left).`
 })
 
@@ -333,6 +377,7 @@ async function confirmStepUndo() {
     if (u.stepKey === 'flight' && u.button.key === FLIGHT_CONFIRM) await undoFlightConfirm(p.id)
     else if (u.stepKey === 'flight' && u.button.key === FLIGHT_BOOKING)
       await clearFlightBooking(p.id)
+    else if (u.button.key === STEP_UNDO) await undoStep(p.id, u.stepKey as 'calling' | 'visa')
     else await undoStepAction(p.id, u.stepKey, u.button.key)
     stepUndoOpen.value = false
     toast.success(`${p.passport_number}: ${u.button.label.replace(/^Undo /, '')} undone.`)
@@ -613,7 +658,7 @@ const dd = 'font-medium text-ink'
         </section>
       </div>
 
-      <!-- MYGRAM agent: assigned by data entry, approved by the Operations Head -->
+      <!-- recruitment agent: assigned by data entry, approved by the Operations Head -->
       <div class="mt-6">
         <PassportAgentCard :passport="passport" @changed="afterChange" />
       </div>

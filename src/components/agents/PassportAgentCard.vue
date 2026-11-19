@@ -9,7 +9,7 @@ import type { AgentAssignment } from '@/types/agents'
 import type { PassportEntry } from '@/types/passport'
 
 /**
- * The passport's MYGRAM agent: the approved agent, what waits for the Operations Head or was
+ * The passport's recruitment agent: the approved agent, what waits for the Operations Head or was
  * returned for correction, the Assign / Change button (data entry) and the full history
  * (returned and replaced assignments included).
  */
@@ -42,7 +42,7 @@ const canAssign = computed(
 const buttonLabel = computed(() =>
   status.value === 'returned'
     ? 'Correct and send again'
-    : props.passport.mygram_agent
+    : props.passport.recruitment_agent
       ? 'Change agent'
       : 'Assign agent',
 )
@@ -66,7 +66,7 @@ const dd = 'font-medium text-ink'
 <template>
   <section class="glass-card p-5 sm:p-6" aria-labelledby="agent-heading" data-agent-card>
     <div class="flex flex-wrap items-center justify-between gap-2">
-      <h2 id="agent-heading" class="text-lg font-semibold text-ink">MYGRAM agent</h2>
+      <h2 id="agent-heading" class="text-lg font-semibold text-ink">Recruitment Agent</h2>
       <div class="flex flex-wrap items-center gap-2">
         <AgentStatusBadge :status="status" />
         <button
@@ -82,22 +82,23 @@ const dd = 'font-medium text-ink'
     </div>
 
     <dl
-      v-if="passport.mygram_agent"
+      v-if="passport.recruitment_agent"
       class="mt-4 grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm"
       data-current-agent
     >
       <dt :class="dt">Agent</dt>
       <dd :class="dd">
-        {{ passport.mygram_agent.name }}
-        <span class="text-xs font-normal text-muted">({{ passport.mygram_agent.code }})</span>
+        {{ passport.recruitment_agent.name }}
+        <span class="text-xs font-normal text-muted">({{ passport.recruitment_agent.code }})</span>
       </dd>
       <dt :class="dt">RL number</dt>
-      <dd :class="[dd, 'font-mono']">{{ passport.mygram_agent.rl_number }}</dd>
+      <dd :class="[dd, 'font-mono']">{{ passport.recruitment_agent.rl_number }}</dd>
       <dt :class="dt">Since</dt>
-      <dd :class="dd">{{ toDisplayDate(passport.mygram_agent.assigned_date) }}</dd>
+      <dd :class="dd">{{ toDisplayDate(passport.recruitment_agent.assigned_date) }}</dd>
     </dl>
     <p v-else-if="status !== 'pending'" class="mt-4 text-sm text-muted">
-      No approved agent yet. The medical slip needs an approved MYGRAM agent.
+      No approved agent yet. The passport can't move to the next step until the Operations Head
+      approves its recruitment agent.
     </p>
 
     <p

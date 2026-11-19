@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
+import PerPageSelect from '@/components/PerPageSelect.vue'
 import { computed, onMounted, ref, useId, watch } from 'vue'
 import { RouterLink, useRoute, useRouter, type LocationQuery } from 'vue-router'
 import BaseDialog from '@/components/staff/BaseDialog.vue'
@@ -10,6 +12,9 @@ import { fetchAssignableRoles, listUsers, updateUser } from '@/lib/users'
 import { errorMessage, errorStatus } from '@/lib/errors'
 import { useAuthStore } from '@/stores/auth'
 import type { Paginated, Role, RoleOption, User } from '@/types/auth'
+
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
 
 type Status = '' | 'active' | 'inactive'
 
@@ -73,6 +78,7 @@ async function load() {
       role: role || undefined,
       is_active: status === '' ? undefined : status === 'active' ? 1 : 0,
       page,
+      per_page: perPage.value,
     })
     if (id !== requestId) return
     const { current_page, last_page } = result.meta
@@ -379,9 +385,12 @@ const selectClass =
             aria-label="Pagination"
             class="mt-4 flex flex-col items-center justify-between gap-3 border-t border-slate-200 pt-4 sm:flex-row"
           >
-            <p class="text-sm text-slate-600">
-              Showing {{ list.meta.from ?? 0 }}–{{ list.meta.to ?? 0 }} of {{ list.meta.total }}
-            </p>
+            <div class="flex flex-wrap items-center justify-center gap-4">
+              <p class="text-sm text-slate-600">
+                Showing {{ list.meta.from ?? 0 }}–{{ list.meta.to ?? 0 }} of {{ list.meta.total }}
+              </p>
+              <PerPageSelect />
+            </div>
             <div class="flex items-center gap-2">
               <RouterLink
                 v-if="list.meta.current_page > 1"

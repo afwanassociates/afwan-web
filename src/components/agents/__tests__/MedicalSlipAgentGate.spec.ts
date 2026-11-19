@@ -38,11 +38,11 @@ async function mountModal(status: AgentStatus, slipDate: string | null = null) {
 
 afterEach(() => wrapper.unmount())
 
-describe('Medical slip needs an approved MYGRAM agent', () => {
+describe('Medical slip needs an approved recruitment agent', () => {
   it.each([
-    ['none', 'Assign a MYGRAM agent first'],
-    ['returned', 'Assign a MYGRAM agent first'],
-    ['pending', 'MYGRAM agent not approved yet'],
+    ['none', 'Assign a recruitment agent first'],
+    ['returned', 'Assign a recruitment agent first'],
+    ['pending', 'Recruitment agent not approved yet'],
   ] as const)('blocks a new slip while the agent is %s', async (status, text) => {
     await mountModal(status)
 

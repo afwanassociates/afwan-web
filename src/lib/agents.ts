@@ -1,7 +1,7 @@
 import type { Role } from '@/types/auth'
 import type { AgentBucket, AgentStatus } from '@/types/agents'
 
-/** Assign or change a passport's MYGRAM agent (the API: PassportAgentAssignmentPolicy::assign). */
+/** Assign or change a passport's recruitment agent (the API: PassportAgentAssignmentPolicy::assign). */
 export const AGENT_ASSIGNER_ROLES: readonly Role[] = ['data_entry']
 
 /** Agent list, Agent Approvals: the operations head. */

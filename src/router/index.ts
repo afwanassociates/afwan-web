@@ -115,31 +115,31 @@ const router = createRouter({
           meta: { roles: PASSPORT_MANAGER_ROLES, title: staffTitle('Medical Centers') },
         },
         {
-          // MYGRAM agents (add, edit, deactivate) and Agent Approvals: the operations head.
+          // recruitment agents (add, edit, deactivate) and Agent Approvals: the operations head.
           path: 'agents',
-          name: 'mygram-agents',
-          component: () => import('@/views/agents/MygramAgentsView.vue'),
-          meta: { roles: AGENT_MANAGER_ROLES, title: staffTitle('MYGRAM Agents') },
+          name: 'recruitment-agents',
+          component: () => import('@/views/agents/RecruitmentAgentsView.vue'),
+          meta: { roles: AGENT_MANAGER_ROLES, title: staffTitle('Recruitment Agents') },
         },
         {
           path: 'agents/approvals',
           name: 'agent-approvals',
           component: () => import('@/views/agents/AgentApprovalsView.vue'),
-          meta: { roles: AGENT_MANAGER_ROLES, title: staffTitle('Agent Approvals') },
+          meta: { roles: AGENT_MANAGER_ROLES, title: staffTitle('Recruitment Agent Approvals') },
         },
         {
           // Passport counts per agent (no money): the operations head and the accounts head.
           path: 'agents/report',
           name: 'agent-report',
           component: () => import('@/views/agents/AgentReportView.vue'),
-          meta: { roles: AGENT_REPORT_ROLES, title: staffTitle('Agent Report') },
+          meta: { roles: AGENT_REPORT_ROLES, title: staffTitle('Recruitment Agent Report') },
         },
         {
           // Does a passport moved to another agent still count for the old one: the accounts head.
           path: 'agents/changes',
           name: 'agent-changes',
           component: () => import('@/views/agents/AgentChangesView.vue'),
-          meta: { roles: AGENT_DECIDER_ROLES, title: staffTitle('Agent Changes') },
+          meta: { roles: AGENT_DECIDER_ROLES, title: staffTitle('Recruitment Agent Changes') },
         },
         {
           path: 'forbidden',
@@ -321,17 +321,17 @@ const router = createRouter({
         // Standard rates are on Party Rates now.
         { path: 'standard-rates', redirect: { name: 'accounts-party-rates' } },
         {
-          // What the company paid each MYGRAM agent (part payments; no rate, no due).
+          // What the company paid each recruitment agent (part payments; no rate, no due).
           path: 'agents',
           name: 'accounts-agent-payments',
           component: () => import('@/views/agents/AgentPaymentsView.vue'),
-          meta: { title: staffTitle('Agent Payments') },
+          meta: { title: staffTitle('Recruitment Agent Payments') },
         },
         {
           path: 'agents/:id(\\d+)',
           name: 'accounts-agent-ledger',
           component: () => import('@/views/agents/AgentLedgerView.vue'),
-          meta: { title: staffTitle('Agent ledger') },
+          meta: { title: staffTitle('Recruitment Agent ledger') },
         },
         {
           // The page sets its own title from the party.

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { usePerPage } from '@/composables/usePerPage'
 import { computed, ref, shallowRef, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import LatestStatusText from '@/components/LatestStatusText.vue'
@@ -22,6 +23,9 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import type { Paginated } from '@/types/auth'
 import type { CompanyCounts, CompanyPassport, CompanyReportRow } from '@/types/report'
 
+/** Rows per page (the dropdown by the pagination): reload from page 1 when it changes. */
+const perPage = usePerPage(() => load())
+
 /**
  * One company of the Companies report: a header card with the company and its counts, then the
  * company's passports (newest first) with an Export CSV of all of them. Read-only: no row
@@ -29,8 +33,6 @@ import type { CompanyCounts, CompanyPassport, CompanyReportRow } from '@/types/r
  */
 const route = useRoute()
 const toast = useToast()
-
-const PER_PAGE = 15
 
 const companyId = computed(() => Number(route.params.id))
 const page = computed(() => {
@@ -102,7 +104,7 @@ async function load() {
   loadError.value = null
   notFound.value = false
   try {
-    const result = await fetchCompanyPassports(id, { page: page.value, per_page: PER_PAGE })
+    const result = await fetchCompanyPassports(id, { page: page.value, per_page: perPage.value })
     if (request !== requestId) return
     list.value = result
     // Once per company (not per page): the header row and the agent's phone and email.

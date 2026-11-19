@@ -11,7 +11,7 @@ import { errorMessage, errorStatus } from '@/lib/errors'
 import type { CashPayment } from '@/types/accounts'
 
 /**
- * One MYGRAM agent's ledger (the accounts team): approved part payments with a running
+ * One recruitment agent's ledger (the accounts team): approved part payments with a running
  * total, payments waiting for approval, and "Pay agent" (a cash payment to this agent).
  */
 const route = useRoute()

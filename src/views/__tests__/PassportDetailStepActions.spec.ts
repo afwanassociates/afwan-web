@@ -31,6 +31,7 @@ vi.mock('@/api/medical', () => ({
 vi.mock('@/api/steps', () => ({
   listStepRecords: vi.fn(async () => ({})),
   undoStepAction: vi.fn(),
+  undoStep: vi.fn(),
   undoFlightConfirm: vi.fn(),
   clearFlightBooking: vi.fn(),
   recordStep: vi.fn(),
@@ -192,6 +193,38 @@ describe('Passport page: correct and undo steps (operations head)', () => {
     expect(undoFlightConfirm).toHaveBeenCalledWith(20)
   })
 
+  it('Visa issued: Undo visa issued (Calling has none while the visa has a record)', async () => {
+    const { undoStep } = await import('@/api/steps')
+    await mountDetail(
+      { ...onlineFit, workflow: workflowAt('bmet') },
+      { calling: [done('calling')], visa: [done('visa')] },
+    )
+
+    expect(actionsOf('visa')).toContain('Undo visa issued')
+    expect(actionsOf('calling')).not.toContain('Undo calling')
+    await clickAndConfirm('visa', 'undo-step')
+    expect(undoStep).toHaveBeenCalledWith(20, 'visa')
+  })
+
+  it('Calling only: Undo calling; nothing once a later step has a record', async () => {
+    const { undoStep } = await import('@/api/steps')
+    await mountDetail(
+      { ...onlineFit, workflow: workflowAt('visa') },
+      { calling: [done('calling')] },
+    )
+
+    expect(actionsOf('calling')).toContain('Undo calling')
+    await clickAndConfirm('calling', 'undo-step')
+    expect(undoStep).toHaveBeenCalledWith(20, 'calling')
+    wrapper.unmount()
+
+    await mountDetail(
+      { ...onlineFit, workflow: workflowAt('bmet') },
+      { calling: [done('calling')], visa: [done('visa')], bmet: [record('bmet', 'in_process')] },
+    )
+    expect(actionsOf('visa')).not.toContain('Undo visa issued')
+  })
+
   it('flight booked, not confirmed: Clear booking date', async () => {
     await mountDetail(
       { ...onlineFit, workflow: workflowAt('flight') },
@@ -296,6 +329,8 @@ describe('Passport page: medical re-test (operations head)', () => {
     await form.get('[data-retest-field="medical_date"] input').setValue('2026-10-01')
     await form.get('button[data-retest-result="fit"]').trigger('click')
     await flushPromises()
+    // The Fit dates appear once the result is chosen: wait for them (slow under a full run).
+    await vi.waitFor(() => form.get('[data-retest-field="expiry_date"] input'))
     await form.get('[data-retest-field="expiry_date"] input').setValue('2026-12-30')
     await form.trigger('submit')
     await flushPromises()

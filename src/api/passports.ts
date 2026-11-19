@@ -12,11 +12,13 @@ import type {
   ReturnedPassport,
   ReturnedPassportFilters,
 } from '@/types/passport'
+import type { AgentTabCounts } from '@/types/agents'
 
 const BASE = '/api/data-entry/passports'
 
 /** A page of passports. */
-export type PassportPage = Paginated<PassportEntry>
+/** agent_counts: only with with_agent_counts (the agent-wise tabs, before the agent filter). */
+export type PassportPage = Paginated<PassportEntry> & { agent_counts?: AgentTabCounts }
 
 export async function listPassports(filters: PassportFilters): Promise<PassportPage> {
   const { data } = await api.get<PassportPage>(BASE, { params: filters })

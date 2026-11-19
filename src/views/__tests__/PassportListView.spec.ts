@@ -224,7 +224,7 @@ describe('Passport List ("Passport entered" only)', () => {
         'Reference',
         'Company',
         'Received',
-        'MYGRAM agent',
+        'Recruitment Agent',
         'Entered by',
         'Actions',
       ])
@@ -266,12 +266,12 @@ describe('Passport List ("Passport entered" only)', () => {
     expect(wrapper.find('nav[aria-label="Workflow steps"]').exists()).toBe(false)
   })
 
-  describe('MYGRAM agent', () => {
+  describe('Recruitment Agent', () => {
     const withAgent = (status: 'none' | 'pending' | 'returned' | 'approved') =>
       makePassport({
         ...ENTERED,
         agent_status: status,
-        mygram_agent:
+        recruitment_agent:
           status === 'approved'
             ? {
                 id: 5,
@@ -337,28 +337,31 @@ describe('Passport List ("Passport entered" only)', () => {
       expect(wrapper.get('[data-tab="none"] [data-tab-count]').text()).toBe('(4)')
       expect(wrapper.get('[data-tab="approved"] [data-tab-count]').text()).toBe('(3)')
       expect(lastFilters()).toEqual(
-        expect.objectContaining({ stage: 'passport', mygram_agent_id: 'none' }),
+        expect.objectContaining({ stage: 'passport', recruitment_agent_id: 'none' }),
       )
       expect(wrapper.find('[data-agent-picker]').exists()).toBe(false)
     })
 
-    it('opens Ready for Medical on the first agent with passports, one agent at a time', async () => {
+    it('Ready for Medical: the All agents dropdown, all approved passports first, then one agent', async () => {
       await mountList('/passports', 'data_entry')
       await wrapper.get('[data-tab="approved"]').trigger('click')
       await flushPromises()
 
-      expect(router.currentRoute.value.query).toEqual({ tab: 'approved', agent: '6' })
+      expect(router.currentRoute.value.query).toEqual({ tab: 'approved' })
       expect(lastFilters()).toEqual(
-        expect.objectContaining({ stage: 'passport', mygram_agent_id: 6 }),
+        expect.objectContaining({ stage: 'passport', agent_status: 'approved' }),
       )
-      expect(wrapper.get('[data-agent="6"]').attributes('aria-pressed')).toBe('true')
-      expect(wrapper.get('[data-agent="6"]').text()).toMatch(/Uttara Link\s*\(3\)/)
+      const select = wrapper.get('select[data-agent-filter]')
+      expect(select.findAll('option').map((o) => o.text())).toContain('Uttara Link (3)')
+      // No "No agent" option on this tab.
+      expect(select.find('option[value="none"]').exists()).toBe(false)
       // Bulk assigning is for the Waiting for Agent tab.
       expect(wrapper.find('[data-bulk-agent]').exists()).toBe(false)
 
-      await wrapper.get('[data-agent="5"]').trigger('click')
+      await select.setValue('5')
       await flushPromises()
-      expect(lastFilters()).toEqual(expect.objectContaining({ mygram_agent_id: 5 }))
+      expect(router.currentRoute.value.query).toEqual({ tab: 'approved', agent: '5' })
+      expect(lastFilters()).toEqual(expect.objectContaining({ recruitment_agent_id: 5 }))
     })
 
     it('keeps the tab and agent when the searches are cleared', async () => {

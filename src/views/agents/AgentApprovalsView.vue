@@ -17,7 +17,7 @@ import type { Paginated } from '@/types/auth'
 import type { AgentAssignment, AssignmentStatus } from '@/types/agents'
 
 /**
- * Agent Approvals (the Operations Head): MYGRAM agent assignments and changes sent by data
+ * Agent Approvals (the Operations Head): recruitment agent assignments and changes sent by data
  * entry. Approve one, several, or return one for correction with a reason. Nobody approves
  * an assignment they made. The Approved and Returned tabs show what was decided.
  */
@@ -140,10 +140,10 @@ const actionClass =
 
 <template>
   <div class="mx-auto max-w-7xl">
-    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Agent Approvals</h1>
+    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Recruitment Agent Approvals</h1>
     <p class="mt-1 text-sm text-muted">
-      MYGRAM agents assigned by data entry. A passport needs its agent approved before the medical
-      slip.
+      Recruitment agents assigned by data entry. A passport needs its agent approved before the
+      medical slip.
     </p>
 
     <section class="glass-card mt-6 p-4 sm:p-6" aria-label="Agent approvals">

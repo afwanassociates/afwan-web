@@ -113,8 +113,8 @@ export interface PassportEntry {
   scan_uploaded_at?: string | null
   /** Where the medical is done (same as medical_slip.medical_center). */
   medical_center?: MedicalCenterSummary | null
-  /** The approved MYGRAM agent (null until the operations head approves one). */
-  mygram_agent?: (AgentSummary & { assigned_date: string }) | null
+  /** The approved recruitment agent (null until the operations head approves one). */
+  recruitment_agent?: (AgentSummary & { assigned_date: string }) | null
   /** none, pending (waiting for approval), returned (for correction) or approved. */
   agent_status?: AgentStatus
   /** The assignment (or change) waiting for the operations head. */
@@ -127,7 +127,7 @@ export interface PassportEntry {
   /** The newest assignment, when it was returned for correction. */
   agent_return?: {
     id: number
-    mygram_agent_id: number
+    recruitment_agent_id: number
     assigned_date: string
     remark: string | null
     reason: string | null
@@ -158,8 +158,10 @@ export interface PassportEntry {
     return?: boolean
     /** Undo the return (the operations head, while it is returned). */
     undo_return?: boolean
-    /** Assign or change the MYGRAM agent (data entry). */
+    /** Assign or change the recruitment agent (data entry). */
     assign_agent?: boolean
+    /** Cancel the medical result, back to Pending (the operations head, before Calling). */
+    cancel_medical_result?: boolean
   }
 }
 
@@ -227,6 +229,8 @@ export interface PassportPayload {
   passport_received_date: string
   /** YYYY-MM-DD, after the received date */
   passport_expiry_date: string
+  /** Adding only (data entry): the recruitment agent, sent to the Operations Head for approval. */
+  recruitment_agent_id?: number
 }
 
 export type PassportSort =
@@ -244,10 +248,12 @@ export interface PassportFilters {
   reference_id?: number
   reference_type?: ReferenceType
   company_id?: number
-  /** The MYGRAM agent's current passports, or 'none' (no approved agent). */
-  mygram_agent_id?: number | 'none'
+  /** The recruitment agent's current passports, or 'none' (no approved agent). */
+  recruitment_agent_id?: number | 'none'
   /** none (no agent and none waiting), pending or approved. */
   agent_status?: 'none' | 'pending' | 'approved'
+  /** Add agent_counts (the agent-wise tabs) to the response. */
+  with_agent_counts?: 1
   /** Country of the company (2-letter code). */
   company_country_code?: string
   received_from?: string

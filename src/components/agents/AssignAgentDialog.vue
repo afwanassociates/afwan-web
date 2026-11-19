@@ -10,7 +10,7 @@ import type { AgentSummary } from '@/types/agents'
 import type { PassportEntry } from '@/types/passport'
 
 /**
- * Data entry assigns a passport's MYGRAM agent, or changes it (a reason is required then).
+ * Data entry assigns a passport's recruitment agent, or changes it (a reason is required then).
  * It waits for the Operations Head to approve it; the medical slip needs an approved agent.
  * A returned assignment opens pre-filled so it can be corrected and sent again.
  */
@@ -31,8 +31,10 @@ const isSaving = ref(false)
 const today = businessToday()
 
 /** A change when the passport already has an approved agent. */
-const isChange = computed(() => Boolean(props.passport?.mygram_agent))
-const title = computed(() => (isChange.value ? 'Change MYGRAM agent' : 'Assign MYGRAM agent'))
+const isChange = computed(() => Boolean(props.passport?.recruitment_agent))
+const title = computed(() =>
+  isChange.value ? 'Change recruitment agent' : 'Assign recruitment agent',
+)
 
 watch(open, (isOpen) => {
   if (!isOpen) return
@@ -44,7 +46,7 @@ watch(open, (isOpen) => {
   banner.value = null
 })
 
-watch(agent, () => delete errors.value.mygram_agent_id)
+watch(agent, () => delete errors.value.recruitment_agent_id)
 
 const subtitle = (a: AgentSummary) => `${a.code} · RL ${a.rl_number}`
 
@@ -53,7 +55,7 @@ async function save() {
   if (!passport || isSaving.value) return
   banner.value = null
   const e: Record<string, string> = {}
-  if (!agent.value) e.mygram_agent_id = 'Choose the MYGRAM agent.'
+  if (!agent.value) e.recruitment_agent_id = 'Choose the recruitment agent.'
   if (!date.value) e.assigned_date = 'Enter the date the passport went to the agent.'
   else if (!toApiDate(date.value)) e.assigned_date = 'Enter a valid date.'
   else if (date.value > today) e.assigned_date = 'The date cannot be in the future.'
@@ -65,7 +67,7 @@ async function save() {
   isSaving.value = true
   try {
     await assignAgent(passport.id, {
-      mygram_agent_id: agent.value!.id,
+      recruitment_agent_id: agent.value!.id,
       assigned_date: toApiDate(date.value)!,
       remark: text || null,
     })
@@ -80,7 +82,7 @@ async function save() {
       errors.value = fieldErrors(error)
       if (Object.keys(errors.value).length === 0) banner.value = errorMessage(error)
     } else if (status === 403) {
-      banner.value = 'Only the data entry team assigns MYGRAM agents.'
+      banner.value = 'Only the data entry team assigns recruitment agents.'
     } else if (status !== 401) {
       banner.value = errorMessage(error, 'Could not save the agent. Please try again.')
     }
@@ -101,10 +103,10 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
       <span class="ml-2 font-mono tracking-wider text-slate-700">{{
         passport.passport_number
       }}</span>
-      <span v-if="passport.mygram_agent" class="mt-1 block text-muted">
+      <span v-if="passport.recruitment_agent" class="mt-1 block text-muted">
         Current agent:
-        <span class="font-medium text-ink">{{ passport.mygram_agent.name }}</span>
-        ({{ passport.mygram_agent.code }})
+        <span class="font-medium text-ink">{{ passport.recruitment_agent.name }}</span>
+        ({{ passport.recruitment_agent.code }})
       </span>
     </p>
 
@@ -126,14 +128,14 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
     </p>
 
     <form class="mt-5 space-y-5" novalidate @submit.prevent="save">
-      <div data-field="mygram_agent_id">
+      <div data-field="recruitment_agent_id">
         <SearchSelect
           v-model="agent"
           :fetch="searchAgents"
           :subtitle-of="subtitle"
-          :label="isChange ? 'New MYGRAM agent' : 'MYGRAM agent'"
+          :label="isChange ? 'New Recruitment Agent' : 'Recruitment Agent'"
           placeholder="Search name, ID or RL number"
-          :error="errors.mygram_agent_id"
+          :error="errors.recruitment_agent_id"
           required
         />
       </div>

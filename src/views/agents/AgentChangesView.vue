@@ -80,10 +80,10 @@ const actionClass =
 
 <template>
   <div class="mx-auto max-w-7xl">
-    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Agent Changes</h1>
+    <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Recruitment Agent Changes</h1>
     <p class="mt-1 text-sm text-muted">
-      Passports moved to another MYGRAM agent. Decide whether each still counts (is paid) for the
-      old agent.
+      Passports moved to another recruitment agent. Decide whether each still counts (is paid) for
+      the old agent.
     </p>
 
     <section class="glass-card mt-6 p-4 sm:p-6" aria-label="Agent changes">
