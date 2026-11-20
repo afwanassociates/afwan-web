@@ -6,13 +6,12 @@ import PassportListBody from '@/components/PassportListBody.vue'
 import PassportTable from '@/components/PassportTable.vue'
 import ReturnPassportDialog from '@/components/ReturnPassportDialog.vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
-import MedicalDateCell from '@/components/MedicalDateCell.vue'
 import MedicalFitDialog from '@/components/MedicalFitDialog.vue'
 import MedicalRetestDialog from '@/components/MedicalRetestDialog.vue'
 import MedicalSlipModal from '@/components/MedicalSlipModal.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
-import AgentSelect from '@/components/agents/AgentSelect.vue'
+import AgentFilterBar from '@/components/agents/AgentFilterBar.vue'
 import RowMenu from '@/components/RowMenu.vue'
 import type { PassportColumn } from '@/lib/passportColumns'
 import { searchCompanies } from '@/api/companies'
@@ -20,6 +19,7 @@ import { searchMedicalCenters } from '@/api/medicalCenters'
 import { cancelMedicalResult, recordMedicalResult } from '@/api/medical'
 import { listPassports, updateEntryMode } from '@/api/passports'
 import { useToast } from '@/composables/useToast'
+import { toDisplayDate } from '@/lib/dates'
 import { useDebounce } from '@/composables/useDebounce'
 import { errorMessage, errorStatus, firstFieldError } from '@/lib/errors'
 import { PASSPORT_MANAGER_ROLES, canAccessArea } from '@/lib/roles'
@@ -437,16 +437,9 @@ function onTabKeydown(event: KeyboardEvent, index: number) {
   tabRefs.value?.[TABS.indexOf(next)]?.focus()
 }
 
-/* ---------- Pending: medical date, then Fit / Unfit ---------- */
+/* ---------- Pending: Fit / Unfit (the medical date is entered with the medical slip) ---------- */
 
-const NEEDS_DATE = 'Enter the medical date first'
-
-/** The date was saved: update the row in place (Fit / Unfit become available). */
-function onDateSaved(updated: PassportEntry) {
-  const value = list.value
-  if (!value) return
-  list.value = { ...value, data: value.data.map((e) => (e.id === updated.id ? updated : e)) }
-}
+const NEEDS_DATE = 'Add the medical date first (⋯ → Edit slip)'
 
 const toast = useToast()
 const confirmOpen = ref(false)
@@ -732,9 +725,9 @@ function afterReturn() {
         :aria-labelledby="`medical-tab-${tab.key}`"
         class="pt-5"
       >
-        <!-- One line: the agent dropdown and the Search filter button (shows the search fields) -->
+        <!-- The agent cards, then the Search filter button (shows the search fields) -->
+        <AgentFilterBar v-model="agentFilter" :counts="agentCounts" class="mb-3" />
         <div class="flex flex-wrap items-center gap-3" data-filter-bar>
-          <AgentSelect v-model="agentFilter" :counts="agentCounts" class="w-full sm:w-72" />
           <button
             type="button"
             class="btn btn-primary text-sm"
@@ -905,14 +898,15 @@ function afterReturn() {
               :default-actions="false"
               sticky-actions
             >
-              <!-- Pending: the medical date can be entered inline. -->
+              <!-- Pending: the medical date (entered in the medical slip modal) -->
               <template #cell="{ entry, column }">
-                <MedicalDateCell
+                <span
                   v-if="column === 'medical_date'"
-                  :entry="entry"
-                  :can-edit="canAct"
-                  @saved="onDateSaved"
-                />
+                  class="whitespace-nowrap"
+                  :class="{ 'text-muted': !entry.medical_date }"
+                  data-medical-date
+                  >{{ entry.medical_date ? toDisplayDate(entry.medical_date) : 'Not added' }}</span
+                >
               </template>
               <template #actions="{ entry }">
                 <template v-if="tab.key === 'pending' && canAct">

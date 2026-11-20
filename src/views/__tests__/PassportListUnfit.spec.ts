@@ -115,7 +115,12 @@ describe('Passport List without medical parts', () => {
     vi.mocked(listPassports).mockResolvedValue(page([makePassport()]))
     await mountList('/passports')
 
-    const edit = wrapper.findAll('a').find((a) => a.text().startsWith('Edit'))
-    expect(edit?.attributes('href')).toBe('/passports/42/edit')
+    // Edit is in the row's ⋯ menu.
+    await wrapper.get('tr[data-row] [data-row-menu]').trigger('click')
+    await flushPromises()
+    const edit = document.body.querySelector<HTMLAnchorElement>(
+      '[data-row-menu-items] [data-edit-action]',
+    )
+    expect(edit?.getAttribute('href')).toBe('/passports/42/edit')
   })
 })

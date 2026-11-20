@@ -25,7 +25,7 @@ vi.mock('@/api/medical', () => ({
   updateMedicalDate: vi.fn(),
 }))
 vi.mock('@/api/medicalCenters', () => ({
-  searchMedicalCenters: vi.fn(async () => []),
+  searchMedicalCenters: vi.fn(async () => [{ id: 3, name: 'Meem Medical Center' }]),
   createMedicalCenter: vi.fn(),
 }))
 vi.mock('@/api/workflow', () => ({
@@ -137,7 +137,7 @@ describe('a new passport', () => {
     const pending = wrapper.get('tr[data-row]')
     expect(pending.text()).toContain('NW5000001')
     expect(pending.text()).toContain('05-10-2026') // the slip date
-    expect(pending.text()).toContain('Enter medical date')
+    expect(pending.text()).toContain('Not added')
     expect(pending.find('button[data-result="fit"]').exists()).toBe(true)
   })
 })
@@ -149,6 +149,17 @@ describe('"Add medical slip" in the Passport list', () => {
   }
   const slipForm = () =>
     wrapper.findAll('form').find((f) => f.find('[data-field="medical_slip_date"]').exists())!
+  /** Fills the required medical date and picks the medical center. */
+  async function fillDateAndCenter(medicalDate = '2026-10-06') {
+    await slipForm().get('[data-field="medical_date"] input').setValue(medicalDate)
+    await slipForm().get('[data-field="medical_center"] input').trigger('click')
+    await flushPromises()
+    await wrapper
+      .findAll('[role="option"]')
+      .find((o) => o.text().includes('Meem Medical Center'))!
+      .trigger('mousedown')
+    await flushPromises()
+  }
 
   it('has no Medical slip no field (only the date and the medical center)', async () => {
     vi.mocked(listPassports).mockResolvedValue(page([NEW_PASSPORT]))
@@ -186,12 +197,14 @@ describe('"Add medical slip" in the Passport list', () => {
     await openSlipModal()
 
     await slipForm().get('[data-field="medical_slip_date"] input').setValue('2026-10-05')
+    await fillDateAndCenter()
     await slipForm().trigger('submit')
     await flushPromises()
 
     expect(updateMedicalSlip).toHaveBeenCalledWith(50, {
       medical_slip_date: '2026-10-05',
-      medical_center_id: null,
+      medical_center_id: 3,
+      medical_date: '2026-10-06',
     })
     expect(listPassports).toHaveBeenCalledTimes(2)
     expect(listPassports).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'passport' }))
@@ -200,6 +213,33 @@ describe('"Add medical slip" in the Passport list', () => {
     expect(wrapper.find('[data-empty]').exists()).toBe(true)
     expect(vi.mocked(fetchWorkflowSummary).mock.calls.length).toBeGreaterThan(summaryCalls)
     expect(useToast().toasts.value.map((t) => t.message)).toContain('Moved to Medical Pending')
+  })
+
+  it('requires the medical date (never in the future) and the medical center', async () => {
+    const { addDays, businessToday } = await import('@/lib/dates')
+    vi.mocked(listPassports).mockResolvedValue(page([NEW_PASSPORT]))
+    await mountAt('/passports')
+    await openSlipModal()
+
+    // Order: slip date, medical date, medical center.
+    const fields = slipForm()
+      .findAll('[data-field]')
+      .map((f) => f.attributes('data-field'))
+    expect(fields).toEqual(['medical_slip_date', 'medical_date', 'medical_center'])
+
+    await slipForm().get('[data-field="medical_slip_date"] input').setValue('2026-10-05')
+    await slipForm().trigger('submit')
+    await flushPromises()
+    expect(slipForm().text()).toContain('Enter the medical date.')
+    expect(slipForm().text()).toContain('Choose the medical center.')
+
+    const dateInput = slipForm().get('[data-field="medical_date"] input')
+    expect(dateInput.attributes('max')).toBe(businessToday())
+    await dateInput.setValue(addDays(businessToday(), 1))
+    await slipForm().trigger('submit')
+    await flushPromises()
+    expect(slipForm().text()).toContain('The medical date cannot be in the future.')
+    expect(updateMedicalSlip).not.toHaveBeenCalled()
   })
 
   it('keeps the dialog open with the server error on 422', async () => {
@@ -211,6 +251,7 @@ describe('"Add medical slip" in the Passport list', () => {
     await openSlipModal()
 
     await slipForm().get('[data-field="medical_slip_date"] input').setValue('2026-10-05')
+    await fillDateAndCenter()
     await slipForm().trigger('submit')
     await flushPromises()
 

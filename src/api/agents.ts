@@ -1,4 +1,5 @@
 import api from '@/lib/api'
+import { downloadCsv } from '@/api/reports'
 import type { Paginated } from '@/types/auth'
 import type { CashPayment } from '@/types/accounts'
 import type {
@@ -98,6 +99,7 @@ const APPROVALS = '/api/operation-head/agent-approvals'
 export async function listAgentApprovals(params: {
   status?: AssignmentStatus
   q?: string
+  reference_id?: number
   page?: number
   per_page?: number
 }): Promise<Paginated<AgentAssignment>> {
@@ -119,6 +121,44 @@ export async function returnAgentAssignment(id: number, reason: string): Promise
   const { data } = await api.post<{ data: AgentAssignment }>(`${APPROVALS}/${id}/return`, {
     reason,
   })
+  return data.data
+}
+
+/** One Agent Approvals tab as CSV (every row). Returns the file name. */
+export function downloadAgentApprovalsCsv(
+  status: AssignmentStatus,
+  referenceId?: number,
+): Promise<string> {
+  return downloadCsv(APPROVALS, { status, reference_id: referenceId }, `agent-approvals-${status}`)
+}
+
+/** A reference with assignments waiting for approval. */
+export interface PendingReference {
+  id: number | null
+  name: string
+  code: string | null
+  pending: number
+}
+
+/** The references with assignments waiting for approval (most first). */
+export async function listPendingReferences(): Promise<PendingReference[]> {
+  const { data } = await api.get<{ data: PendingReference[] }>(`${APPROVALS}/references`)
+  return data.data
+}
+
+/** Approve every assignment waiting for one reference's passports. */
+export async function approveReference(referenceId: number): Promise<BulkAgentResult> {
+  const { data } = await api.post<{ data: BulkAgentResult }>(`${APPROVALS}/approve-reference`, {
+    reference_id: referenceId,
+  })
+  return data.data
+}
+
+/** The operations head undoes the approval of the passport's agent (back to waiting for approval). */
+export async function undoAgentApproval(passportId: number): Promise<AgentAssignment> {
+  const { data } = await api.post<{ data: AgentAssignment }>(
+    `/api/operation-head/passports/${passportId}/agent-approval/undo`,
+  )
   return data.data
 }
 

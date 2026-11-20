@@ -128,7 +128,7 @@ const router = createRouter({
           meta: { roles: AGENT_MANAGER_ROLES, title: staffTitle('Recruitment Agent Approvals') },
         },
         {
-          // Passport counts per agent (no money): the operations head and the accounts head.
+          // Passport counts per agent (no money): the operations head, the accounts head and data entry.
           path: 'agents/report',
           name: 'agent-report',
           component: () => import('@/views/agents/AgentReportView.vue'),

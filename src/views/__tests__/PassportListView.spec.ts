@@ -240,22 +240,19 @@ describe('Passport List ("Passport entered" only)', () => {
       expect(wrapper.text()).not.toMatch(/scan/i)
     })
 
-    it('has the row actions Add medical slip, Edit and Return to owner (no Delete)', async () => {
+    it('has Add medical slip, and Edit / Return to owner in the ⋯ menu (no Delete)', async () => {
       await mountList()
 
-      const actions = wrapper
-        .get('tr[data-row]')
-        .findAll('a, button')
-        .map((el) =>
-          el
-            .text()
-            .replace(/\s+(for )?passport.*$/, '')
-            .trim(),
-        )
-      expect(actions).toEqual(
-        expect.arrayContaining(['Add medical slip', 'Edit', 'Return to owner']),
-      )
-      expect(actions).not.toContain('Delete')
+      const row = wrapper.get('tr[data-row]')
+      expect(row.text()).toContain('Add medical slip')
+      expect(row.text()).not.toContain('Return to owner')
+      await row.get('[data-row-menu]').trigger('click')
+      await flushPromises()
+      const menu = [
+        ...document.body.querySelectorAll('[data-row-menu-items] [role="menuitem"]'),
+      ].map((el) => el.textContent?.trim())
+      expect(menu).toEqual(['Edit', 'Return to owner'])
+      expect(row.text()).not.toContain('Delete')
     })
   })
 
@@ -342,7 +339,7 @@ describe('Passport List ("Passport entered" only)', () => {
       expect(wrapper.find('[data-agent-picker]').exists()).toBe(false)
     })
 
-    it('Ready for Medical: the All agents dropdown, all approved passports first, then one agent', async () => {
+    it('Ready for Medical: the agent cards, all approved passports first, then one agent', async () => {
       await mountList('/passports', 'data_entry')
       await wrapper.get('[data-tab="approved"]').trigger('click')
       await flushPromises()
@@ -351,14 +348,16 @@ describe('Passport List ("Passport entered" only)', () => {
       expect(lastFilters()).toEqual(
         expect.objectContaining({ stage: 'passport', agent_status: 'approved' }),
       )
-      const select = wrapper.get('select[data-agent-filter]')
-      expect(select.findAll('option').map((o) => o.text())).toContain('Uttara Link (3)')
-      // No "No agent" option on this tab.
-      expect(select.find('option[value="none"]').exists()).toBe(false)
+      const bar = wrapper.get('[data-agent-filter]')
+      expect(bar.findAll('[data-agent]').map((c) => c.text())).toContainEqual(
+        expect.stringContaining('Uttara Link(3)'),
+      )
+      // No "No agent" card on this tab.
+      expect(bar.find('[data-agent="none"]').exists()).toBe(false)
       // Bulk assigning is for the Waiting for Agent tab.
       expect(wrapper.find('[data-bulk-agent]').exists()).toBe(false)
 
-      await select.setValue('5')
+      await bar.get('[data-agent="5"]').trigger('click')
       await flushPromises()
       expect(router.currentRoute.value.query).toEqual({ tab: 'approved', agent: '5' })
       expect(lastFilters()).toEqual(expect.objectContaining({ recruitment_agent_id: 5 }))

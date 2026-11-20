@@ -162,6 +162,7 @@ export interface PassportEntry {
     assign_agent?: boolean
     /** Cancel the medical result, back to Pending (the operations head, before Calling). */
     cancel_medical_result?: boolean
+    undo_agent_approval?: boolean
   }
 }
 

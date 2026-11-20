@@ -42,7 +42,7 @@ const detailValue = (d: PassportHistoryEvent['details'][number]) =>
             <dd class="text-slate-800">{{ detailValue(d) }}</dd>
           </template>
         </dl>
-        <p class="mt-1 text-sm text-muted">Recorded by {{ event.recorded_by?.name ?? '—' }}</p>
+        <p class="mt-1 text-sm text-muted">Done by {{ event.recorded_by?.name ?? '—' }}</p>
         <p v-if="event.remarks" class="mt-1 text-sm break-words text-slate-700">
           {{ event.remarks }}
         </p>
@@ -58,7 +58,7 @@ const detailValue = (d: PassportHistoryEvent['details'][number]) =>
             <th scope="col" class="py-3 pr-4 font-semibold">Step</th>
             <th scope="col" class="py-3 pr-4 font-semibold">Event</th>
             <th scope="col" class="py-3 pr-4 font-semibold">Details</th>
-            <th scope="col" class="py-3 pr-4 font-semibold">Recorded by</th>
+            <th scope="col" class="py-3 pr-4 font-semibold">Done by</th>
             <th scope="col" class="py-3 font-semibold">Remarks</th>
           </tr>
         </thead>

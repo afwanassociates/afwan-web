@@ -115,6 +115,8 @@ export interface MedicalSlipPayload {
   /** YYYY-MM-DD; required (null clears it, only while no result is recorded). */
   medical_slip_date: string | null
   medical_center_id: number | null
+  /** YYYY-MM-DD, today or earlier; null clears it (not once a result exists). */
+  medical_date?: string | null
 }
 
 /** Counts of one stage: total plus per status (pending/unfit for medical; waiting/in_process/rejected after). */

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppToast from '@/components/AppToast.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -131,7 +131,7 @@ const navItems = computed(() => {
       section: '/reports/references',
     })
   }
-  // The recruitment agent report (passport counts), right after the reference report: both heads.
+  // The recruitment agent report (passport counts), right after the reference report: both heads and data entry.
   if (AGENT_REPORT_ROLES.includes(role))
     items.push({ name: 'agent-report', label: 'Recruitment Agent Report' })
   // All Passports is read-only, so accounts see it too (without the data-entry screens).
@@ -302,6 +302,11 @@ async function logout() {
     router.push({ name: 'login' })
   }
 }
+
+// Device-wise sizing of the staff portal (main.css, html.staff-ui): a little smaller text and
+// spacing on phones and laptops, full size on large monitors. The public website is not affected.
+onMounted(() => document.documentElement.classList.add('staff-ui'))
+onBeforeUnmount(() => document.documentElement.classList.remove('staff-ui'))
 </script>
 
 <template>

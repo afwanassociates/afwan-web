@@ -352,8 +352,10 @@ describe('Passport page: medical re-test (operations head)', () => {
     await form.trigger('submit')
     await flushPromises()
 
-    expect(form.text()).toContain('The re-test must be after the last medical (20-09-2026).')
-    expect(form.text()).toContain('Choose the result of the re-test.')
+    await vi.waitFor(() => {
+      expect(form.text()).toContain('The re-test must be after the last medical (20-09-2026).')
+      expect(form.text()).toContain('Choose the result of the re-test.')
+    })
     expect(updateMedicalDate).not.toHaveBeenCalled()
   })
 

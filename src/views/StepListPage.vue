@@ -39,7 +39,8 @@ import { useAuthStore } from '@/stores/auth'
 import { useWorkflowStore } from '@/stores/workflow'
 import type { CompanySummary, ReferenceSummary } from '@/types/passport'
 import type { AgentTabCounts } from '@/types/agents'
-import AgentSelect from '@/components/agents/AgentSelect.vue'
+import AgentFilterBar from '@/components/agents/AgentFilterBar.vue'
+import RowMenu from '@/components/RowMenu.vue'
 import type {
   BulkResult,
   StepAction,
@@ -1304,9 +1305,9 @@ function afterReturn() {
           :aria-labelledby="`step-tab-${activeTab}`"
           class="pt-5"
         >
-          <!-- One line: the agent dropdown and the Search filter button (shows the search fields) -->
+          <!-- The agent cards, then the Search filter button (shows the search fields) -->
+          <AgentFilterBar v-model="agentFilter" :counts="agentCounts" class="mb-3" />
           <div class="flex flex-wrap items-center gap-3" data-filter-bar>
-            <AgentSelect v-model="agentFilter" :counts="agentCounts" class="w-full sm:w-72" />
             <button
               type="button"
               class="btn btn-primary text-sm"
@@ -1780,11 +1781,60 @@ function afterReturn() {
                             Pending
                           </span>
                         </td>
+                        <!-- The booking date with its pencil, or the button to enter it -->
                         <td
                           class="py-3 pr-4 whitespace-nowrap text-slate-800"
                           data-cell="booking_date"
                         >
-                          {{ toDisplayDate(row.booking_date) || '-' }}
+                          <span class="inline-flex items-center gap-1">
+                            <span v-if="row.booking_date">{{
+                              toDisplayDate(row.booking_date)
+                            }}</span>
+                            <span v-else-if="!tabHasActions">-</span>
+                            <template v-if="tabHasActions">
+                              <button
+                                v-if="!row.booking_date"
+                                type="button"
+                                :class="[
+                                  actionClass,
+                                  'border border-primary-300 bg-white text-primary-800 hover:bg-primary-50',
+                                ]"
+                                :disabled="busyRows.has(row.id)"
+                                data-booking
+                                @click="openBooking(row, $event)"
+                              >
+                                {{ bookingField?.label
+                                }}<span class="sr-only">{{ ` for ${row.passport_number}` }}</span>
+                              </button>
+                              <button
+                                v-else
+                                type="button"
+                                class="rounded-full p-2 text-primary-700 hover:bg-primary-50 disabled:opacity-50"
+                                :disabled="busyRows.has(row.id)"
+                                data-booking
+                                data-booking-edit
+                                @click="openBooking(row, $event)"
+                              >
+                                <svg
+                                  class="h-4 w-4"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                  stroke-linecap="round"
+                                  stroke-linejoin="round"
+                                  aria-hidden="true"
+                                >
+                                  <path
+                                    d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4zM13.5 6.5l4 4"
+                                  />
+                                </svg>
+                                <span class="sr-only">{{
+                                  `Change the ${(bookingField?.label ?? 'booking date').toLowerCase()} of ${row.passport_number}`
+                                }}</span>
+                              </button>
+                            </template>
+                          </span>
                         </td>
                       </template>
                       <!-- Pending (visa): the start date, once entered -->
@@ -1836,48 +1886,9 @@ function afterReturn() {
                         </td>
                       </template>
                       <td v-if="tabHasActions" class="py-3" :class="STICKY" data-actions>
-                        <div class="flex flex-wrap justify-end gap-1">
+                        <div class="flex flex-nowrap items-center justify-end gap-1">
                           <!-- Flight Pending: the booking date (any time), then the one-click confirm -->
                           <template v-if="isBookingStep && isPendingTab">
-                            <button
-                              v-if="!row.booking_date"
-                              type="button"
-                              :class="[
-                                actionClass,
-                                'border border-primary-300 bg-white text-primary-800 hover:bg-primary-50',
-                              ]"
-                              :disabled="busyRows.has(row.id)"
-                              data-booking
-                              @click="openBooking(row, $event)"
-                            >
-                              {{ bookingField?.label
-                              }}<span class="sr-only">{{ ` for ${row.passport_number}` }}</span>
-                            </button>
-                            <button
-                              v-else
-                              type="button"
-                              class="rounded-full p-2 text-primary-700 hover:bg-primary-50 disabled:opacity-50"
-                              :disabled="busyRows.has(row.id)"
-                              data-booking
-                              data-booking-edit
-                              @click="openBooking(row, $event)"
-                            >
-                              <svg
-                                class="h-4 w-4"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                                aria-hidden="true"
-                              >
-                                <path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4zM13.5 6.5l4 4" />
-                              </svg>
-                              <span class="sr-only">{{
-                                `Change the ${(bookingField?.label ?? 'booking date').toLowerCase()} of ${row.passport_number}`
-                              }}</span>
-                            </button>
                             <span class="inline-block" :title="confirmHint(row)">
                               <button
                                 type="button"
@@ -1958,17 +1969,21 @@ function afterReturn() {
                           >
                             Apply again<span class="sr-only">{{ ` ${row.passport_number}` }}</span>
                           </button>
-                          <button
+                          <!-- More actions: Return to owner -->
+                          <RowMenu
                             v-if="canReturn"
-                            type="button"
-                            :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
-                            :data-return-action="row.id"
-                            @click="askReturn(row)"
+                            :label="`More actions for ${row.passport_number}`"
                           >
-                            Return to owner<span class="sr-only">{{
-                              ` passport ${row.passport_number}`
-                            }}</span>
-                          </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              class="block w-full px-4 py-2 text-left text-sm font-semibold text-amber-800 hover:bg-slate-50"
+                              :data-return-action="row.id"
+                              @click="askReturn(row)"
+                            >
+                              Return to owner
+                            </button>
+                          </RowMenu>
                         </div>
                       </td>
                     </tr>

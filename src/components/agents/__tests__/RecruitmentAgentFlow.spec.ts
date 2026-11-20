@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import AgentFormDialog from '../AgentFormDialog.vue'
-import AgentSelect from '../AgentSelect.vue'
+import AgentFilterBar from '../AgentFilterBar.vue'
 import { createAgent } from '@/api/agents'
 import type { AgentTabCounts } from '@/types/agents'
 
@@ -73,23 +73,30 @@ describe('AgentFormDialog', () => {
   })
 })
 
-describe('AgentSelect', () => {
-  it('lists All agents, Own, the partners and No agent with counts, and picks one', async () => {
-    wrapper = mount(AgentSelect, { props: { modelValue: null, counts: COUNTS } })
+describe('AgentFilterBar', () => {
+  it('shows All agents, Own first, each partner and No agent as cards, and picks one', async () => {
+    wrapper = mount(AgentFilterBar, {
+      props: {
+        modelValue: null,
+        counts: COUNTS,
+        'onUpdate:modelValue': (v: number | 'none' | null) => wrapper.setProps({ modelValue: v }),
+      },
+    })
 
-    const options = wrapper.findAll('option').map((o) => o.text())
-    expect(options).toEqual([
-      'All agents (7)',
-      'Afwan (3)',
-      'Karim (2)',
-      '⚠ No agent (2)',
-    ])
+    const cards = wrapper.findAll('[data-agent]')
+    expect(cards.map((c) => c.attributes('data-agent'))).toEqual(['all', '1', '2', 'none'])
+    expect(cards[0]!.text()).toContain('(7)')
+    expect(cards[1]!.text()).toContain('Own')
+    expect(cards[1]!.text()).not.toContain('AG-001')
+    expect(cards[3]!.text()).toContain('Blocked until an agent is approved')
 
-    await wrapper.get('select').setValue('2')
+    await cards[2]!.trigger('click')
     expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([2])
-    await wrapper.get('select').setValue('none')
-    expect(wrapper.emitted('update:modelValue')?.[1]).toEqual(['none'])
-    await wrapper.get('select').setValue('')
-    expect(wrapper.emitted('update:modelValue')?.[2]).toEqual([null])
+    expect(wrapper.get('[data-agent="2"]').attributes('aria-pressed')).toBe('true')
+  })
+
+  it('hides No agent when every passport has one', () => {
+    wrapper = mount(AgentFilterBar, { props: { modelValue: null, counts: { ...COUNTS, none: 0 } } })
+    expect(wrapper.find('[data-agent="none"]').exists()).toBe(false)
   })
 })

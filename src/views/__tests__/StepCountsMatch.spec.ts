@@ -221,6 +221,7 @@ async function mountAt(path: string) {
     'medical',
     'companies',
     'reference-report',
+    'agent-report',
     'admin-references',
     // The admin's sidebar links (the Flight test switches to an admin to Undo).
     'staff-admin',

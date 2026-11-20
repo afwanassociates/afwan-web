@@ -9,8 +9,7 @@ import type { AgentBucket, AgentReport, AgentReportPassport, AgentSummary } from
 
 /**
  * Agent report (the Operations Head and the Accounts Head): per recruitment agent, the passports
- * it has now, those that count for it (are paid: not returned, not unfit; a changed passport
- * only when the Accounts Head said Yes) and where they are in the workflow. A "No agent" row
+ * it has now and where they are, step by step from entry to flight. A "No agent" row
  * shows the passports without one. Clicking a row or number lists its passports
  * (?agent=<id>|none&bucket=<bucket>). No money here.
  */
@@ -36,7 +35,11 @@ const BUCKETS: AgentBucket[] = [
   'medical_pending',
   'fit',
   'unfit',
-  'calling_onwards',
+  'calling',
+  'visa',
+  'bmet',
+  'flight',
+  'completed',
   'returned',
 ]
 
@@ -45,7 +48,7 @@ const totals = computed(() => {
   if (!r) return null
   return {
     current: r.agents.reduce((n, a) => n + a.current, 0),
-    counted: r.agents.reduce((n, a) => n + a.counted, 0),
+    done: r.agents.reduce((n, a) => n + a.buckets.completed, 0),
     none: r.no_agent.current,
   }
 })
@@ -102,14 +105,6 @@ function show(agent: number | 'none', bucket: AgentBucket | null = null) {
   router.replace({ query: { agent: String(agent), ...(bucket ? { bucket } : {}) } })
 }
 
-const countedLabel = (p: AgentReportPassport) => {
-  const a = p.assignment
-  if (!a) return '—'
-  if (a.counted) return 'Yes'
-  if (a.count_decision === 'waiting') return 'Waiting (Accounts Head)'
-  return 'No'
-}
-
 const cellLink =
   'rounded px-1 font-semibold text-primary-700 tabular-nums hover:bg-primary-50 hover:underline'
 </script>
@@ -118,8 +113,8 @@ const cellLink =
   <div class="mx-auto max-w-7xl">
     <h1 class="text-2xl font-bold text-primary-900 sm:text-3xl">Recruitment Agent Report</h1>
     <p class="mt-1 text-sm text-muted">
-      How many passports each recruitment agent has, and how many count for it. Returned and unfit
-      passports do not count.
+      How many passports each recruitment agent has, and where they are: every step from passport
+      entry to flight. Click a number to see the passports.
     </p>
 
     <div v-if="loadError" role="alert" class="glass-card mt-6 space-y-4 p-6 text-center">
@@ -135,8 +130,8 @@ const cellLink =
           <p class="mt-1 text-2xl font-bold text-ink tabular-nums">{{ totals.current }}</p>
         </div>
         <div class="glass-card p-4">
-          <p class="text-sm text-muted">Counted for agents</p>
-          <p class="mt-1 text-2xl font-bold text-ink tabular-nums">{{ totals.counted }}</p>
+          <p class="text-sm text-muted">Flight done</p>
+          <p class="mt-1 text-2xl font-bold text-ink tabular-nums">{{ totals.done }}</p>
         </div>
         <div class="glass-card p-4">
           <p class="text-sm text-muted">Without an agent</p>
@@ -151,8 +146,6 @@ const cellLink =
               <th scope="col" class="py-3 pr-4 font-semibold">Agent</th>
               <th scope="col" class="py-3 pr-4 font-semibold">RL No.</th>
               <th scope="col" class="py-3 pr-4 text-right font-semibold">Now</th>
-              <th scope="col" class="py-3 pr-4 text-right font-semibold">Counted</th>
-              <th scope="col" class="py-3 pr-4 text-right font-semibold">Waiting approval</th>
               <th
                 v-for="b in BUCKETS"
                 :key="b"
@@ -189,10 +182,6 @@ const cellLink =
               <td class="py-3 pr-4 text-right">
                 <button type="button" :class="cellLink" @click="show(a.id)">{{ a.current }}</button>
               </td>
-              <td class="py-3 pr-4 text-right font-semibold text-green-800 tabular-nums">
-                {{ a.counted }}
-              </td>
-              <td class="py-3 pr-4 text-right tabular-nums">{{ a.waiting_approval }}</td>
               <td v-for="b in BUCKETS" :key="b" class="py-3 pr-4 text-right">
                 <button v-if="a.buckets[b]" type="button" :class="cellLink" @click="show(a.id, b)">
                   {{ a.buckets[b] }}
@@ -219,10 +208,6 @@ const cellLink =
                 <button type="button" :class="cellLink" @click="show('none')">
                   {{ report.no_agent.current }}
                 </button>
-              </td>
-              <td class="py-3 pr-4 text-right">—</td>
-              <td class="py-3 pr-4 text-right tabular-nums">
-                {{ report.no_agent.waiting_approval }}
               </td>
               <td v-for="b in BUCKETS" :key="b" class="py-3 pr-4 text-right">
                 <button
@@ -296,8 +281,7 @@ const cellLink =
                 <th scope="col" class="py-2 pr-3 font-semibold">Stage</th>
                 <template v-if="selectedAgent !== 'none'">
                   <th scope="col" class="py-2 pr-3 font-semibold">From</th>
-                  <th scope="col" class="py-2 pr-3 font-semibold">To</th>
-                  <th scope="col" class="py-2 font-semibold">Counted</th>
+                  <th scope="col" class="py-2 font-semibold">To</th>
                 </template>
                 <th v-else scope="col" class="py-2 font-semibold">Agent</th>
               </tr>
@@ -322,7 +306,7 @@ const cellLink =
                   <td class="py-2 pr-3 whitespace-nowrap">
                     {{ toDisplayDate(p.assignment?.assigned_date) }}
                   </td>
-                  <td class="py-2 pr-3 whitespace-nowrap">
+                  <td class="py-2 whitespace-nowrap">
                     {{
                       p.assignment?.status === 'pending'
                         ? 'Waiting approval'
@@ -330,12 +314,6 @@ const cellLink =
                           ? '(current)'
                           : toDisplayDate(p.assignment?.ended_date)
                     }}
-                  </td>
-                  <td
-                    class="py-2 font-semibold"
-                    :class="p.assignment?.counted ? 'text-green-800' : 'text-slate-600'"
-                  >
-                    {{ countedLabel(p) }}
                   </td>
                 </template>
                 <td v-else class="py-2">

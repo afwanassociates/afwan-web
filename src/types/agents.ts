@@ -45,7 +45,16 @@ export type CountDecision = 'waiting' | 'yes' | 'no'
 
 /** Where a passport is, in the agent report. */
 export type AgentBucket =
-  'not_started' | 'medical_pending' | 'fit' | 'unfit' | 'calling_onwards' | 'returned'
+  | 'not_started'
+  | 'medical_pending'
+  | 'fit'
+  | 'unfit'
+  | 'calling'
+  | 'visa'
+  | 'bmet'
+  | 'flight'
+  | 'completed'
+  | 'returned'
 
 interface Person {
   id: number
@@ -69,6 +78,8 @@ export interface AgentAssignment {
   assigned_by?: Person | null
   approved_by?: Person | null
   approved_at: string | null
+  approval_undone_by?: Person | null
+  approval_undone_at?: string | null
   returned_by?: Person | null
   returned_at: string | null
   return_reason: string | null

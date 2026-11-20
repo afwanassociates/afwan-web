@@ -6,7 +6,7 @@ import SearchSelect from '@/components/SearchSelect.vue'
 import { updateMedicalSlip } from '@/api/medical'
 import { createMedicalCenter, searchMedicalCenters } from '@/api/medicalCenters'
 import { useToast } from '@/composables/useToast'
-import { toApiDate, toDisplayDate } from '@/lib/dates'
+import { businessToday, toApiDate, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import { PASSPORT_ROLES } from '@/lib/roles'
 import { useAuthStore } from '@/stores/auth'
@@ -15,8 +15,9 @@ import type { MedicalCenterSummary } from '@/types/medical'
 import type { PassportEntry } from '@/types/passport'
 
 /**
- * Adds or edits a passport's medical slip ("MYGRAM"): date (required), number and medical
- * centre. Saving the date moves a "not started" passport into Medical → Pending.
+ * Adds or edits a passport's medical slip ("MYGRAM"): slip date, medical date (today or
+ * earlier) and medical centre, all required. Saving the slip date
+ * moves a "not started" passport into Medical → Pending.
  */
 const open = defineModel<boolean>('open', { required: true })
 const props = defineProps<{
@@ -31,8 +32,11 @@ const auth = useAuthStore()
 const workflow = useWorkflowStore()
 
 const dateId = useId()
+const medicalDateId = useId()
+const today = ref(businessToday())
 
 const slipDate = ref('')
+const medicalDate = ref('')
 const center = ref<MedicalCenterSummary | null>(null)
 const errors = ref<Record<string, string>>({})
 const banner = ref<string | null>(null)
@@ -57,12 +61,15 @@ watch(open, (isOpen) => {
   if (!isOpen) return
   const slip = props.passport?.medical_slip
   slipDate.value = slip?.date ?? ''
+  medicalDate.value = props.passport?.medical_date ?? ''
+  today.value = businessToday()
   center.value = slip?.medical_center ?? null
   errors.value = {}
   banner.value = null
 })
 
 watch(slipDate, () => delete errors.value.medical_slip_date)
+watch(medicalDate, () => delete errors.value.medical_date)
 watch(center, () => delete errors.value.medical_center_id)
 
 /* ---------- Medical centre (admins may add a new one) ---------- */
@@ -91,6 +98,11 @@ function validate(): boolean {
   const e: Record<string, string> = {}
   if (!slipDate.value) e.medical_slip_date = 'Enter the medical slip date.'
   else if (!toApiDate(slipDate.value)) e.medical_slip_date = 'Enter a valid date.'
+  const medical = toApiDate(medicalDate.value)
+  if (!medicalDate.value) e.medical_date = 'Enter the medical date.'
+  else if (!medical) e.medical_date = 'Enter a valid date.'
+  else if (medical > businessToday()) e.medical_date = 'The medical date cannot be in the future.'
+  if (!center.value) e.medical_center_id = 'Choose the medical center.'
   errors.value = e
   return Object.keys(e).length === 0
 }
@@ -105,6 +117,7 @@ async function save() {
     const updated = await updateMedicalSlip(passport.id, {
       medical_slip_date: toApiDate(slipDate.value),
       medical_center_id: center.value?.id ?? null,
+      medical_date: toApiDate(medicalDate.value),
     })
     toast.success(
       props.successMessage ??
@@ -186,10 +199,38 @@ const inputClass =
         </p>
       </div>
 
+      <div data-field="medical_date">
+        <label :for="medicalDateId" class="block text-sm font-medium text-slate-700">
+          Medical date<span class="text-red-700" aria-hidden="true"> *</span>
+        </label>
+        <input
+          :id="medicalDateId"
+          v-model="medicalDate"
+          type="date"
+          :max="today"
+          required
+          :class="[inputClass, errors.medical_date ? 'border-red-500' : 'border-slate-300']"
+          :aria-invalid="errors.medical_date ? 'true' : undefined"
+          :aria-describedby="`${medicalDateId}-hint${errors.medical_date ? ` ${medicalDateId}-error` : ''}`"
+        />
+        <p :id="`${medicalDateId}-hint`" class="mt-1 text-xs text-muted">
+          {{ toDisplayDate(toApiDate(medicalDate)) || 'DD-MM-YYYY' }} · The day of the medical
+          (today or earlier).
+        </p>
+        <p
+          v-if="errors.medical_date"
+          :id="`${medicalDateId}-error`"
+          class="mt-1 text-sm text-red-700"
+        >
+          {{ errors.medical_date }}
+        </p>
+      </div>
+
       <SearchSelect
         v-model="center"
         :fetch="fetchCenters"
         label="Medical center"
+        required
         placeholder="Search medical center…"
         :add-label="canAddCenter ? 'Add new medical center' : undefined"
         :error="errors.medical_center_id"

@@ -2,7 +2,9 @@
 import { computed, ref, watch } from 'vue'
 import AgentStatusBadge from '@/components/agents/AgentStatusBadge.vue'
 import AssignAgentDialog from '@/components/agents/AssignAgentDialog.vue'
-import { listAgentAssignments } from '@/api/agents'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import { listAgentAssignments, undoAgentApproval } from '@/api/agents'
+import { useToast } from '@/composables/useToast'
 import { toDisplayDate } from '@/lib/dates'
 import { errorMessage } from '@/lib/errors'
 import type { AgentAssignment } from '@/types/agents'
@@ -47,6 +49,33 @@ const buttonLabel = computed(() =>
       : 'Assign agent',
 )
 
+// Operations Head: undo the agent approval (back to waiting for approval).
+const toast = useToast()
+const undoOpen = ref(false)
+const undoBusy = ref(false)
+const undoError = ref<string | null>(null)
+const canUndo = computed(() => Boolean(props.passport.can.undo_agent_approval))
+
+function openUndo() {
+  undoError.value = null
+  undoOpen.value = true
+}
+
+async function confirmUndo() {
+  undoBusy.value = true
+  undoError.value = null
+  try {
+    await undoAgentApproval(props.passport.id)
+    undoOpen.value = false
+    toast.success('Agent approval undone. It is waiting for approval again.')
+    onSaved()
+  } catch (error) {
+    undoError.value = errorMessage(error, 'Could not undo the agent approval.')
+  } finally {
+    undoBusy.value = false
+  }
+}
+
 function onSaved() {
   emit('changed')
   loadHistory()
@@ -77,6 +106,15 @@ const dd = 'font-medium text-ink'
           @click="dialogOpen = true"
         >
           {{ buttonLabel }}
+        </button>
+        <button
+          v-if="canUndo"
+          type="button"
+          class="btn btn-white text-sm"
+          data-undo-agent-approval
+          @click="openUndo"
+        >
+          Undo approval
         </button>
       </div>
     </div>
@@ -167,6 +205,12 @@ const dd = 'font-medium text-ink'
                   (row.status === 'returned' ? row.returned_by?.name : '—') ??
                   '—'
                 }}
+                <span
+                  v-if="row.approval_undone_by"
+                  class="block text-xs text-amber-800"
+                  data-approval-undone
+                  >Approval undone by {{ row.approval_undone_by.name }}</span
+                >
               </td>
               <td class="py-2">
                 {{ countLabel(row) }}
@@ -182,5 +226,18 @@ const dd = 'font-medium text-ink'
     <p v-if="historyError" class="mt-3 text-sm text-red-700">{{ historyError }}</p>
 
     <AssignAgentDialog v-model:open="dialogOpen" :passport="passport" @saved="onSaved" />
+    <ConfirmDialog
+      v-model:open="undoOpen"
+      :title="`Undo the approval of ${passport.recruitment_agent?.name ?? 'this agent'}?`"
+      confirm-label="Undo approval"
+      danger
+      :busy="undoBusy"
+      :error="undoError"
+      @confirm="confirmUndo"
+    >
+      The agent goes back to <strong>Waiting for approval</strong>. Approve it again, or return it
+      to data entry to choose another agent. The passport can't go to Medical until an agent is
+      approved. This stays in the agent history.
+    </ConfirmDialog>
   </section>
 </template>

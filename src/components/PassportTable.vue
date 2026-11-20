@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import PassportCell from '@/components/PassportCell.vue'
+import RowMenu from '@/components/RowMenu.vue'
 import { COLUMN_LABELS, type PassportColumn } from '@/lib/passportColumns'
 import { businessToday } from '@/lib/dates'
 import { STICKY_ACTIONS, TABLE_HEAD } from '@/lib/tableClasses'
@@ -9,7 +10,7 @@ import type { PassportEntry } from '@/types/passport'
 /**
  * Passport entries as a table on wide screens and as cards on narrow ones.
  * The passport name (linked to its detail page) and number always come first; `columns`
- * picks the rest. The `actions` slot replaces the default Edit / Return buttons;
+ * picks the rest. The `actions` slot replaces the default ⋯ menu (Edit, Return to owner);
  * `extra-actions` adds buttons before them.
  */
 withDefaults(
@@ -53,8 +54,8 @@ const today = businessToday()
 /** Right-pinned actions column: white background and a soft edge over scrolled cells. */
 const STICKY = STICKY_ACTIONS
 
-const actionClass =
-  'rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-primary-50 focus-visible:bg-primary-50'
+/** An item of the row's ⋯ menu. */
+const menuItemClass = 'block w-full px-4 py-2 text-left text-sm font-semibold hover:bg-slate-50'
 </script>
 
 <template>
@@ -97,25 +98,33 @@ const actionClass =
           </dd>
         </template>
       </dl>
-      <div class="mt-2 -ml-2 flex flex-wrap gap-1">
+      <div class="mt-2 -ml-2 flex flex-wrap items-center gap-1">
         <slot name="extra-actions" :entry="entry" />
         <slot name="actions" :entry="entry">
-          <RouterLink
-            v-if="defaultActions && entry.can.update"
-            :to="{ name: 'passport-edit', params: { id: entry.id } }"
-            :class="[actionClass, 'text-primary-700']"
+          <RowMenu
+            v-if="defaultActions && (entry.can.update || entry.can.return)"
+            :label="`More actions for ${entry.passport_number}`"
           >
-            Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
-          </RouterLink>
-          <button
-            v-if="defaultActions && entry.can.return"
-            type="button"
-            :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
-            :data-return-action="entry.id"
-            @click="$emit('return', entry)"
-          >
-            Return to owner<span class="sr-only"> passport {{ entry.passport_number }}</span>
-          </button>
+            <RouterLink
+              v-if="entry.can.update"
+              :to="{ name: 'passport-edit', params: { id: entry.id } }"
+              role="menuitem"
+              :class="[menuItemClass, 'text-primary-800']"
+              data-edit-action
+            >
+              Edit
+            </RouterLink>
+            <button
+              v-if="entry.can.return"
+              type="button"
+              role="menuitem"
+              :class="[menuItemClass, 'text-amber-800']"
+              :data-return-action="entry.id"
+              @click="$emit('return', entry)"
+            >
+              Return to owner
+            </button>
+          </RowMenu>
         </slot>
       </div>
     </li>
@@ -202,25 +211,33 @@ const actionClass =
             />
           </td>
           <td class="py-3" :class="{ [STICKY]: stickyActions }" data-actions>
-            <div class="flex flex-wrap justify-end gap-1">
+            <div class="flex flex-wrap items-center justify-end gap-1">
               <slot name="extra-actions" :entry="entry" />
               <slot name="actions" :entry="entry">
-                <RouterLink
-                  v-if="defaultActions && entry.can.update"
-                  :to="{ name: 'passport-edit', params: { id: entry.id } }"
-                  :class="[actionClass, 'text-primary-700']"
+                <RowMenu
+                  v-if="defaultActions && (entry.can.update || entry.can.return)"
+                  :label="`More actions for ${entry.passport_number}`"
                 >
-                  Edit<span class="sr-only"> passport {{ entry.passport_number }}</span>
-                </RouterLink>
-                <button
-                  v-if="defaultActions && entry.can.return"
-                  type="button"
-                  :class="[actionClass, 'text-amber-800 hover:bg-amber-50']"
-                  :data-return-action="entry.id"
-                  @click="$emit('return', entry)"
-                >
-                  Return to owner<span class="sr-only"> passport {{ entry.passport_number }}</span>
-                </button>
+                  <RouterLink
+                    v-if="entry.can.update"
+                    :to="{ name: 'passport-edit', params: { id: entry.id } }"
+                    role="menuitem"
+                    :class="[menuItemClass, 'text-primary-800']"
+                    data-edit-action
+                  >
+                    Edit
+                  </RouterLink>
+                  <button
+                    v-if="entry.can.return"
+                    type="button"
+                    role="menuitem"
+                    :class="[menuItemClass, 'text-amber-800']"
+                    :data-return-action="entry.id"
+                    @click="$emit('return', entry)"
+                  >
+                    Return to owner
+                  </button>
+                </RowMenu>
               </slot>
             </div>
           </td>

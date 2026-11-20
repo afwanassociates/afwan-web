@@ -7,8 +7,8 @@ export const AGENT_ASSIGNER_ROLES: readonly Role[] = ['data_entry']
 /** Agent list, Agent Approvals: the operations head. */
 export const AGENT_MANAGER_ROLES: readonly Role[] = ['operation_head']
 
-/** The agent report (passport counts, no money). */
-export const AGENT_REPORT_ROLES: readonly Role[] = ['operation_head', 'accounts_head']
+/** The agent report (passport counts, no money): also data entry. */
+export const AGENT_REPORT_ROLES: readonly Role[] = ['operation_head', 'accounts_head', 'data_entry']
 
 /** Agent Changes: does a moved passport still count for the old agent? */
 export const AGENT_DECIDER_ROLES: readonly Role[] = ['accounts_head']
@@ -21,7 +21,11 @@ export const BUCKET_LABELS: Record<AgentBucket, string> = {
   medical_pending: 'Medical pending',
   fit: 'Fit',
   unfit: 'Unfit',
-  calling_onwards: 'Calling onwards',
+  calling: 'Calling',
+  visa: 'Visa',
+  bmet: 'BMET',
+  flight: 'Flight pending',
+  completed: 'Flight done',
   returned: 'Returned',
 }
 

@@ -5,6 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import PassportDetailView from '../PassportDetailView.vue'
 import { getPassport, undoPassportReturn, updateEntryMode } from '@/api/passports'
 import { updateMedicalSlip } from '@/api/medical'
+import { undoAgentApproval } from '@/api/agents'
 import { listStepRecords } from '@/api/steps'
 import { useAuthStore } from '@/stores/auth'
 import { makePassport, makeUser } from '@/test/helpers'
@@ -25,6 +26,12 @@ vi.mock('@/api/medical', () => ({
   listMedicals: vi.fn(async () => []),
   updateMedicalSlip: vi.fn(),
   cancelMedicalResult: vi.fn(),
+}))
+vi.mock('@/api/agents', () => ({
+  listAgentAssignments: vi.fn(async () => []),
+  undoAgentApproval: vi.fn(),
+  assignAgent: vi.fn(),
+  searchAgents: vi.fn(async () => []),
 }))
 vi.mock('@/api/steps', () => ({
   listStepRecords: vi.fn(async () => ({})),
@@ -89,6 +96,43 @@ beforeEach(() => {
 afterEach(() => wrapper?.unmount())
 
 describe('Passport page: undo in the Steps section (operations head only)', () => {
+  it('offers "Undo agent approval" on Passport Entry before the medical slip', async () => {
+    vi.mocked(undoAgentApproval).mockResolvedValue({} as never)
+    await mountDetail({
+      agent_status: 'approved',
+      recruitment_agent: {
+        id: 5,
+        code: 'AG-005',
+        name: 'Tania Treaders ltd',
+        rl_number: 'RL-2201',
+        is_own: false,
+        assigned_date: '2026-11-19',
+      },
+      can: { undo_agent_approval: true } as PassportEntry['can'],
+      workflow: {
+        steps: ['passport', 'medical', 'calling'].map((key) => ({
+          key,
+          label: key,
+          enabled: true,
+          state: key === 'passport' ? 'current' : 'locked',
+        })),
+      } as PassportEntry['workflow'],
+    })
+
+    const step = wrapper.get('[data-timeline-step="passport"]')
+    expect(step.get('[data-timeline-agent]').text()).toContain('Tania Treaders ltd')
+    expect(step.text()).toContain('RL-2201')
+    expect(step.text()).not.toContain('Nothing recorded yet')
+
+    const button = wrapper.get('[data-timeline-step="passport"] button[data-early-undo]')
+    expect(button.text()).toBe('Undo agent approval')
+    await button.trigger('click')
+    await flushPromises()
+    await confirmDialog('Undo agent approval')
+
+    expect(undoAgentApproval).toHaveBeenCalledWith(20)
+  })
+
   it('offers no "Undo latest step": step records are never deleted', async () => {
     vi.mocked(listStepRecords).mockResolvedValue({
       calling: [

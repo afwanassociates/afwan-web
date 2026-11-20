@@ -4,17 +4,18 @@ import BaseDialog from '@/components/staff/BaseDialog.vue'
 import SearchSelect from '@/components/SearchSelect.vue'
 import { bulkAssignAgent, searchAgents } from '@/api/agents'
 import { listPassports } from '@/api/passports'
+import { searchReferences } from '@/api/references'
 import { useDebounce } from '@/composables/useDebounce'
 import { useToast } from '@/composables/useToast'
 import { businessToday, toDisplayDate } from '@/lib/dates'
 import { errorMessage, errorStatus, fieldErrors } from '@/lib/errors'
 import type { AgentSummary, BulkAgentResult } from '@/types/agents'
-import type { PassportEntry } from '@/types/passport'
+import type { PassportEntry, Reference } from '@/types/passport'
 
 /**
  * Data entry: one recruitment agent and date for many passports at once (e.g. the passports that
  * went to agents before this feature). Lists passports with no agent and none waiting, at any
- * stage. Each goes to the Operations Head for approval; passports that cannot be assigned are
+ * stage. Choosing a reference lists only its passports and ticks them all (reference-wise). Each goes to the Operations Head for approval; passports that cannot be assigned are
  * listed with the reason.
  */
 const open = defineModel<boolean>('open', { required: true })
@@ -27,6 +28,11 @@ const remarkId = useId()
 const today = businessToday()
 
 const PER_PAGE = 100
+/** A reference's passports are all listed (the API's most per page). */
+const REFERENCE_PER_PAGE = 300
+
+const reference = ref<Reference | null>(null)
+const fetchReferences = (q: string) => searchReferences({ q })
 
 const search = ref('')
 const passports = ref<PassportEntry[]>([])
@@ -51,15 +57,18 @@ async function load() {
   try {
     const page = await listPassports({
       q: search.value.trim() || undefined,
+      reference_id: reference.value?.id,
       agent_status: 'none',
       medical_status: 'all',
       sort: 'passport_received_date',
       direction: 'asc',
-      per_page: PER_PAGE,
+      per_page: reference.value ? REFERENCE_PER_PAGE : PER_PAGE,
     })
     if (id !== requestId) return
     passports.value = page.data
     total.value = page.meta.total
+    // Reference-wise: every passport of the reference is ticked.
+    if (reference.value) selected.value = new Set(page.data.map((p) => p.id))
   } catch (error) {
     if (id === requestId && errorStatus(error) !== 401)
       loadError.value = errorMessage(error, 'Could not load the passports.')
@@ -72,6 +81,7 @@ const debounced = useDebounce(load, 300)
 watch(open, (isOpen) => {
   if (!isOpen) return
   search.value = ''
+  reference.value = null
   selected.value = new Set()
   agent.value = null
   date.value = today
@@ -79,6 +89,13 @@ watch(open, (isOpen) => {
   errors.value = {}
   banner.value = null
   result.value = null
+  load()
+})
+
+// A new reference lists (and ticks) its own passports.
+watch(reference, () => {
+  if (!open.value) return
+  selected.value = new Set()
   load()
 })
 
@@ -216,6 +233,16 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
 
       <div class="border-t border-stroke pt-4">
         <div class="flex flex-wrap items-end justify-between gap-3">
+          <div class="w-full sm:w-72" data-field="reference">
+            <SearchSelect
+              v-model="reference"
+              :fetch="fetchReferences"
+              label="Reference"
+              placeholder="All references"
+              hint="Choose one to assign all its passports"
+              clearable
+            />
+          </div>
           <div class="w-full sm:w-72">
             <label :for="searchId" class="block text-sm font-medium text-slate-700">
               Passports without an agent
@@ -259,6 +286,7 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
                 </th>
                 <th scope="col" class="py-2 pr-3 font-semibold">No.</th>
                 <th scope="col" class="py-2 pr-3 font-semibold">Passport</th>
+                <th scope="col" class="py-2 pr-3 font-semibold">Reference</th>
                 <th scope="col" class="py-2 pr-3 font-semibold">Received</th>
                 <th scope="col" class="py-2 pr-3 font-semibold">Medical slip</th>
               </tr>
@@ -280,6 +308,7 @@ const border = (field: string) => (errors.value[field] ? 'border-red-500' : 'bor
                     p.passport_number
                   }}</span>
                 </td>
+                <td class="py-2 pr-3">{{ p.reference?.name ?? '—' }}</td>
                 <td class="py-2 pr-3 whitespace-nowrap">
                   {{ toDisplayDate(p.passport_received_date) }}
                 </td>

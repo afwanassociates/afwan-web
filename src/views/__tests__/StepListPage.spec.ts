@@ -1335,15 +1335,17 @@ describe('Step pages (one per step)', () => {
         'text-amber-700',
       )
       expect(cell(73, 'bmet_status').get('[data-bmet="cleared"]').text()).toBe('Cleared 11-10-2026')
-      expect(cell(70, 'booking_date').text()).toBe('-')
-      expect(cell(73, 'booking_date').text()).toBe('01-12-2026')
+      // The booking date's button is in its own column (same row, same place as the date).
+      expect(cell(70, 'booking_date').get('button[data-booking]').text()).toMatch(
+        /^Flight booking date/,
+      )
+      expect(cell(73, 'booking_date').text()).toContain('01-12-2026')
       const buttons = wrapper.findAll('tr[data-row="70"] [data-actions] button')
       expect(buttons.map((b) => b.text().replace(/\s+(for\s+)?FL\d+$/, ''))).toEqual([
-        'Flight booking date',
         'Mark flight confirm',
       ])
-      // With a date: a pencil instead of the text button.
-      expect(wrapper.get('tr[data-row="73"] button[data-booking]').attributes()).toHaveProperty(
+      // With a date: a pencil beside the date instead of the text button.
+      expect(cell(73, 'booking_date').get('button[data-booking]').attributes()).toHaveProperty(
         'data-booking-edit',
       )
     })
@@ -1390,7 +1392,7 @@ describe('Step pages (one per step)', () => {
 
       expect(bookFlight).toHaveBeenCalledWith(70, addDays(TODAY, 40))
       expect(bookingPopover()).toBeNull()
-      expect(cell(70, 'booking_date').text()).toBe(toDisplay(addDays(TODAY, 40)))
+      expect(cell(70, 'booking_date').text()).toContain(toDisplay(addDays(TODAY, 40)))
       expect(wrapper.get('tr[data-row="70"] button[data-booking]').attributes()).toHaveProperty(
         'data-booking-edit',
       )
@@ -1535,6 +1537,19 @@ describe('Step pages (one per step)', () => {
       expect(cell(90, 'passport_done').text()).toBe('Done')
       expect(wrapper.findAll('tbody button')).toHaveLength(0)
       expect(wrapper.find('[data-booking], [data-date-popover]').exists()).toBe(false)
+    })
+
+    it('Flight Pending: Return to owner is in the ⋯ menu, beside the flight buttons', async () => {
+      flightPendingRows = [flightRow(91, { clearance: '2026-10-11', booking: '2026-11-02' })]
+      await mountStep('/flight', 'operation_head')
+
+      const actions = wrapper.get('tbody tr [data-actions]')
+      expect(actions.find('[data-confirm]').exists()).toBe(true)
+      expect(actions.text()).not.toContain('Return to owner')
+      await actions.get('[data-row-menu]').trigger('click')
+      await flushPromises()
+      const item = document.body.querySelector('[data-row-menu-items] [data-return-action="91"]')
+      expect(item?.textContent?.trim()).toBe('Return to owner')
     })
 
     it('Flight done: no Return, even for the operations head (the flight is confirmed)', async () => {
@@ -2002,23 +2017,18 @@ describe('Step pages (one per step)', () => {
       ],
     }
 
-    it('has the agent dropdown and lists one agent at a time', async () => {
+    it('has the agent cards and lists one agent at a time', async () => {
       vi.mocked(listStepPassports).mockResolvedValue({
         ...page([bmetRow(60)], 'bmet'),
         agent_counts: AGENT_COUNTS,
       })
       await mountStep('/bmet')
 
-      const select = wrapper.get('[data-filter-bar] select[data-agent-filter]')
-      expect(select.findAll('option').map((o) => o.attributes('value'))).toEqual([
-        '',
-        '1',
-        '2',
-        'none',
-      ])
+      const cards = wrapper.findAll('[data-agent-filter] [data-agent]')
+      expect(cards.map((c) => c.attributes('data-agent'))).toEqual(['all', '1', '2', 'none'])
       expect(lastListCall()[1].recruitment_agent_id).toBeUndefined()
 
-      await select.setValue('2')
+      await wrapper.get('[data-agent="2"]').trigger('click')
       await flushPromises()
       expect(router.currentRoute.value.query.agent).toBe('2')
       expect(lastListCall()[1].recruitment_agent_id).toBe(2)

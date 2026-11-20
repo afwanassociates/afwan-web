@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import MedicalView from '../MedicalView.vue'
@@ -386,48 +386,20 @@ describe('Medical page', () => {
       expect(fitButton().element.disabled).toBe(true)
       expect(unfitButton().element.disabled).toBe(true)
       expect(fitButton().element.parentElement!.getAttribute('title')).toBe(
-        'Enter the medical date first',
+        'Add the medical date first (⋯ → Edit slip)',
       )
-      expect(wrapper.get('tr[data-row]').text()).toContain('Enter medical date')
+      expect(wrapper.get('tr[data-row]').text()).toContain('Not added')
     })
 
-    it('enters the date in an inline popover (not in the future), then enables Fit / Unfit', async () => {
-      const { updateMedicalDate } = await import('@/api/medical')
-      const today = (await import('@/lib/dates')).businessToday()
-      const tomorrow = (await import('@/lib/dates')).addDays(today, 1)
-      vi.mocked(listPassports).mockResolvedValue(page([PENDING]))
-      vi.mocked(updateMedicalDate).mockResolvedValue({ ...PENDING, medical_date: '2026-10-05' })
+    it('shows the medical date read-only: it is entered in the medical slip modal', async () => {
+      vi.mocked(listPassports).mockResolvedValue(
+        page([PENDING, { ...PENDING, id: 61, medical_date: '2026-10-05' }]),
+      )
       await mountMedical()
 
-      await wrapper.get('button[data-enter-medical-date]').trigger('click')
-      // Rendered at the end of <body>, so the scrolling table cannot clip it.
-      const popoverEl = document.body.querySelector<HTMLFormElement>('[data-medical-date-popover]')
-      expect(popoverEl).not.toBeNull()
-      const popover = new DOMWrapper(popoverEl!)
-      expect(popover.element.tagName).toBe('FORM') // inline, not a modal dialog
-      expect(wrapper.find('dialog[open]').exists()).toBe(false)
-      expect(popover.get('input[type="date"]').attributes('max')).toBe(today)
-
-      // Required, and never in the future.
-      await popover.trigger('submit')
-      expect(popover.text()).toContain('Enter the medical date.')
-      await popover.get('input').setValue(tomorrow)
-      await popover.trigger('submit')
-      expect(popover.text()).toContain('The medical date cannot be in the future.')
-      expect(updateMedicalDate).not.toHaveBeenCalled()
-
-      await popover.get('input').setValue('2026-10-05')
-      await popover.trigger('submit')
-      await flushPromises()
-
-      expect(updateMedicalDate).toHaveBeenCalledWith(60, '2026-10-05')
-      expect(document.body.querySelector('[data-medical-date-popover]')).toBeNull()
-      const cell = wrapper.get('td[data-column="medical_date"]')
-      expect(cell.get('[data-medical-date]').text()).toBe('05-10-2026')
-      expect(cell.find('button[data-edit-medical-date]').exists()).toBe(true) // small edit icon
-      expect(cell.find('button[data-enter-medical-date]').exists()).toBe(false)
-      expect(fitButton().element.disabled).toBe(false)
-      expect(unfitButton().element.disabled).toBe(false)
+      const cells = wrapper.findAll('td[data-column="medical_date"]').map((td) => td.text())
+      expect(cells).toEqual(['Not added', '05-10-2026'])
+      expect(wrapper.find('tbody input[type="date"]').exists()).toBe(false)
     })
 
     it('unfit: a tiny confirm dialog (no fields), then the row moves to the Unfit tab', async () => {
@@ -569,7 +541,7 @@ describe('Medical page', () => {
   it('the old Record Medical Result modal no longer exists', () => {
     const components = import.meta.glob('../../components/*.vue')
     expect(Object.keys(components).some((path) => path.includes('RecordMedicalModal'))).toBe(false)
-    expect(Object.keys(components).some((path) => path.includes('MedicalDateCell'))).toBe(true)
+    expect(Object.keys(components).some((path) => path.includes('MedicalDateCell'))).toBe(false)
   })
 
   describe('Fit: issue and expiry dates', () => {
@@ -847,11 +819,11 @@ describe('Medical page', () => {
     })
   })
 
-  it('has the agent dropdown and a Search filter button on one line; it shows the search fields', async () => {
+  it('has the agent cards and a Search filter button; it shows the search fields', async () => {
     await mountMedical('/medical')
 
+    expect(wrapper.find('[data-agent-filter] [data-agent="all"]').exists()).toBe(true)
     const bar = wrapper.get('[data-filter-bar]')
-    expect(bar.find('select[data-agent-filter]').exists()).toBe(true)
     const toggle = bar.get('[data-filters-toggle]')
     expect(toggle.attributes('aria-expanded')).toBe('false')
     expect(wrapper.get('#medical-filters').attributes('style')).toContain('display: none')

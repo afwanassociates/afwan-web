@@ -12,6 +12,7 @@ import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import StepTimeline from '@/components/StepTimeline.vue'
 import WorkflowStepper from '@/components/WorkflowStepper.vue'
 import PassportAgentCard from '@/components/agents/PassportAgentCard.vue'
+import { undoAgentApproval } from '@/api/agents'
 import { cancelMedicalResult, updateMedicalSlip } from '@/api/medical'
 import {
   clearFlightBooking,
@@ -97,12 +98,19 @@ function afterChange() {
  * Step records are never deleted, so there is no other undo here. The API refuses everyone else.
  */
 
-type EarlyUndo = { kind: 'mark' | 'slip' | 'result'; label: string; text: string }
+type EarlyUndo = { kind: 'agent' | 'mark' | 'slip' | 'result'; label: string; text: string }
 
 const earlyUndo = computed<EarlyUndo | null>(() => {
   const p = passport.value
   if (!p || p.returned || !isMedicalAdmin(auth.user?.role)) return null
   if (Object.values(stepHistory.value).some((records) => records.length > 0)) return null
+  // Before the medical slip: undo the agent approval (back to waiting for approval).
+  if (p.can.undo_agent_approval)
+    return {
+      kind: 'agent',
+      label: 'Undo agent approval',
+      text: `Undo the approval of ${p.recruitment_agent?.name ?? 'the agent'}? It goes back to Waiting for approval: approve it again, or return it to data entry to choose another agent. The passport can't go to Medical until an agent is approved. This stays in the agent history.`,
+    }
   if (p.medical_status === 'pending')
     return {
       kind: 'slip',
@@ -140,7 +148,9 @@ async function confirmEarlyUndo() {
   earlyUndoBusy.value = true
   earlyUndoError.value = null
   try {
-    if (undo.kind === 'slip') {
+    if (undo.kind === 'agent') {
+      await undoAgentApproval(p.id)
+    } else if (undo.kind === 'slip') {
       await updateMedicalSlip(p.id, { medical_slip_date: null, medical_center_id: null })
     } else if (undo.kind === 'result') {
       await cancelMedicalResult(p.id)
@@ -149,11 +159,13 @@ async function confirmEarlyUndo() {
     }
     earlyUndoOpen.value = false
     toast.success(
-      undo.kind === 'slip'
-        ? `${p.passport_number}: back on the Passport Entry list.`
-        : undo.kind === 'result'
-          ? `${p.passport_number}: medical result cancelled, back to Medical Pending.`
-          : `${p.passport_number}: Online mark undone.`,
+      undo.kind === 'agent'
+        ? `${p.passport_number}: agent approval undone, waiting for approval again.`
+        : undo.kind === 'slip'
+          ? `${p.passport_number}: back on the Passport Entry list.`
+          : undo.kind === 'result'
+            ? `${p.passport_number}: medical result cancelled, back to Medical Pending.`
+            : `${p.passport_number}: Online mark undone.`,
     )
     afterChange()
   } catch (error) {

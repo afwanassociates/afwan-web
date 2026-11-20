@@ -159,6 +159,7 @@ describe('StaffLayout menu', () => {
         'Dashboard',
         'Company Report',
         'Reference Report',
+        'Recruitment Agent Report',
         'All Passports',
         'Returned Passports',
         'Add Passport',

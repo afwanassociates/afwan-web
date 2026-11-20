@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import AgentSelect from '@/components/agents/AgentSelect.vue'
+import AgentFilterBar from '@/components/agents/AgentFilterBar.vue'
 import { usePerPage } from '@/composables/usePerPage'
 import PerPageSelect from '@/components/PerPageSelect.vue'
 import { computed, onMounted, ref, useId, watch } from 'vue'
@@ -404,7 +404,7 @@ const inputClass =
         <button
           v-if="canAssignAgents && filters.tab === 'none'"
           type="button"
-          class="btn btn-white"
+          class="btn btn-primary"
           data-bulk-agent
           @click="bulkAgentOpen = true"
         >
@@ -437,12 +437,12 @@ const inputClass =
         </button>
       </div>
 
-      <!-- Ready for Medical: the agent dropdown (all agents, or one) -->
-      <AgentSelect
+      <!-- Ready for Medical: the agent cards (all agents, or one) -->
+      <AgentFilterBar
         v-if="filters.tab === 'approved'"
         v-model="agentFilter"
         :counts="approvedCounts"
-        class="mb-5 w-full sm:w-72"
+        class="mb-5"
       />
 
       <!-- Search and filters -->

@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import EntryModeBadge from '@/components/EntryModeBadge.vue'
+import AgentStatusBadge from '@/components/agents/AgentStatusBadge.vue'
 import LatestStatusText from '@/components/LatestStatusText.vue'
 import MedicalStatusBadge from '@/components/MedicalStatusBadge.vue'
 import ValidityBadge from '@/components/ValidityBadge.vue'
@@ -28,7 +29,7 @@ const props = defineProps<{
   role: Role | undefined
   userId: number | null
   /** The operations head, before any step record: the Online mark to undo. */
-  earlyUndo?: { kind: 'mark' | 'slip' | 'result'; label: string } | null
+  earlyUndo?: { kind: 'agent' | 'mark' | 'slip' | 'result'; label: string } | null
   /**
    * Buttons under a step's latest record (Calling onwards), by step key: "edit" (correct the
    * record) and the undos (BMET actions, flight booking and confirmation). The page decides
@@ -134,6 +135,10 @@ const markerClass = (state: StepState) =>
 
 const smallButton =
   'rounded-full px-3 py-1.5 text-sm font-semibold whitespace-nowrap focus-visible:outline-offset-1'
+
+/** Where the early undo sits: the agent approval on Passport Entry, the Online mark on the first record step, the rest on Medical. */
+const earlyUndoStep = (kind: 'agent' | 'mark' | 'slip' | 'result') =>
+  kind === 'agent' ? 'passport' : kind === 'mark' ? firstRecordStep.value : 'medical'
 </script>
 
 <template>
@@ -181,10 +186,53 @@ const smallButton =
         <LatestStatusText :latest-status="passport.latest_status" />
       </p>
 
-      <!-- Step 1: the passport itself -->
-      <p v-if="i === 0" class="mt-1 text-sm text-muted">
-        Received {{ toDisplayDate(passport.passport_received_date) }}
-      </p>
+      <!-- Step 1: the passport itself and its recruitment agent -->
+      <template v-if="i === 0">
+        <p class="mt-1 text-sm text-muted">
+          Received {{ toDisplayDate(passport.passport_received_date) }}
+        </p>
+        <div
+          v-if="passport.agent_status"
+          class="mt-2 rounded-xl border border-stroke bg-white p-3 text-sm"
+          data-timeline-agent
+        >
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-semibold text-ink">Recruitment agent</span>
+            <AgentStatusBadge :status="passport.agent_status" />
+          </div>
+          <dl
+            v-if="passport.recruitment_agent"
+            class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1"
+          >
+            <dt class="text-muted">Agent</dt>
+            <dd class="font-medium text-ink">
+              {{ passport.recruitment_agent.name }}
+              <span
+                v-if="passport.recruitment_agent.is_own"
+                class="ml-1 rounded-full px-1.5 text-xs font-semibold text-primary-800 ring-1 ring-primary-200"
+                >Own</span
+              >
+            </dd>
+            <dt class="text-muted">RL number</dt>
+            <dd class="font-mono text-ink">{{ passport.recruitment_agent.rl_number }}</dd>
+            <dt class="text-muted">Since</dt>
+            <dd class="text-ink">{{ toDisplayDate(passport.recruitment_agent.assigned_date) }}</dd>
+          </dl>
+          <p v-if="passport.agent_pending" class="mt-2 text-amber-900" data-timeline-agent-pending>
+            Waiting for the Operations Head: {{ passport.agent_pending.agent.name }} from
+            {{ toDisplayDate(passport.agent_pending.assigned_date) }}
+          </p>
+          <p v-if="passport.agent_return" class="mt-2 text-red-800">
+            Returned for correction: {{ passport.agent_return.reason }}
+          </p>
+          <p
+            v-if="!passport.recruitment_agent && !passport.agent_pending && !passport.agent_return"
+            class="mt-2 text-muted"
+          >
+            No agent yet. The passport can't go to Medical until an agent is approved.
+          </p>
+        </div>
+      </template>
 
       <!-- Step 2: the medical (full details in the Current medical card) -->
       <p v-else-if="step.key === 'medical'" class="mt-1 flex flex-wrap items-center gap-2 text-sm">
@@ -208,7 +256,7 @@ const smallButton =
       </dl>
 
       <!-- Steps 3+: records -->
-      <template v-else>
+      <template v-else-if="i !== 0">
         <p v-if="!(history[step.key]?.length ?? 0)" class="mt-1 text-sm text-muted">
           Nothing recorded yet.
         </p>
@@ -299,7 +347,7 @@ const smallButton =
 
       <!-- The operations head: back to Passport Entry or undo the result (on Medical), or undo the Online mark -->
       <div
-        v-if="earlyUndo && step.key === (earlyUndo.kind === 'mark' ? firstRecordStep : 'medical')"
+        v-if="earlyUndo && step.key === earlyUndoStep(earlyUndo.kind)"
         class="mt-2 -ml-2 flex flex-wrap gap-1"
       >
         <button
