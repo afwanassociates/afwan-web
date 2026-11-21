@@ -20,6 +20,15 @@ const props = withDefaults(
     disabled?: boolean
     /** The field's label (an owner loan bill uses it for its "Bill copy"). */
     label?: string
+    /**
+     * Optional extra check of a chosen file (e.g. reading the passport scan's format):
+     * resolves to an error message to refuse the file, or null to accept it.
+     */
+    check?: (file: File) => Promise<string | null>
+    /** Shown while the check runs. */
+    checkingLabel?: string
+    /** Replaces the default hint under the field. */
+    hint?: string
   }>(),
   {
     required: false,
@@ -28,6 +37,9 @@ const props = withDefaults(
     progress: null,
     disabled: false,
     label: 'Passport scan copy',
+    check: undefined,
+    checkingLabel: 'Checking the file…',
+    hint: undefined,
   },
 )
 const emit = defineEmits<{ clearError: [] }>()
@@ -65,7 +77,11 @@ function choose() {
   input.value?.click()
 }
 
-function onChange(event: Event) {
+/** A file is being checked (props.check); the newest pick wins. */
+const checking = ref(false)
+let checkRun = 0
+
+async function onChange(event: Event) {
   const el = event.target as HTMLInputElement
   const file = el.files?.[0] ?? null
   el.value = ''
@@ -74,6 +90,21 @@ function onChange(event: Event) {
   if (problem) {
     localError.value = problem
     return
+  }
+  if (props.check) {
+    const run = ++checkRun
+    checking.value = true
+    localError.value = null
+    try {
+      const refused = await props.check(file)
+      if (run !== checkRun) return
+      if (refused) {
+        localError.value = refused
+        return
+      }
+    } finally {
+      if (run === checkRun) checking.value = false
+    }
   }
   localError.value = null
   emit('clearError')
@@ -103,7 +134,7 @@ const button =
       class="sr-only"
       :accept="SCAN_ACCEPT"
       :required="required && !model"
-      :disabled="disabled"
+      :disabled="disabled || checking"
       :aria-invalid="shownError ? 'true' : undefined"
       :aria-describedby="`${inputId}-hint${shownError ? ` ${inputId}-error` : ''}`"
       data-scan-file
@@ -114,8 +145,22 @@ const button =
       class="mt-1 rounded-xl border-2 border-dashed p-4"
       :class="shownError ? 'border-red-400 bg-red-50/40' : 'border-slate-300'"
     >
+      <!-- A file being checked -->
+      <div
+        v-if="checking"
+        class="flex items-center gap-3 text-sm text-primary-800"
+        role="status"
+        data-scan-checking
+      >
+        <span
+          class="h-5 w-5 animate-spin rounded-full border-2 border-primary-200 border-t-primary-700"
+          aria-hidden="true"
+        />
+        {{ checkingLabel }}
+      </div>
+
       <!-- A chosen file -->
-      <div v-if="model" class="flex flex-wrap items-center gap-3" data-scan-chosen>
+      <div v-else-if="model" class="flex flex-wrap items-center gap-3" data-scan-chosen>
         <img
           v-if="thumbnail"
           :src="thumbnail"
@@ -195,9 +240,8 @@ const button =
     </div>
 
     <p :id="`${inputId}-hint`" class="mt-1 text-xs text-muted">
-      JPG, PNG or PDF, up to 5 MB.<template v-if="isReplace && !model">
-        Leave it to keep the current file.</template
-      >
+      {{ hint ?? 'JPG, PNG or PDF, up to 5 MB.'
+      }}<template v-if="isReplace && !model"> Leave it to keep the current file.</template>
     </p>
     <p v-if="shownError" :id="`${inputId}-error`" class="mt-1 text-sm text-red-700" data-scan-error>
       {{ shownError }}

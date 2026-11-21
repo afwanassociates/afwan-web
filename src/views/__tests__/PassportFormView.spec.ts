@@ -9,6 +9,7 @@ import { createCompany } from '@/api/companies'
 import { fetchDefaults } from '@/api/countries'
 import { addDays, addMonthsNoOverflow, todayApiDate } from '@/lib/dates'
 import { httpError, makePassport } from '@/test/helpers'
+import { SCAN_UNCLEAR, ScanReaderUnavailable, readPassportScan } from '@/lib/passportScanReader'
 import type { AppDefaults, CountryOption } from '@/types/country'
 import type { CompanySummary, PassportEntry, ReferenceSummary } from '@/types/passport'
 
@@ -20,6 +21,11 @@ vi.mock('@/api/passports', () => ({
 vi.mock('@/api/references', () => ({
   searchReferences: vi.fn(async () => []),
   createReference: vi.fn(),
+}))
+// jsdom cannot run the OCR: each test says what the scan reader finds.
+vi.mock('@/lib/passportScanReader', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/passportScanReader')>()),
+  readPassportScan: vi.fn(),
 }))
 vi.mock('@/api/workflow', () => ({ fetchWorkflowSummary: vi.fn(async () => null) }))
 vi.mock('@/api/companies', () => ({
@@ -116,6 +122,8 @@ const errorFor = (input: Field) => {
   return errorId ? wrapper.find(`[id="${errorId}"]`).text() : undefined
 }
 
+const scanInput = () => wrapper.get<HTMLInputElement>('input[data-scan-file]')
+
 const SCAN = new File(['\xFF\xD8\xFF'], 'scan.jpg', { type: 'image/jpeg' })
 
 /** Picks `file` in the "Passport scan copy" field (as the browser file dialog would). */
@@ -150,14 +158,16 @@ beforeEach(() => {
   defaults = { default_company_country_code: 'BD', default_passport_country_code: 'NP' }
   // Some tests make the settings request slow or fail; start every test from a normal one.
   vi.mocked(fetchDefaults).mockImplementation(async () => defaults)
+  // By default a scan is in the right format but nothing could be read from it.
+  vi.mocked(readPassportScan).mockResolvedValue({ formatError: null, fields: {}, unsure: [] })
 })
 afterEach(() => wrapper.unmount())
 
 describe('PassportFormView', () => {
-  it('focuses the passport name and sets sensible date limits', async () => {
+  it('focuses the scan copy (it fills the rest) and sets sensible date limits', async () => {
     await mountForm()
 
-    expect(document.activeElement).toBe(field('Passport name').element)
+    expect(document.activeElement).toBe(scanInput().element)
     expect(field('Passport received date').element.value).toBe(TODAY)
     expect(field('Passport received date').attributes('max')).toBe(TODAY)
     // At least 18 years old.
@@ -197,7 +207,8 @@ describe('PassportFormView', () => {
     expect(select('Reference').error()).toBe('Reference is required.')
     expect(select('Company name').error()).toBe('Select a company.')
     expect(select('Country').error()).toBe('Select the passport country.')
-    expect(document.activeElement).toBe(field('Passport name').element)
+    // The scan copy is the first field, and it is missing too.
+    expect(document.activeElement).toBe(scanInput().element)
   })
 
   it('sends normalized values and goes to the list on Save', async () => {
@@ -221,6 +232,9 @@ describe('PassportFormView', () => {
         company_id: COMPANY.id,
         passport_received_date: TODAY,
         passport_expiry_date: '2031-10-04',
+        father_name: null,
+        mother_name: null,
+        permanent_address: null,
       },
       SCAN,
       expect.any(Function),
@@ -246,7 +260,7 @@ describe('PassportFormView', () => {
     expect(select('Reference').value()).toBeNull()
     expect(select('Company name').value()).toBeNull()
     expect(field('Passport received date').element.value).toBe('2026-09-01')
-    expect(document.activeElement).toBe(field('Passport name').element)
+    expect(document.activeElement).toBe(scanInput().element)
   })
 
   it('has one reference search (no person/agency toggle) that searches every reference', async () => {
@@ -304,15 +318,18 @@ describe('PassportFormView', () => {
       await mountForm()
 
       expect(fieldLabels().map((t) => t.replace(/\s*\*$|\s*\(optional\)$/, ''))).toEqual([
+        'Passport scan copy',
         'Passport name',
         'Passport number',
         'Passport expiry date',
         'Date of birth',
+        "Father's name",
+        "Mother's name",
+        'Permanent address',
         'Reference',
         'Passport received date',
         'Country',
         'Company name',
-        'Passport scan copy',
       ])
     })
 
@@ -321,8 +338,8 @@ describe('PassportFormView', () => {
 
       const labels = fieldLabels()
       const required = labels.filter((t) => /\*$/.test(t))
-      expect(required).toHaveLength(9) // every field, the scan copy included
-      expect(labels[4]).toMatch(/^Reference\s*\*$/)
+      expect(required).toHaveLength(9) // all but the personal data page, the scan copy included
+      expect(labels[8]).toMatch(/^Reference\s*\*$/)
       const markers = wrapper
         .get('[data-fields]')
         .findAll('label span[aria-hidden="true"]')
@@ -348,12 +365,13 @@ describe('PassportFormView', () => {
         .filter((el) => el.attributes('tabindex') !== '-1')
         .map((el) => el.attributes('id') ?? el.text())
       const order = [
+        scanInput(),
         field('Passport name'),
         field('Passport number'),
         field('Passport expiry date'),
         field('Date of birth'),
       ].map((f) => f.attributes('id'))
-      expect(focusable.slice(0, 4)).toEqual(order)
+      expect(focusable.slice(0, 5)).toEqual(order)
       // No positive tabindex anywhere (it would break the natural order).
       expect(
         wrapper.findAll('[tabindex]').every((el) => Number(el.attributes('tabindex')) <= 0),
@@ -663,7 +681,7 @@ describe('PassportFormView', () => {
   describe('passport scan copy', () => {
     const scanError = () => wrapper.find('[data-field="scan"] [data-scan-error]')
 
-    it('is the last field and required on create', async () => {
+    it('is the first field and required on create', async () => {
       await mountForm()
       await field('Passport name').setValue('md rahim')
       await field('Passport number').setValue('ab1234567')
@@ -679,7 +697,110 @@ describe('PassportFormView', () => {
       expect(createPassport).not.toHaveBeenCalled()
       expect(scanError().text()).toBe('Please upload the passport scan copy.')
       const fields = wrapper.get('[data-fields]').findAll(':scope > *')
-      expect(fields[fields.length - 1]!.attributes('data-field')).toBe('scan')
+      expect(fields[0]!.find('[data-field="scan"]').exists()).toBe(true)
+    })
+
+    it('fills the form from the scan and says what to check', async () => {
+      vi.mocked(readPassportScan).mockResolvedValue({
+        formatError: null,
+        fields: {
+          passport_name: 'MD MUSHAROP MIA',
+          passport_number: 'A01027046',
+          date_of_birth: '1997-06-10',
+          passport_expiry_date: '2032-01-09',
+          father_name: 'MD. YOUSUF ALI',
+          mother_name: 'MST. SHAMSUNNAHAR',
+        },
+        unsure: ['passport_number'],
+      })
+      vi.mocked(createPassport).mockResolvedValue(makeEntry())
+      await mountForm()
+      await field('Passport name').setValue('typed before')
+      await chooseScan(SCAN)
+
+      expect(readPassportScan).toHaveBeenCalledWith(SCAN)
+      expect(field('Passport name').element.value).toBe('MD MUSHAROP MIA')
+      expect(field('Passport number').element.value).toBe('A01027046')
+      expect(field('Date of birth').element.value).toBe('1997-06-10')
+      expect(field('Passport expiry date').element.value).toBe('2032-01-09')
+      expect(field("Father's name (optional)").element.value).toBe('MD. YOUSUF ALI')
+      expect(field("Mother's name (optional)").element.value).toBe('MST. SHAMSUNNAHAR')
+      expect(field('Passport number').classes()).toContain('border-amber-500')
+      const notice = wrapper.get('[data-scan-filled]').text()
+      expect(notice).toContain('Could not be verified, check carefully: Passport number.')
+      expect(notice).toContain('Not found in the scan, type them: Permanent address.')
+      expect(wrapper.find('[data-scan-chosen]').exists()).toBe(true)
+
+      await field('Permanent address (optional)').setValue('paschim chatol, kishoreganj')
+      select('Reference').choose(PERSON)
+      select('Company name').choose(COMPANY)
+      await flushPromises()
+      await wrapper.get('button[data-action="save"]').trigger('click')
+      await flushPromises()
+      expect(createPassport).toHaveBeenCalledWith(
+        expect.objectContaining({
+          passport_number: 'A01027046',
+          father_name: 'MD. YOUSUF ALI',
+          mother_name: 'MST. SHAMSUNNAHAR',
+          permanent_address: 'PASCHIM CHATOL, KISHOREGANJ',
+        }),
+        SCAN,
+        expect.any(Function),
+      )
+    })
+
+    it('refuses an unclear (blurry) scan with its own message', async () => {
+      vi.mocked(readPassportScan).mockResolvedValue({
+        formatError: SCAN_UNCLEAR,
+        fields: {},
+        unsure: [],
+      })
+      await mountForm()
+      await chooseScan(SCAN)
+
+      expect(scanError().text()).toBe(SCAN_UNCLEAR)
+      expect(wrapper.find('[data-scan-chosen]').exists()).toBe(false)
+      expect(field('Passport name').element.value).toBe('')
+    })
+
+    it('refuses a scan in the wrong format (not kept, nothing filled)', async () => {
+      vi.mocked(readPassportScan).mockResolvedValue({
+        formatError: 'This scan is not in the right format: the photo was not found.',
+        fields: {},
+        unsure: [],
+      })
+      await mountForm()
+      await chooseScan(SCAN)
+
+      expect(scanError().text()).toBe(
+        'This scan is not in the right format: the photo was not found.',
+      )
+      expect(wrapper.find('[data-scan-chosen]').exists()).toBe(false)
+      expect(wrapper.find('[data-scan-filled]').exists()).toBe(false)
+    })
+
+    it('shows "Reading the scan…" while it is read', async () => {
+      let done: (value: Awaited<ReturnType<typeof readPassportScan>>) => void = () => {}
+      vi.mocked(readPassportScan).mockReturnValue(new Promise((resolve) => (done = resolve)))
+      await mountForm()
+      await chooseScan(SCAN)
+
+      expect(wrapper.get('[data-scan-checking]').text()).toContain('Reading the scan')
+      expect(scanInput().attributes('disabled')).toBeDefined()
+
+      done({ formatError: null, fields: {}, unsure: [] })
+      await flushPromises()
+      expect(wrapper.find('[data-scan-checking]').exists()).toBe(false)
+      expect(wrapper.find('[data-scan-chosen]').exists()).toBe(true)
+    })
+
+    it('keeps the file and asks to type when the reader cannot run (offline)', async () => {
+      vi.mocked(readPassportScan).mockRejectedValue(new ScanReaderUnavailable('offline'))
+      await mountForm()
+      await chooseScan(SCAN)
+
+      expect(wrapper.find('[data-scan-chosen]').exists()).toBe(true)
+      expect(wrapper.get('[data-scan-unread]').text()).toContain('could not be read automatically')
     })
 
     it('shows the chosen file name, size, an image thumbnail and Remove', async () => {
@@ -811,6 +932,29 @@ describe('PassportFormView', () => {
       await flushPromises()
 
       expect(updatePassport).toHaveBeenCalledWith(42, expect.any(Object), pdf, expect.any(Function))
+    })
+
+    it('edit: a replacement scan fills only the empty fields', async () => {
+      vi.mocked(getPassport).mockResolvedValue(
+        makeEntry({ country: { code: 'BD', name: 'Bangladesh' }, father_name: 'SAVED FATHER' }),
+      )
+      vi.mocked(readPassportScan).mockResolvedValue({
+        formatError: null,
+        fields: {
+          passport_name: 'FROM SCAN',
+          father_name: 'SCAN FATHER',
+          mother_name: 'SCAN MOTHER',
+        },
+        unsure: [],
+      })
+      await mountForm('/data-entry/passports/42/edit')
+      const savedName = field('Passport name').element.value
+
+      await chooseScan(SCAN)
+
+      expect(field('Passport name').element.value).toBe(savedName)
+      expect(field("Father's name (optional)").element.value).toBe('SAVED FATHER')
+      expect(field("Mother's name (optional)").element.value).toBe('SCAN MOTHER')
     })
 
     it('edit: the scan is required while the passport has none', async () => {

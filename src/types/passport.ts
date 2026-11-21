@@ -81,6 +81,10 @@ export interface PassportEntry {
   passport_received_date: string
   /** YYYY-MM-DD; null on entries made before the field existed. */
   passport_expiry_date: string | null
+  /** The personal data page; null on entries made before the fields existed. */
+  father_name?: string | null
+  mother_name?: string | null
+  permanent_address?: string | null
   /** Null when the passport came without a reference (the reference is optional). */
   reference: ReferenceSummary | null
   company: CompanySummary
@@ -230,6 +234,10 @@ export interface PassportPayload {
   passport_received_date: string
   /** YYYY-MM-DD, after the received date */
   passport_expiry_date: string
+  /** The personal data page (optional; empty is stored as none). */
+  father_name?: string | null
+  mother_name?: string | null
+  permanent_address?: string | null
   /** Adding only (data entry): the recruitment agent, sent to the Operations Head for approval. */
   recruitment_agent_id?: number
 }

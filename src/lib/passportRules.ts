@@ -54,7 +54,14 @@ export interface PassportFormValues {
   passport_received_date: string
   /** YYYY-MM-DD from the native date input */
   passport_expiry_date: string
+  /** The personal data page (optional). */
+  father_name?: string
+  mother_name?: string
+  permanent_address?: string
 }
+
+export const PARENT_NAME_MAX = 150
+export const PERMANENT_ADDRESS_MAX = 255
 
 export type PassportFormErrors = Partial<Record<keyof PassportFormValues, string>>
 
@@ -106,6 +113,15 @@ export function validatePassportForm(
       'The passport expiry date must be after the passport received date.'
   else if (received && expiry < addMonthsNoOverflow(received, limits.minValidityMonths))
     errors.passport_expiry_date = `The passport must be valid for at least ${limits.minValidityMonths} months after the received date.`
+
+  for (const [field, max] of [
+    ['father_name', PARENT_NAME_MAX],
+    ['mother_name', PARENT_NAME_MAX],
+    ['permanent_address', PERMANENT_ADDRESS_MAX],
+  ] as const) {
+    if (normalizePassportName(values[field] ?? '').length > max)
+      errors[field] = `This must be at most ${max} characters.`
+  }
 
   return errors
 }

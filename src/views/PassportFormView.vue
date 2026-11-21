@@ -6,6 +6,12 @@ import QuickAddModal, { type QuickAddValues } from '@/components/QuickAddModal.v
 import CountrySelect from '@/components/CountrySelect.vue'
 import ScanFileInput from '@/components/ScanFileInput.vue'
 import { SCAN_TOO_LARGE_FOR_SERVER } from '@/api/passportScan'
+import {
+  SCAN_FORMAT_HELP,
+  ScanReaderUnavailable,
+  readPassportScan,
+  type ScanFields,
+} from '@/lib/passportScanReader'
 import { createPassport, getPassport, updatePassport } from '@/api/passports'
 import { createReference, searchReferences } from '@/api/references'
 import { createCompany, searchCompanies } from '@/api/companies'
@@ -20,7 +26,9 @@ import { useCountriesStore } from '@/stores/countries'
 import { useWorkflowStore } from '@/stores/workflow'
 import { useDateRules } from '@/lib/dateRules'
 import {
+  PARENT_NAME_MAX,
   PASSPORT_NAME_MAX,
+  PERMANENT_ADDRESS_MAX,
   latestBirthDate,
   normalizePassportName,
   normalizePassportNameInput,
@@ -66,6 +74,9 @@ const numberId = useId()
 const dateId = useId()
 const birthId = useId()
 const expiryId = useId()
+const fatherId = useId()
+const motherId = useId()
+const addressId = useId()
 
 const entryId = computed(() => (route.name === 'passport-edit' ? Number(route.params.id) : null))
 const isEdit = computed(() => entryId.value !== null)
@@ -104,6 +115,10 @@ function onCountryPicked(value: CountrySummary | null) {
   country.value = value
 }
 const dateOfBirth = ref('')
+/** The personal data page (optional), filled from the scan copy. */
+const fatherName = ref('')
+const motherName = ref('')
+const permanentAddress = ref('')
 const reference = ref<ReferenceSummary | null>(null)
 const company = ref<CompanySummary | null>(null)
 const receivedDate = ref(today)
@@ -134,6 +149,86 @@ const scanError = ref<string | undefined>(undefined)
 const uploadProgress = ref<number | null>(null)
 const scanRequired = computed(() => !isEdit.value || !entry.value?.has_scan)
 const scanInput = useTemplateRef<{ focus: () => void }>('scanInput')
+
+/* ---------- Reading the scan copy ---------- */
+
+const SCAN_FIELD_LABELS: Record<keyof ScanFields, string> = {
+  passport_name: 'Passport name',
+  passport_number: 'Passport number',
+  passport_expiry_date: 'Expiry date',
+  date_of_birth: 'Date of birth',
+  father_name: "Father's name",
+  mother_name: "Mother's name",
+  permanent_address: 'Permanent address',
+}
+/** What the last scan filled in, and which of those could not be verified. */
+const scanFilled = ref<(keyof ScanFields)[]>([])
+const scanUnsure = ref<(keyof ScanFields)[]>([])
+/** The scan could not be read automatically (the OCR engine did not load). */
+const scanUnread = ref(false)
+
+/**
+ * Reads a chosen scan: refuses one in the wrong format, else fills the form from it.
+ * Adding: every field read replaces what is there. Editing: only empty fields are filled,
+ * so checked details are not overwritten by a replacement scan.
+ */
+async function checkScan(file: File): Promise<string | null> {
+  scanFilled.value = []
+  scanUnsure.value = []
+  scanUnread.value = false
+  let result
+  try {
+    result = await readPassportScan(file)
+  } catch (error) {
+    // The reader itself failed (offline, old browser): keep the file, type by hand.
+    if (!(error instanceof ScanReaderUnavailable)) console.error(error)
+    scanUnread.value = true
+    return null
+  }
+  if (result.formatError) return result.formatError
+
+  const setters: Record<keyof ScanFields, [() => string, (value: string) => void]> = {
+    passport_name: [() => passportName.value, (v) => (passportName.value = v)],
+    passport_number: [() => passportNumber.value, (v) => (passportNumber.value = v)],
+    passport_expiry_date: [() => expiryDate.value, (v) => (expiryDate.value = v)],
+    date_of_birth: [() => dateOfBirth.value, (v) => (dateOfBirth.value = v)],
+    father_name: [() => fatherName.value, (v) => (fatherName.value = v)],
+    mother_name: [() => motherName.value, (v) => (motherName.value = v)],
+    permanent_address: [() => permanentAddress.value, (v) => (permanentAddress.value = v)],
+  }
+  const filled: (keyof ScanFields)[] = []
+  for (const key of Object.keys(SCAN_FIELD_LABELS) as (keyof ScanFields)[]) {
+    const value = result.fields[key]
+    const [get, set] = setters[key]
+    if (!value || (isEdit.value && get())) continue
+    set(value)
+    clearError(key)
+    filled.push(key)
+  }
+  scanFilled.value = filled
+  scanUnsure.value = result.unsure.filter((key) => filled.includes(key))
+  return null
+}
+
+const scanMissing = computed(() =>
+  scanFilled.value.length === 0 || isEdit.value
+    ? []
+    : (Object.keys(SCAN_FIELD_LABELS) as (keyof ScanFields)[]).filter(
+        (key) => !scanFilled.value.includes(key),
+      ),
+)
+const labelsOf = (keys: (keyof ScanFields)[]) => keys.map((k) => SCAN_FIELD_LABELS[k]).join(', ')
+/** A field filled from the scan that could not be verified: shown with an amber border. */
+const isUnsure = (key: keyof ScanFields) => scanUnsure.value.includes(key)
+
+// Removing the scan clears its notice (the filled values stay).
+watch(scanFile, (file) => {
+  if (!file) {
+    scanFilled.value = []
+    scanUnsure.value = []
+    scanUnread.value = false
+  }
+})
 /** Form-level error: network, server, permission. */
 const banner = ref<string | null>(null)
 const isSaving = ref(false)
@@ -149,6 +244,9 @@ const numberInput = useTemplateRef<HTMLInputElement>('numberInput')
 const dateInput = useTemplateRef<HTMLInputElement>('dateInput')
 const birthInput = useTemplateRef<HTMLInputElement>('birthInput')
 const expiryInput = useTemplateRef<HTMLInputElement>('expiryInput')
+const fatherInput = useTemplateRef<HTMLInputElement>('fatherInput')
+const motherInput = useTemplateRef<HTMLInputElement>('motherInput')
+const addressInput = useTemplateRef<HTMLInputElement>('addressInput')
 const countrySelect = useTemplateRef<{ focus: () => void }>('countrySelect')
 const referenceSelect = useTemplateRef<{ focus: () => void }>('referenceSelect')
 const companySelect = useTemplateRef<{ focus: () => void }>('companySelect')
@@ -162,6 +260,12 @@ function clearForm() {
   countryPickedByUser = false
   dateOfBirth.value = ''
   expiryDate.value = ''
+  fatherName.value = ''
+  motherName.value = ''
+  permanentAddress.value = ''
+  scanFilled.value = []
+  scanUnsure.value = []
+  scanUnread.value = false
   reference.value = null
   company.value = null
   errors.value = {}
@@ -199,6 +303,12 @@ async function focusName() {
   nameInput.value?.focus()
 }
 
+/** Adding starts with the scan copy (it fills the rest). */
+async function focusScan() {
+  await nextTick()
+  scanInput.value?.focus()
+}
+
 async function init() {
   clearForm()
   entry.value = null
@@ -208,7 +318,7 @@ async function init() {
 
   const id = entryId.value
   if (id === null) {
-    focusName()
+    focusScan()
     await applyPassportCountryDefault()
     return
   }
@@ -226,6 +336,9 @@ async function init() {
     savedCountry.value = loaded.country
     dateOfBirth.value = loaded.date_of_birth ?? ''
     expiryDate.value = loaded.passport_expiry_date ?? ''
+    fatherName.value = loaded.father_name ?? ''
+    motherName.value = loaded.mother_name ?? ''
+    permanentAddress.value = loaded.permanent_address ?? ''
     // Older entries always have a reference; newer ones may have none.
     reference.value = loaded.reference
     company.value = loaded.company
@@ -267,6 +380,9 @@ function onNormalizedInput(
 
 const setPassportName = (value: string) => (passportName.value = value)
 const setPassportNumber = (value: string) => (passportNumber.value = value)
+const setFatherName = (value: string) => (fatherName.value = value)
+const setMotherName = (value: string) => (motherName.value = value)
+const setPermanentAddress = (value: string) => (permanentAddress.value = value)
 
 function clearError(field: keyof PassportFormErrors) {
   if (errors.value[field]) errors.value = { ...errors.value, [field]: undefined }
@@ -344,6 +460,9 @@ function formValues(): PassportFormValues {
     company_id: company.value?.id ?? null,
     passport_received_date: receivedDate.value,
     passport_expiry_date: expiryDate.value,
+    father_name: fatherName.value,
+    mother_name: motherName.value,
+    permanent_address: permanentAddress.value,
   }
 }
 
@@ -353,6 +472,9 @@ const FIELD_ORDER: (keyof PassportFormErrors)[] = [
   'passport_number',
   'passport_expiry_date',
   'date_of_birth',
+  'father_name',
+  'mother_name',
+  'permanent_address',
   'reference_id',
   'passport_received_date',
   'country_code',
@@ -368,13 +490,16 @@ async function focusFirstError() {
     country_code: () => countrySelect.value?.focus(),
     date_of_birth: () => birthInput.value?.focus(),
     passport_expiry_date: () => expiryInput.value?.focus(),
+    father_name: () => fatherInput.value?.focus(),
+    mother_name: () => motherInput.value?.focus(),
+    permanent_address: () => addressInput.value?.focus(),
     reference_id: () => referenceSelect.value?.focus(),
     company_id: () => companySelect.value?.focus(),
     passport_received_date: () => dateInput.value?.focus(),
   }
-  if (first) targets[first]?.()
-  // The scan is the last field: focus it when it is the only problem.
-  else if (scanError.value) scanInput.value?.focus()
+  // The scan is the first field.
+  if (scanError.value) scanInput.value?.focus()
+  else if (first) targets[first]?.()
 }
 
 /** Puts a 422 response's messages under their fields; anything else goes to the banner. */
@@ -423,6 +548,9 @@ async function save(action: SaveAction) {
     company_id: values.company_id as number,
     passport_received_date: toApiDate(values.passport_received_date),
     passport_expiry_date: toApiDate(values.passport_expiry_date),
+    father_name: normalizePassportName(values.father_name ?? '') || null,
+    mother_name: normalizePassportName(values.mother_name ?? '') || null,
+    permanent_address: normalizePassportName(values.permanent_address ?? '') || null,
     ...(canChooseAgent.value && agent.value ? { recruitment_agent_id: agent.value.id } : {}),
   }
 
@@ -446,7 +574,7 @@ async function save(action: SaveAction) {
       } else {
         // Keep the received date and reference type for the next passport of the batch.
         clearForm()
-        focusName()
+        focusScan()
         applyPassportCountryDefault()
       }
     }
@@ -522,6 +650,49 @@ const inputClass =
             order. One column on phones, two on wider screens; Reference and Company span both.
           -->
           <div class="grid gap-6 sm:grid-cols-2" data-fields>
+            <!-- 0. Passport scan copy: first, it fills the fields below -->
+            <div class="sm:col-span-2">
+              <ScanFileInput
+                ref="scanInput"
+                v-model="scanFile"
+                :required="scanRequired"
+                :current-name="
+                  isEdit && entry?.has_scan ? (entry.scan_original_name ?? 'scan') : null
+                "
+                :error="scanError"
+                :progress="uploadProgress"
+                :disabled="isSaving"
+                :check="checkScan"
+                checking-label="Reading the scan… this takes a few seconds."
+                :hint="`JPG, PNG or PDF, up to 5 MB. ${SCAN_FORMAT_HELP} Blurry or unclear scans are refused.`"
+                @clear-error="scanError = undefined"
+              />
+              <div
+                v-if="scanFilled.length > 0"
+                class="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900"
+                role="status"
+                data-scan-filled
+              >
+                <p>
+                  Filled from the scan: {{ labelsOf(scanFilled) }}. Please check them against the
+                  passport.
+                </p>
+                <p v-if="scanUnsure.length > 0" class="mt-1 font-semibold text-amber-800">
+                  Could not be verified, check carefully: {{ labelsOf(scanUnsure) }}.
+                </p>
+                <p v-if="scanMissing.length > 0" class="mt-1 text-slate-700">
+                  Not found in the scan, type them: {{ labelsOf(scanMissing) }}.
+                </p>
+              </div>
+              <p
+                v-else-if="scanUnread"
+                class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+                role="status"
+                data-scan-unread
+              >
+                The scan could not be read automatically. Please type the details.
+              </p>
+            </div>
             <!-- 1. Passport name -->
             <div data-field="passport_name">
               <label :for="nameId" class="block text-sm font-medium text-slate-700">
@@ -537,7 +708,14 @@ const inputClass =
                 required
                 :maxlength="PASSPORT_NAME_MAX"
                 :value="passportName"
-                :class="[inputClass, errors.passport_name ? 'border-red-500' : 'border-slate-300']"
+                :class="[
+                  inputClass,
+                  errors.passport_name
+                    ? 'border-red-500'
+                    : isUnsure('passport_name')
+                      ? 'border-amber-500'
+                      : 'border-slate-300',
+                ]"
                 :aria-invalid="errors.passport_name ? 'true' : undefined"
                 :aria-describedby="errors.passport_name ? `${nameId}-error` : undefined"
                 @input="
@@ -575,7 +753,11 @@ const inputClass =
                 :class="[
                   inputClass,
                   'font-mono tracking-wider',
-                  errors.passport_number ? 'border-red-500' : 'border-slate-300',
+                  errors.passport_number
+                    ? 'border-red-500'
+                    : isUnsure('passport_number')
+                      ? 'border-amber-500'
+                      : 'border-slate-300',
                 ]"
                 :aria-invalid="errors.passport_number ? 'true' : undefined"
                 :aria-describedby="`${numberId}-hint${errors.passport_number ? ` ${numberId}-error` : ''}`"
@@ -613,7 +795,11 @@ const inputClass =
                 :min="minExpiryDate"
                 :class="[
                   inputClass,
-                  errors.passport_expiry_date ? 'border-red-500' : 'border-slate-300',
+                  errors.passport_expiry_date
+                    ? 'border-red-500'
+                    : isUnsure('passport_expiry_date')
+                      ? 'border-amber-500'
+                      : 'border-slate-300',
                 ]"
                 :aria-invalid="errors.passport_expiry_date ? 'true' : undefined"
                 :aria-describedby="`${expiryId}-hint${errors.passport_expiry_date ? ` ${expiryId}-error` : ''}`"
@@ -642,7 +828,14 @@ const inputClass =
                 type="date"
                 required
                 :max="maxDateOfBirth"
-                :class="[inputClass, errors.date_of_birth ? 'border-red-500' : 'border-slate-300']"
+                :class="[
+                  inputClass,
+                  errors.date_of_birth
+                    ? 'border-red-500'
+                    : isUnsure('date_of_birth')
+                      ? 'border-amber-500'
+                      : 'border-slate-300',
+                ]"
                 :aria-invalid="errors.date_of_birth ? 'true' : undefined"
                 :aria-describedby="`${birthId}-hint${errors.date_of_birth ? ` ${birthId}-error` : ''}`"
               />
@@ -655,6 +848,111 @@ const inputClass =
                 class="mt-1 text-sm text-red-700"
               >
                 {{ errors.date_of_birth }}
+              </p>
+            </div>
+            <!-- 4a. Father's name (personal data page) -->
+            <div data-field="father_name">
+              <label :for="fatherId" class="block text-sm font-medium text-slate-700">
+                Father's name<span class="font-normal text-muted"> (optional)</span>
+              </label>
+              <input
+                :id="fatherId"
+                ref="fatherInput"
+                type="text"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                :maxlength="PARENT_NAME_MAX"
+                :value="fatherName"
+                :class="[inputClass, errors.father_name ? 'border-red-500' : 'border-slate-300']"
+                :aria-invalid="errors.father_name ? 'true' : undefined"
+                :aria-describedby="errors.father_name ? `${fatherId}-error` : undefined"
+                @input="
+                  onNormalizedInput(
+                    $event,
+                    normalizePassportNameInput,
+                    setFatherName,
+                    'father_name',
+                  )
+                "
+              />
+              <p
+                v-if="errors.father_name"
+                :id="`${fatherId}-error`"
+                class="mt-1 text-sm text-red-700"
+              >
+                {{ errors.father_name }}
+              </p>
+            </div>
+            <!-- 4b. Mother's name -->
+            <div data-field="mother_name">
+              <label :for="motherId" class="block text-sm font-medium text-slate-700">
+                Mother's name<span class="font-normal text-muted"> (optional)</span>
+              </label>
+              <input
+                :id="motherId"
+                ref="motherInput"
+                type="text"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                :maxlength="PARENT_NAME_MAX"
+                :value="motherName"
+                :class="[inputClass, errors.mother_name ? 'border-red-500' : 'border-slate-300']"
+                :aria-invalid="errors.mother_name ? 'true' : undefined"
+                :aria-describedby="errors.mother_name ? `${motherId}-error` : undefined"
+                @input="
+                  onNormalizedInput(
+                    $event,
+                    normalizePassportNameInput,
+                    setMotherName,
+                    'mother_name',
+                  )
+                "
+              />
+              <p
+                v-if="errors.mother_name"
+                :id="`${motherId}-error`"
+                class="mt-1 text-sm text-red-700"
+              >
+                {{ errors.mother_name }}
+              </p>
+            </div>
+            <!-- 4c. Permanent address: full width -->
+            <div class="sm:col-span-2" data-field="permanent_address">
+              <label :for="addressId" class="block text-sm font-medium text-slate-700">
+                Permanent address<span class="font-normal text-muted"> (optional)</span>
+              </label>
+              <input
+                :id="addressId"
+                ref="addressInput"
+                type="text"
+                autocomplete="off"
+                autocapitalize="characters"
+                spellcheck="false"
+                :maxlength="PERMANENT_ADDRESS_MAX"
+                :value="permanentAddress"
+                :class="[
+                  inputClass,
+                  errors.permanent_address ? 'border-red-500' : 'border-slate-300',
+                ]"
+                :aria-invalid="errors.permanent_address ? 'true' : undefined"
+                :aria-describedby="errors.permanent_address ? `${addressId}-error` : undefined"
+                @input="
+                  onNormalizedInput(
+                    $event,
+                    normalizePassportNameInput,
+                    setPermanentAddress,
+                    'permanent_address',
+                  )
+                "
+              />
+              <p
+                v-if="errors.permanent_address"
+                :id="`${addressId}-error`"
+                class="mt-1 text-sm text-red-700"
+              >
+                {{ errors.permanent_address }}
               </p>
             </div>
             <!-- 5. Reference (required): one search for every reference; full width -->
@@ -744,21 +1042,6 @@ const inputClass =
               :error="errors.company_id"
               required
               @add="openCompanyModal"
-            />
-
-            <!-- 9. Passport scan copy: the last field -->
-            <ScanFileInput
-              ref="scanInput"
-              v-model="scanFile"
-              class="sm:col-span-2"
-              :required="scanRequired"
-              :current-name="
-                isEdit && entry?.has_scan ? (entry.scan_original_name ?? 'scan') : null
-              "
-              :error="scanError"
-              :progress="uploadProgress"
-              :disabled="isSaving"
-              @clear-error="scanError = undefined"
             />
           </div>
 
