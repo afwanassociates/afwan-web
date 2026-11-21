@@ -1,0 +1,10 @@
+# Vue Router (history mode): send every address that is not a real file or
+# folder to index.html, so refreshing a page like /reports/passports works.
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteRule ^index\.html$ - [L]
+  RewriteCond %{REQUEST_FILENAME} !-f
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule . /index.html [L]
+</IfModule>

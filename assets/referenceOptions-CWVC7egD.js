@@ -1,0 +1,1 @@
+import{u as e}from"./reports-B4vBwPg4.js";import{a as t}from"./references-CRaPiQMA.js";function n(n,r,i){return r?t({q:n,company_id:i}):e({q:n,company_id:i})}var r=e=>e.type_label;export{n,r as t};
